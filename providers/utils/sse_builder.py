@@ -4,6 +4,13 @@ import json
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, Iterator, List
 
+try:
+    import tiktoken
+
+    ENCODER = tiktoken.get_encoding("cl100k_base")
+except Exception:
+    ENCODER = None
+
 
 # Map OpenAI finish_reason to Anthropic stop_reason
 STOP_REASON_MAP = {
@@ -254,6 +261,20 @@ class SSEBuilder:
 
     def estimate_output_tokens(self) -> int:
         """Estimate output tokens from accumulated content."""
+        if ENCODER:
+            text_tokens = len(ENCODER.encode(self._accumulated_text))
+            reasoning_tokens = len(ENCODER.encode(self._accumulated_reasoning))
+            # Tool calls are harder to tokenize exactly without reconstruction, but we can approximate
+            # by tokenizing the json dumps of tool contents
+            tool_tokens = 0
+            for idx, content in self.blocks.tool_contents.items():
+                name = self.blocks.tool_names.get(idx, "")
+                tool_tokens += len(ENCODER.encode(name))
+                tool_tokens += len(ENCODER.encode(content))
+                tool_tokens += 10  # Control tokens overhead
+
+            return text_tokens + reasoning_tokens + tool_tokens
+
         text_tokens = len(self._accumulated_text) // 4
         reasoning_tokens = len(self._accumulated_reasoning) // 4
         tool_tokens = len(self.blocks.tool_indices) * 50

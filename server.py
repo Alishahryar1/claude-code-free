@@ -23,6 +23,14 @@ from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import StreamingResponse, JSONResponse
+import tiktoken
+
+# Initialize tokenizer
+try:
+    ENCODER = tiktoken.get_encoding("cl100k_base")
+except Exception:
+    logger.warning("Could not load cl100k_base encoding, falling back to p50k_base")
+    ENCODER = tiktoken.get_encoding("p50k_base")
 
 # Load environment variables
 load_dotenv()
@@ -344,35 +352,58 @@ def is_prefix_detection_request(request_data: MessagesRequest) -> tuple[bool, st
 
 
 def get_token_count(messages, system=None, tools=None) -> int:
-    total_chars = 0
+    total_tokens = 0
 
     if system:
         if isinstance(system, str):
-            total_chars += len(system)
+            total_tokens += len(ENCODER.encode(system))
         elif isinstance(system, list):
             for block in system:
                 if hasattr(block, "text"):
-                    total_chars += len(block.text)
+                    total_tokens += len(ENCODER.encode(block.text))
 
     for msg in messages:
         if isinstance(msg.content, str):
-            total_chars += len(msg.content)
+            total_tokens += len(ENCODER.encode(msg.content))
         elif isinstance(msg.content, list):
             for block in msg.content:
-                if hasattr(block, "text"):
-                    total_chars += len(block.text)
-                elif hasattr(block, "thinking"):
-                    total_chars += len(block.thinking)
+                # Handle dictionary or Pydantic model
+                b_type = getattr(block, "type", None)
+
+                if b_type == "text":
+                    total_tokens += len(ENCODER.encode(getattr(block, "text", "")))
+                elif b_type == "thinking":
+                    # Thinking tokens are part of context if they are in history
+                    total_tokens += len(ENCODER.encode(getattr(block, "thinking", "")))
+                elif b_type == "tool_use":
+                    name = getattr(block, "name", "")
+                    inp = getattr(block, "input", {})
+                    # Add tokens for definitions
+                    total_tokens += len(ENCODER.encode(name))
+                    total_tokens += len(ENCODER.encode(json.dumps(inp)))
+                    total_tokens += 10  # Control tokens approximate
+                elif b_type == "tool_result":
+                    content = getattr(block, "content", "")
+                    if isinstance(content, str):
+                        total_tokens += len(ENCODER.encode(content))
+                    else:
+                        total_tokens += len(ENCODER.encode(json.dumps(content)))
+                    total_tokens += 5  # Control tokens approximate
 
     if tools:
         for tool in tools:
-            total_chars += (
-                len(tool.name)
-                + len(tool.description or "")
-                + len(json.dumps(tool.input_schema))
+            # Approximate tool definition tokens
+            tool_str = (
+                tool.name + (tool.description or "") + json.dumps(tool.input_schema)
             )
+            total_tokens += len(ENCODER.encode(tool_str))
 
-    return max(1, total_chars // 4)
+    # Add some overhead for message formatting (approx 3 tokens per message)
+    total_tokens += len(messages) * 3
+    if tools:
+        total_tokens += len(tools) * 5  # Extra overhead for tool definitions
+
+    return max(1, total_tokens)
 
 
 def log_request_details(request_data: MessagesRequest):
