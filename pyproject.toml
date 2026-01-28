@@ -1,0 +1,13 @@
+[project]
+name = "cc-nim"
+version = "2.0.0"
+description = "Proxy that translates Claude Code CLI (Anthropic API) to NVIDIA NIM"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi[standard]>=0.115.11",
+    "uvicorn>=0.34.0",
+    "httpx>=0.25.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+]
