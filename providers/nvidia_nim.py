@@ -257,18 +257,6 @@ class NvidiaNimProvider(BaseProvider):
         for event in sse.close_all_blocks():
             yield event
 
-        # Ensure at least some content is emitted to avoid "(no content)" in Claude Code
-        # Check if we have emitted any text, thinking, or tool usage
-        has_content = (
-            sse.accumulated_text or sse.accumulated_reasoning or sse.blocks.tool_indices
-        )
-
-        if not has_content:
-            # Emit a single space if nothing else was sent
-            for event in sse.ensure_text_block():
-                yield event
-            yield sse.emit_text_delta(" ")
-
         # Final events
         output_tokens = (
             usage_info.get("completion_tokens", 0)
