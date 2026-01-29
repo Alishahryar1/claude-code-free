@@ -55,8 +55,11 @@ class CLISession:
             for d in self.allowed_dirs:
                 cmd.extend(["--add-dir", os.path.normpath(d)])
 
+        prompt_preview = prompt[:100].replace("\n", " ") + (
+            "..." if len(prompt) > 100 else ""
+        )
         logger.info(
-            f"Launching Claude CLI in {normalized_workspace} with API {self.api_url}"
+            f'CLI_TASK: workspace={normalized_workspace} prompt_len={len(prompt)} preview="{prompt_preview}"'
         )
 
         self.process = await asyncio.create_subprocess_exec(
@@ -85,7 +88,7 @@ class CLISession:
                 if newline_pos == -1:
                     break
                 line = buffer[:newline_pos]
-                buffer = buffer[newline_pos + 1:]
+                buffer = buffer[newline_pos + 1 :]
                 line_str = line.decode("utf-8", errors="replace").strip()
                 if line_str:
                     async for event in self._handle_line_gen(line_str):

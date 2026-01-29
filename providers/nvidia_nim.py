@@ -7,6 +7,7 @@ import uuid
 from typing import Dict, Any, AsyncIterator
 
 import httpx
+from httpx import TimeoutException, ReadTimeout, ConnectTimeout
 
 from .base import BaseProvider, ProviderConfig
 from .utils import (
@@ -112,8 +113,10 @@ class NvidiaNimProvider(BaseProvider):
         await self._rate_limiter.acquire()
 
         body = self._build_request_body(request, stream=True)
-        # Log the converted body for context verification
-        logger.debug(f"STREAM REQUEST BODY: {json.dumps(body, default=str)}")
+        # Log compact request summary
+        logger.info(
+            f"NIM_STREAM: model={body.get('model')} msgs={len(body.get('messages', []))} tools={len(body.get('tools', []))}"
+        )
 
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -202,8 +205,15 @@ class NvidiaNimProvider(BaseProvider):
                         for event in self._process_tool_call(tc, sse):
                             yield event
 
+        except TimeoutException as e:
+            timeout_type = "connect" if isinstance(e, ConnectTimeout) else "read"
+            logger.error(f"NIM_TIMEOUT: type={timeout_type} model={body.get('model')}")
+            error_occurred = True
+            error_message = (
+                f"⏱️ API Timeout ({timeout_type}): Request exceeded time limit"
+            )
         except Exception as e:
-            logger.error(f"Streaming error: {e}")
+            logger.error(f"NIM_ERROR: {type(e).__name__}: {e}")
             error_occurred = True
             error_message = str(e)
 
@@ -372,17 +382,28 @@ class NvidiaNimProvider(BaseProvider):
         await self._rate_limiter.acquire()
 
         body = self._build_request_body(request, stream=False)
-        # Log the converted body for context verification
-        logger.debug(f"COMPLETE REQUEST BODY: {json.dumps(body, default=str)}")
+        # Log compact request summary
+        logger.info(
+            f"NIM_COMPLETE: model={body.get('model')} msgs={len(body.get('messages', []))} tools={len(body.get('tools', []))}"
+        )
 
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
 
-        response = await self._client.post(
-            f"{self._base_url}/chat/completions", headers=headers, json=body
-        )
+        try:
+            response = await self._client.post(
+                f"{self._base_url}/chat/completions", headers=headers, json=body
+            )
+        except TimeoutException as e:
+            timeout_type = "connect" if isinstance(e, ConnectTimeout) else "read"
+            logger.error(f"NIM_TIMEOUT: type={timeout_type} model={body.get('model')}")
+            raise APIError(
+                f"API Timeout ({timeout_type}): Request exceeded time limit",
+                status_code=504,
+            )
+
         if response.status_code != 200:
             raise self._map_error(
                 response_status=response.status_code, error_text=response.text

@@ -33,6 +33,7 @@ ENV/
 
 # Logs
 *.log
+*.jsonl
 
 # IDE specific files
 .idea/

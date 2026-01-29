@@ -27,6 +27,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 import tiktoken
 from providers.claude_cli import CLIParser
 from providers.cli_session_manager import CLISessionManager
+from providers.logging_utils import log_request_compact
 
 # Optional: telethon for the bot
 try:
@@ -591,7 +592,10 @@ def register_bot_handlers(client: "TelegramClient"):
 
                 elif parsed["type"] == "error":
                     error_msg = parsed.get("message", "Unknown error")
-                    message_parts.append(("error", f"**CLI Error:** {error_msg}"))
+                    if "timeout" in error_msg.lower():
+                        message_parts.append(("error", f"⏱️ {error_msg}"))
+                    else:
+                        message_parts.append(("error", f"**CLI Error:** {error_msg}"))
                     await update_bot_ui("❌ **Error**", force=True)
 
         except asyncio.CancelledError:
@@ -933,47 +937,7 @@ def get_token_count(messages, system=None, tools=None) -> int:
     return max(1, total_tokens)
 
 
-def log_request_details(request_data: MessagesRequest):
-    """Log detailed request content for debugging."""
-
-    def sanitize(text: str, max_len: int = 200) -> str:
-        """Escape newlines and truncate for single-line logging."""
-        text = text.replace("\n", "\\n").replace("\r", "\\r")
-        return text[:max_len] + "..." if len(text) > max_len else text
-
-    for i, msg in enumerate(request_data.messages):
-        role = msg.role
-        if isinstance(msg.content, str):
-            logger.debug(f"  [{i}] {role}: {sanitize(msg.content)}")
-        elif isinstance(msg.content, list):
-            text_acc = []
-            for block in msg.content:
-                block_type = getattr(block, "type", None)
-                if block_type == "text":
-                    text_acc.append(getattr(block, "text", ""))
-                else:
-                    if text_acc:
-                        logger.debug(
-                            f"  [{i}] {role}/text: {sanitize(''.join(text_acc))}"
-                        )
-                        text_acc = []
-                    if block_type == "tool_use":
-                        name = getattr(block, "name", "unknown")
-                        inp = getattr(block, "input", {})
-                        logger.debug(
-                            f"  [{i}] {role}/tool_use: {name}({sanitize(json.dumps(inp), 500)})"
-                        )
-                    elif block_type == "tool_result":
-                        content = getattr(block, "content", "")
-                        tool_use_id = getattr(block, "tool_use_id", "unknown")
-                        logger.debug(
-                            f"  [{i}] {role}/tool_result[{tool_use_id}]: {sanitize(str(content))}"
-                        )
-                    elif block_type == "thinking":
-                        thinking = getattr(block, "thinking", "")
-                        logger.debug(f"  [{i}] {role}/thinking: {sanitize(thinking)}")
-            if text_acc:
-                logger.debug(f"  [{i}] {role}/text: {sanitize(''.join(text_acc))}")
+# log_request_details removed - now using log_request_compact from logging_utils
 
 
 @app.post("/v1/messages")
@@ -996,10 +960,10 @@ async def create_message(
                     usage=Usage(input_tokens=100, output_tokens=5),
                 )
 
-        logger.info(
-            f"Request: model={request_data.model}, messages={len(request_data.messages)}, stream={request_data.stream}"
-        )
-        log_request_details(request_data)
+        import uuid as uuid_mod
+
+        request_id = f"req_{uuid_mod.uuid4().hex[:12]}"
+        log_request_compact(logger, request_id, request_data)
 
         if request_data.stream:
             input_tokens = get_token_count(
