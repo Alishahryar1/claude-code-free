@@ -9,25 +9,20 @@ import json
 import logging
 import os
 from datetime import datetime
-from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
 # Separate debug file handler for full payloads
-_debug_handler: Optional[RotatingFileHandler] = None
+_debug_handler: Optional[logging.FileHandler] = None
 
 
-def _get_debug_handler() -> RotatingFileHandler:
-    """Get or create the rotating debug file handler."""
+def _get_debug_handler() -> logging.FileHandler:
+    """Get or create the debug file handler."""
     global _debug_handler
     if _debug_handler is None:
-        _debug_handler = RotatingFileHandler(
-            "server_debug.jsonl",
-            maxBytes=10 * 1024 * 1024,  # 10MB
-            backupCount=3,
-            encoding="utf-8",
-            mode='w'
+        _debug_handler = logging.FileHandler(
+            "server_debug.jsonl", encoding="utf-8", mode="w"
         )
         _debug_handler.setLevel(logging.DEBUG)
     return _debug_handler
