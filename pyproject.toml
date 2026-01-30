@@ -14,6 +14,7 @@ dependencies = [
     "websockets>=13.0",
     "telethon>=1.35.0",
     "pydantic-settings>=2.12.0",
+    "ratelimitqueue>=0.2.2",
 ]
 
 [dependency-groups]
