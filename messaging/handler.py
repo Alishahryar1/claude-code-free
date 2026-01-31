@@ -384,7 +384,7 @@ class ClaudeMessageHandler:
             thinking_text = "".join(components["thinking"])
             # Truncate thinking if too long, it's usually less critical than final content
             if len(thinking_text) > 1000:
-                thinking_text = thinking_text[:995] + "..."
+                thinking_text = "..." + thinking_text[-995:]
 
             # Ensure it doesn't break a code block if we eventually support them inside thinking
             lines.append(f"💭 **Thinking:**\n```\n{thinking_text}\n```")
@@ -435,13 +435,16 @@ class ClaudeMessageHandler:
                 else "⏳ **Claude is working...**"
             )
 
-        # If too long, truncate the main content but keep the status and close code blocks
+        # If too long, truncate the start of the content (keep the end)
         available_limit = LIMIT - len(status_text) - 20  # 20 for truncation marker
-        truncated_main = main_text[:available_limit].rstrip() + "\n... (truncated)"
+        raw_truncated = main_text[-available_limit:].lstrip()
 
-        # Close any open code blocks
-        if truncated_main.count("```") % 2 != 0:
-            truncated_main += "\n```"
+        # Check for unbalanced code blocks
+        prefix = "... (truncated)\n"
+        if raw_truncated.count("```") % 2 != 0:
+            prefix += "```\n"
+
+        truncated_main = prefix + raw_truncated
 
         return truncated_main + status_text
 
