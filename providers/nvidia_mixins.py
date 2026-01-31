@@ -78,7 +78,6 @@ class RequestBuilderMixin:
             "model": request_data.model,
             "messages": messages,
             "max_tokens": request_data.max_tokens,
-            "stream": stream,
         }
 
         if request_data.temperature is not None:
@@ -90,21 +89,24 @@ class RequestBuilderMixin:
         if request_data.tools:
             body["tools"] = AnthropicToOpenAIConverter.convert_tools(request_data.tools)
 
+        # Handle non-standard parameters via extra_body
+        extra_params = request_data.extra_body.copy() if request_data.extra_body else {}
+
         # Handle thinking/reasoning mode
-        extra_body = request_data.extra_body.copy() if request_data.extra_body else {}
         if request_data.thinking and getattr(request_data.thinking, "enabled", True):
-            extra_body.setdefault("thinking", {"type": "enabled"})
-            extra_body.setdefault("reasoning_split", True)
-            extra_body.setdefault(
+            extra_params.setdefault("thinking", {"type": "enabled"})
+            extra_params.setdefault("reasoning_split", True)
+            extra_params.setdefault(
                 "chat_template_kwargs",
                 {"thinking": True, "reasoning_split": True, "clear_thinking": False},
             )
 
-        body.update(extra_body)
+        if extra_params:
+            body["extra_body"] = extra_params
 
         # Apply NIM defaults
         for key, val in self._nim_params.items():
-            if key not in body:
+            if key not in body and key not in extra_params:
                 body[key] = val
 
         return body
@@ -117,38 +119,38 @@ class ErrorMapperMixin:
     ProviderError subclasses for standardized error handling.
     """
 
-    def _map_error(self, response_status: int, error_text: str) -> Exception:
-        """Map HTTP status and error body to specific ProviderError.
+    def _map_error(self, e: Exception) -> Exception:
+        """Map OpenAI exception to specific ProviderError.
 
         Args:
-            response_status: HTTP status code
-            error_text: Raw error response body
+            e: The OpenAI exception to map
 
         Returns:
             Appropriate ProviderError subclass instance
         """
-        try:
-            error_data = json.loads(error_text)
-            message = error_data.get("error", {}).get("message", error_text)
-        except Exception:
-            message = error_text
+        import openai
 
-        if response_status == 401:
-            return AuthenticationError(message, raw_error=error_text)
-        if response_status == 429:
+        if isinstance(e, openai.AuthenticationError):
+            return AuthenticationError(str(e), raw_error=str(e))
+        if isinstance(e, openai.RateLimitError):
             # Trigger global rate limit block
             from .rate_limit import GlobalRateLimiter
 
             GlobalRateLimiter.get_instance().set_blocked(60)  # Default 60s cooldown
-            return RateLimitError(message, raw_error=error_text)
-        if response_status in (400, 422):
-            return InvalidRequestError(message, raw_error=error_text)
-        if response_status >= 500:
+            return RateLimitError(str(e), raw_error=str(e))
+        if isinstance(e, openai.BadRequestError):
+            return InvalidRequestError(str(e), raw_error=str(e))
+        if isinstance(e, openai.InternalServerError):
+            message = str(e)
             if "overloaded" in message.lower() or "capacity" in message.lower():
-                return OverloadedError(message, raw_error=error_text)
-            return APIError(message, status_code=response_status, raw_error=error_text)
+                return OverloadedError(message, raw_error=str(e))
+            return APIError(message, status_code=500, raw_error=str(e))
+        if isinstance(e, openai.APIError):
+            return APIError(
+                str(e), status_code=getattr(e, "status_code", 500), raw_error=str(e)
+            )
 
-        return APIError(message, status_code=response_status, raw_error=error_text)
+        return e
 
 
 class ResponseConverterMixin:
