@@ -1,6 +1,7 @@
 """SSE event builder for Anthropic-format streaming responses."""
 
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, Iterator
 
@@ -11,6 +12,7 @@ try:
 except Exception:
     ENCODER = None
 
+logger = logging.getLogger(__name__)
 
 # Map OpenAI finish_reason to Anthropic stop_reason
 STOP_REASON_MAP = {
@@ -62,7 +64,9 @@ class SSEBuilder:
 
     def _format_event(self, event_type: str, data: Dict[str, Any]) -> str:
         """Format as SSE string."""
-        return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+        event_str = f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+        logger.debug(f"SSE_EVENT: {event_type} - {event_str.strip()}")
+        return event_str
 
     # Message lifecycle events
     def message_start(self) -> str:

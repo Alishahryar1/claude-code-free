@@ -59,9 +59,10 @@ class NvidiaNimProvider(
         # Wait if globally rate limited
         waited_reactively = await self._global_rate_limiter.wait_if_blocked()
 
+        message_id = f"msg_{uuid.uuid4()}"
+        sse = SSEBuilder(message_id, request.model, input_tokens)
+
         if waited_reactively:
-            message_id = f"msg_{uuid.uuid4()}"
-            sse = SSEBuilder(message_id, request.model, input_tokens)
             error_msg = "⏱️ Global rate limit active. Resuming now..."
             logger.info("NIM_STREAM: Reactive block detected, notified user")
             yield sse.message_start()
@@ -73,12 +74,12 @@ class NvidiaNimProvider(
             f"NIM_STREAM: model={body.get('model')} msgs={len(body.get('messages', []))} tools={len(body.get('tools', []))}"
         )
 
-        message_id = f"msg_{uuid.uuid4()}"
-        sse = SSEBuilder(message_id, request.model, input_tokens)
+        # Only emit message_start if we haven't already emitted it during reactive wait
+        if not waited_reactively:
+            yield sse.message_start()
+
         think_parser = ThinkTagParser()
         heuristic_parser = HeuristicToolParser()
-
-        yield sse.message_start()
 
         finish_reason = None
         usage_info = None
@@ -167,8 +168,9 @@ class NvidiaNimProvider(
             error_occurred = True
             error_message = str(mapped_e)
             logger.info(f"NIM_STREAM: Emitting SSE error event for {type(e).__name__}")
-
-        if error_occurred:
+            # Ensure open blocks are closed before emitting error to follow Anthropic protocol
+            for event in sse.close_content_blocks():
+                yield event
             for event in sse.emit_error(error_message):
                 yield event
 
