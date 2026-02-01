@@ -48,7 +48,7 @@ That's it! Claude Code now uses NVIDIA NIM for free.
 
 ### Telegram Bot Integration
 
-Control Claude Code remotely via Telegram! Set an allowed directory, send tasks from your phone, and watch Claude work autonomously on multiple tasks concurrently.
+Control Claude Code remotely via Telegram! Set an allowed directory, send tasks from your phone, and watch Claude-Code autonomously work on multiple tasks concurrently.
 
 #### Setup
 
