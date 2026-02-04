@@ -277,7 +277,17 @@ def extract_filepaths_from_command(command: str, output: str) -> str:
     import shlex
 
     # Commands that just list files (don't read contents)
-    listing_commands = {"ls", "dir", "find", "tree", "pwd", "cd", "mkdir", "rmdir", "rm"}
+    listing_commands = {
+        "ls",
+        "dir",
+        "find",
+        "tree",
+        "pwd",
+        "cd",
+        "mkdir",
+        "rmdir",
+        "rm",
+    }
 
     # Commands that read file contents
     reading_commands = {"cat", "head", "tail", "less", "more", "bat", "type"}
