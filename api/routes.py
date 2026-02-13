@@ -1,10 +1,12 @@
 """FastAPI route handlers."""
 
+import json
 import logging
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Request, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from .models.anthropic import MessagesRequest, TokenCountRequest
 from .models.responses import MessagesResponse, TokenCountResponse, Usage
@@ -28,6 +30,21 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+MODELS_FILE = Path(__file__).resolve().parent.parent / "nvidia_nim_models.json"
+
+
+def _parse_model_override(raw_request: Request) -> str | None:
+    """Extract model override from x-api-key header.
+
+    Format: "freecc:org/model-name" → returns "org/model-name"
+    "freecc" or "freecc:" → returns None (use default)
+    """
+    api_key = raw_request.headers.get("x-api-key", "")
+    if ":" not in api_key:
+        return None
+    _, model = api_key.split(":", 1)
+    return model.strip() or None
+
 
 # =============================================================================
 # Routes
@@ -44,6 +61,12 @@ async def create_message(
     """Create a message (streaming or non-streaming)."""
 
     try:
+        # Per-session model override via auth token (freecc:org/model-name)
+        model_override = _parse_model_override(raw_request)
+        if model_override:
+            logger.info(f"Model override via token: {request_data.model} -> {model_override}")
+            request_data.model = model_override
+
         if settings.fast_prefix_detection:
             is_prefix_req, command = is_prefix_detection_request(request_data)
             if is_prefix_req:
@@ -150,6 +173,18 @@ async def count_tokens(request_data: TokenCountRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/v1/models")
+async def list_models():
+    """Return available NVIDIA NIM models from nvidia_nim_models.json."""
+    try:
+        data = json.loads(MODELS_FILE.read_text())
+        return JSONResponse(content=data)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="nvidia_nim_models.json not found")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Invalid JSON in nvidia_nim_models.json")
 
 
 @router.get("/")

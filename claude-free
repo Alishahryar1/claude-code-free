@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# claude-free — Interactive model picker for free-claude-code
+# Usage: ./claude-free [extra claude args...]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODELS_FILE="$SCRIPT_DIR/nvidia_nim_models.json"
+PORT="${CLAUDE_FREE_PORT:-8082}"
+BASE_URL="http://localhost:$PORT"
+
+if [[ ! -f "$MODELS_FILE" ]]; then
+    echo "Error: $MODELS_FILE not found" >&2
+    exit 1
+fi
+
+# Extract model IDs from the JSON file
+models=$(python3 -c "
+import json, sys
+data = json.load(open('$MODELS_FILE'))
+for m in data.get('data', []):
+    print(m['id'])
+" 2>/dev/null)
+
+if [[ -z "$models" ]]; then
+    echo "Error: No models found in $MODELS_FILE" >&2
+    exit 1
+fi
+
+# Pick a model: use fzf if available, otherwise a numbered menu
+if command -v fzf &>/dev/null; then
+    model=$(echo "$models" | fzf --prompt="Select a model> " --height=40% --reverse)
+else
+    echo "Select a model:"
+    IFS=$'\n' read -rd '' -a model_arr <<< "$models" || true
+    select model in "${model_arr[@]}"; do
+        [[ -n "$model" ]] && break
+        echo "Invalid selection, try again."
+    done
+fi
+
+if [[ -z "${model:-}" ]]; then
+    echo "No model selected." >&2
+    exit 1
+fi
+
+echo "Launching Claude Code with model: $model"
+ANTHROPIC_AUTH_TOKEN="freecc:$model" ANTHROPIC_BASE_URL="$BASE_URL" claude "$@"
