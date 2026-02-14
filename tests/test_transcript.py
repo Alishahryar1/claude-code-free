@@ -64,8 +64,11 @@ def test_transcript_subagent_suppresses_thinking_and_text_inside():
     assert "Subagent:" in out
     assert "secret" not in out
     assert "visible?" not in out
-    # Tool calls inside a subagent should be indented.
+    # Only the current tool call should be shown (not the full history).
+    assert out.count("Tool call:") == 1
     assert "\n  🛠" in out or out.startswith("  🛠") or "  🛠" in out
+    assert "Tools used:" in out
+    assert "Tool calls:" in out
     assert "after" in out
 
 

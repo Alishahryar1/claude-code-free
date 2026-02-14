@@ -9,7 +9,7 @@ the transcript grows over time and older content must be truncated.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 
@@ -133,15 +133,74 @@ class ToolResultSegment(Segment):
 
 
 @dataclass
-class SubagentHeaderSegment(Segment):
+class SubagentSegment(Segment):
     description: str
+    indent_level: int = 0
+    tool_calls: int = 0
+    tools_used: set[str] = field(default_factory=set)
+    current_tool: Optional[ToolCallSegment] = None
+    subagents: List["SubagentSegment"] = field(default_factory=list)
 
-    def __init__(self, description: str) -> None:
+    def __init__(self, description: str, *, indent_level: int = 0) -> None:
         super().__init__(kind="subagent")
         self.description = str(description or "Subagent")
+        self.indent_level = max(0, int(indent_level))
+        self.tool_calls = 0
+        self.tools_used = set()
+        self.current_tool = None
+        self.subagents = []
+
+    def set_current_tool_call(self, tool_use_id: str, name: str) -> ToolCallSegment:
+        tool_use_id = str(tool_use_id or "")
+        name = str(name or "tool")
+        self.tools_used.add(name)
+        self.tool_calls += 1
+        seg = ToolCallSegment(tool_use_id, name, indent_level=self.indent_level + 1)
+        self.current_tool = seg
+        return seg
+
+    def add_subagent(self, seg: "SubagentSegment") -> None:
+        # Nesting just adds more indent: the nested SubagentSegment carries its own indent.
+        self.subagents.append(seg)
 
     def render(self, ctx: "RenderCtx") -> str:
-        return f"🤖 {ctx.bold('Subagent:')} {ctx.code_inline(self.description)}"
+        prefix = "  " * self.indent_level
+        inner_prefix = "  " * (self.indent_level + 1)
+
+        lines: List[str] = [
+            f"{prefix}🤖 {ctx.bold('Subagent:')} {ctx.code_inline(self.description)}"
+        ]
+
+        if self.current_tool is not None:
+            try:
+                rendered = self.current_tool.render(ctx)
+            except Exception:
+                rendered = ""
+            if rendered:
+                lines.append(rendered)
+
+        for sub in self.subagents:
+            try:
+                rendered = sub.render(ctx)
+            except Exception:
+                continue
+            if rendered:
+                lines.append(rendered)
+
+        tools_used = sorted(self.tools_used)
+        if tools_used:
+            tools_set_raw = "{%s}" % (", ".join(tools_used))
+        else:
+            tools_set_raw = "{}"
+
+        # Keep braces inside a code entity so MarkdownV2 doesn't require escaping them.
+        lines.append(
+            f"{inner_prefix}{ctx.bold('Tools used:')} {ctx.code_inline(tools_set_raw)}"
+        )
+        lines.append(
+            f"{inner_prefix}{ctx.bold('Tool calls:')} {ctx.code_inline(str(self.tool_calls))}"
+        )
+        return "\n".join(lines)
 
 
 @dataclass
@@ -188,12 +247,65 @@ class TranscriptBuffer:
 
         # subagent context stack. Each entry is the Task tool_use_id we are waiting to close.
         self._subagent_stack: List[str] = []
+        # Parallel stack of segments for rendering nested subagents.
+        self._subagent_segments: List[SubagentSegment] = []
 
     def _in_subagent(self) -> bool:
         return bool(self._subagent_stack)
 
     def _subagent_depth(self) -> int:
         return len(self._subagent_stack)
+
+    def _subagent_current(self) -> Optional[SubagentSegment]:
+        return self._subagent_segments[-1] if self._subagent_segments else None
+
+    def _task_heading_from_input(self, inp: Any) -> str:
+        # We never display full JSON args; only extract a short heading.
+        if isinstance(inp, dict):
+            desc = str(inp.get("description", "") or "").strip()
+            if desc:
+                return desc
+            subagent_type = str(inp.get("subagent_type", "") or "").strip()
+            if subagent_type:
+                return subagent_type
+            typ = str(inp.get("type", "") or "").strip()
+            if typ:
+                return typ
+        return "Subagent"
+
+    def _subagent_push(self, tool_id: str, seg: SubagentSegment) -> None:
+        # Some providers can omit ids; still track depth for UI suppression.
+        tool_id = (
+            str(tool_id or "").strip() or f"__task_{len(self._subagent_stack) + 1}"
+        )
+        self._subagent_stack.append(tool_id)
+        self._subagent_segments.append(seg)
+
+    def _subagent_pop(self, tool_id: str) -> None:
+        tool_id = str(tool_id or "").strip()
+        if not self._subagent_stack:
+            return
+        if tool_id:
+            # Pop to the matching id (defensive against non-LIFO emissions).
+            try:
+                idx = (
+                    len(self._subagent_stack)
+                    - 1
+                    - self._subagent_stack[::-1].index(tool_id)
+                )
+            except ValueError:
+                return
+            while len(self._subagent_stack) > idx:
+                self._subagent_stack.pop()
+                if self._subagent_segments:
+                    self._subagent_segments.pop()
+            return
+
+        # No id in result; only close if we have a synthetic top marker.
+        if self._subagent_stack and self._subagent_stack[-1].startswith("__task_"):
+            self._subagent_stack.pop()
+            if self._subagent_segments:
+                self._subagent_segments.pop()
 
     def _ensure_thinking(self) -> ThinkingSegment:
         seg = ThinkingSegment()
@@ -274,28 +386,36 @@ class TranscriptBuffer:
                 self.apply({"type": "block_stop", "index": idx})
             tool_id = str(ev.get("id", "") or "")
             name = str(ev.get("name", "") or "tool")
-            indent = 0
-            if name != "Task" and self._in_subagent():
-                indent = self._subagent_depth()
-            seg = ToolCallSegment(tool_id, name, indent_level=indent)
-            seg.set_initial_input(ev.get("input"))
-            self._segments.append(seg)
-            if idx >= 0:
-                self._open_tools_by_index[idx] = seg
             if tool_id:
                 self._tool_name_by_id[tool_id] = name
 
             # Task tool indicates subagent.
             if name == "Task":
-                desc = ""
-                inp = ev.get("input")
-                if isinstance(inp, dict):
-                    desc = str(inp.get("description", "") or "")
-                if not desc:
-                    desc = "Subagent"
-                self._segments.append(SubagentHeaderSegment(desc))
-                if tool_id:
-                    self._subagent_stack.append(tool_id)
+                heading = self._task_heading_from_input(ev.get("input"))
+                seg = SubagentSegment(heading, indent_level=self._subagent_depth())
+                parent = self._subagent_current()
+                if parent is not None:
+                    parent.add_subagent(seg)
+                else:
+                    self._segments.append(seg)
+                self._subagent_push(tool_id, seg)
+                return
+
+            # Normal tool call.
+            if self._in_subagent():
+                parent = self._subagent_current()
+                if parent is not None:
+                    seg = parent.set_current_tool_call(tool_id, name)
+                else:
+                    seg = ToolCallSegment(tool_id, name)
+                    self._segments.append(seg)
+            else:
+                seg = ToolCallSegment(tool_id, name)
+                self._segments.append(seg)
+
+            seg.set_initial_input(ev.get("input"))
+            if idx >= 0:
+                self._open_tools_by_index[idx] = seg
             return
 
         if et == "tool_use_delta":
@@ -329,26 +449,33 @@ class TranscriptBuffer:
         if et == "tool_use":
             tool_id = str(ev.get("id", "") or "")
             name = str(ev.get("name", "") or "tool")
-            indent = 0
-            if name != "Task" and self._in_subagent():
-                indent = self._subagent_depth()
-            seg = ToolCallSegment(tool_id, name, indent_level=indent)
-            seg.set_initial_input(ev.get("input"))
-            seg.closed = True
-            self._segments.append(seg)
             if tool_id:
                 self._tool_name_by_id[tool_id] = name
 
             if name == "Task":
-                desc = ""
-                inp = ev.get("input")
-                if isinstance(inp, dict):
-                    desc = str(inp.get("description", "") or "")
-                if not desc:
-                    desc = "Subagent"
-                self._segments.append(SubagentHeaderSegment(desc))
-                if tool_id:
-                    self._subagent_stack.append(tool_id)
+                heading = self._task_heading_from_input(ev.get("input"))
+                seg = SubagentSegment(heading, indent_level=self._subagent_depth())
+                parent = self._subagent_current()
+                if parent is not None:
+                    parent.add_subagent(seg)
+                else:
+                    self._segments.append(seg)
+                self._subagent_push(tool_id, seg)
+                return
+
+            if self._in_subagent():
+                parent = self._subagent_current()
+                if parent is not None:
+                    seg = parent.set_current_tool_call(tool_id, name)
+                else:
+                    seg = ToolCallSegment(tool_id, name)
+                    self._segments.append(seg)
+            else:
+                seg = ToolCallSegment(tool_id, name)
+                self._segments.append(seg)
+
+            seg.set_initial_input(ev.get("input"))
+            seg.closed = True
             return
 
         if et == "tool_result":
@@ -356,8 +483,10 @@ class TranscriptBuffer:
             name = self._tool_name_by_id.get(tool_id)
 
             # If this was the Task tool result, close subagent context.
-            if tool_id and self._subagent_stack and self._subagent_stack[-1] == tool_id:
-                self._subagent_stack.pop()
+            if self._subagent_stack and (
+                not tool_id or self._subagent_stack[-1] == tool_id
+            ):
+                self._subagent_pop(tool_id)
 
             if not self._show_tool_results:
                 return
