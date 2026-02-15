@@ -135,3 +135,34 @@ def test_transcript_reused_index_closes_previous_open_block():
     # Old open text should have been closed.
     assert 0 not in t._open_text_by_index
     assert 0 in t._open_tools_by_index
+
+
+def test_transcript_render_segment_exception_skipped():
+    """When a segment's render() raises, that segment is skipped and rest is rendered."""
+    t = TranscriptBuffer()
+    t.apply({"type": "thinking_chunk", "text": "before"})
+    t.apply({"type": "text_chunk", "text": "middle"})
+    t.apply({"type": "text_chunk", "text": "after"})
+
+    bad_segment = t._segments[1]
+    original_render = bad_segment.render
+
+    def _raising_render(ctx):
+        raise ValueError("render failed")
+
+    bad_segment.render = _raising_render
+
+    out = t.render(_ctx(), limit_chars=3900, status=None)
+    assert "before" in out
+    assert "after" in out
+    assert "middle" not in out
+
+
+def test_transcript_render_status_only_exceeds_limit():
+    """When all segments dropped, status-only output; long status returned as-is."""
+    t = TranscriptBuffer()
+    t.apply({"type": "text_chunk", "text": "x" * 5000})
+
+    long_status = "A" * 500
+    msg = t.render(_ctx(), limit_chars=100, status=long_status)
+    assert "... (truncated)" in msg or long_status in msg

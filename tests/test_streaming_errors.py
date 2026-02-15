@@ -392,3 +392,130 @@ class TestProcessToolCall:
         events = list(provider._process_tool_call(tc, sse))
         event_text = "".join(events)
         assert "input_json_delta" in event_text
+
+
+class TestStreamChunkEdgeCases:
+    """Tests for edge cases in stream chunk handling."""
+
+    @pytest.mark.asyncio
+    async def test_stream_chunk_with_empty_choices_skipped(self):
+        """Chunk with choices=[] is skipped without crashing."""
+        provider = _make_provider()
+        request = _make_request()
+
+        empty_choices_chunk = MagicMock()
+        empty_choices_chunk.choices = []
+        empty_choices_chunk.usage = None
+
+        finish_chunk = _make_chunk(finish_reason="stop")
+        stream_mock = AsyncStreamMock([empty_choices_chunk, finish_chunk])
+
+        with patch.object(
+            provider._client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
+            return_value=stream_mock,
+        ):
+            with patch.object(
+                provider._global_rate_limiter,
+                "wait_if_blocked",
+                new_callable=AsyncMock,
+                return_value=False,
+            ):
+                events = await _collect_stream(provider, request)
+
+        event_text = "".join(events)
+        assert "message_start" in event_text
+        assert "message_stop" in event_text
+        assert "[DONE]" in event_text
+
+    @pytest.mark.asyncio
+    async def test_stream_chunk_with_none_delta_handled(self):
+        """Chunk with choice.delta=None is handled defensively."""
+        provider = _make_provider()
+        request = _make_request()
+
+        none_delta_chunk = MagicMock()
+        none_delta_chunk.usage = None
+        choice = MagicMock()
+        choice.delta = None
+        choice.finish_reason = None
+        none_delta_chunk.choices = [choice]
+
+        finish_chunk = _make_chunk(finish_reason="stop")
+        stream_mock = AsyncStreamMock([none_delta_chunk, finish_chunk])
+
+        with patch.object(
+            provider._client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
+            return_value=stream_mock,
+        ):
+            with patch.object(
+                provider._global_rate_limiter,
+                "wait_if_blocked",
+                new_callable=AsyncMock,
+                return_value=False,
+            ):
+                events = await _collect_stream(provider, request)
+
+        event_text = "".join(events)
+        assert "message_start" in event_text
+        assert "message_stop" in event_text
+        assert "[DONE]" in event_text
+
+    @pytest.mark.asyncio
+    async def test_stream_generator_cleanup_on_exception(self):
+        """When stream raises mid-iteration, message_stop and [DONE] still emitted."""
+        provider = _make_provider()
+        request = _make_request()
+
+        chunk1 = _make_chunk(content="Partial")
+        stream_mock = AsyncStreamMock(
+            [chunk1], error=ConnectionResetError("Connection reset")
+        )
+
+        with patch.object(
+            provider._client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
+            return_value=stream_mock,
+        ):
+            with patch.object(
+                provider._global_rate_limiter,
+                "wait_if_blocked",
+                new_callable=AsyncMock,
+                return_value=False,
+            ):
+                events = await _collect_stream(provider, request)
+
+        event_text = "".join(events)
+        assert "Partial" in event_text
+        assert "Connection reset" in event_text
+        assert "message_stop" in event_text
+        assert "[DONE]" in event_text
+
+    def test_stream_malformed_tool_args_chunked(self):
+        """Chunked tool args that never form valid JSON are flushed with {}."""
+        provider = _make_provider()
+        from providers.nvidia_nim.utils import SSEBuilder
+
+        sse = SSEBuilder("msg_test", "test-model")
+        tc1 = {
+            "index": 0,
+            "id": "call_malformed",
+            "function": {"name": "Task", "arguments": '{"broken":'},
+        }
+        tc2 = {
+            "index": 0,
+            "id": "call_malformed",
+            "function": {"name": None, "arguments": ' never valid }'},
+        }
+
+        events1 = list(provider._process_tool_call(tc1, sse))
+        events2 = list(provider._process_tool_call(tc2, sse))
+        flushed = list(provider._flush_task_arg_buffers(sse))
+
+        event_text = "".join(events1 + events2 + flushed)
+        assert "tool_use" in event_text
+        assert "{}" in event_text

@@ -108,3 +108,31 @@ def test_handler_build_message_hardening():
     assert "Finishing..." in msg
     if "```" in msg:
         assert msg.count("```") % 2 == 0
+
+
+def test_render_output_never_exceeds_4096():
+    """Transcript render with various status lengths never exceeds Telegram 4096 limit."""
+    from messaging.transcript import TranscriptBuffer, RenderCtx
+    from messaging.telegram_markdown import (
+        escape_md_v2,
+        escape_md_v2_code,
+        mdv2_bold,
+        mdv2_code_inline,
+        render_markdown_to_mdv2,
+    )
+
+    ctx = RenderCtx(
+        bold=mdv2_bold,
+        code_inline=mdv2_code_inline,
+        escape_code=escape_md_v2_code,
+        escape_text=escape_md_v2,
+        render_markdown=render_markdown_to_mdv2,
+    )
+
+    t = TranscriptBuffer()
+    t.apply({"type": "thinking_chunk", "text": "x" * 500})
+    t.apply({"type": "text_chunk", "text": "y" * 3500})
+
+    for status in [None, "Done", "✅ *Complete*", "A" * 100]:
+        msg = t.render(ctx, limit_chars=3900, status=status)
+        assert len(msg) <= 4096, f"status={status!r} produced len={len(msg)}"

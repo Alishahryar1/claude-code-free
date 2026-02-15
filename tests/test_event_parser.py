@@ -158,3 +158,35 @@ def test_parse_cli_event_result_with_content_directly():
 def test_parse_cli_event_result_with_result_content_directly():
     event = {"type": "result", "result": {"content": [{"type": "text", "text": "hi"}]}}
     assert parse_cli_event(event) == [{"type": "text_chunk", "text": "hi"}]
+
+
+def test_parse_cli_event_content_block_unknown_type_skipped():
+    """Content block with unknown type is skipped; known blocks still parsed."""
+    event = {
+        "type": "assistant",
+        "message": {
+            "content": [
+                {"type": "text", "text": "visible"},
+                {"type": "unknown", "data": "ignored"},
+                {"type": "thinking", "thinking": "thought"},
+            ]
+        },
+    }
+    results = parse_cli_event(event)
+    assert len(results) == 2
+    assert results[0] == {"type": "text_chunk", "text": "visible"}
+    assert results[1] == {"type": "thinking_chunk", "text": "thought"}
+
+
+def test_parse_cli_event_error_non_dict():
+    """Error event with error as string (not dict) is handled."""
+    event = {"type": "error", "error": "plain string error"}
+    results = parse_cli_event(event)
+    assert results == [{"type": "error", "message": "plain string error"}]
+
+
+def test_parse_cli_event_exit_code_none():
+    """Exit event with no code defaults to success."""
+    event = {"type": "exit"}
+    results = parse_cli_event(event)
+    assert results == [{"type": "complete", "status": "success"}]

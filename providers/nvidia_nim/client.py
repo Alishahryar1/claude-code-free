@@ -83,6 +83,8 @@ class NvidiaNimProvider(BaseProvider):
 
                 choice = chunk.choices[0]
                 delta = choice.delta
+                if delta is None:
+                    continue
 
                 if choice.finish_reason:
                     finish_reason = choice.finish_reason

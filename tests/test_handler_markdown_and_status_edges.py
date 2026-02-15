@@ -244,3 +244,156 @@ async def test_handle_message_reply_with_tree_but_no_parent_treated_as_new():
 
     await handler.handle_message(incoming)
     handler.tree_queue.create_tree.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_update_ui_handles_transcript_render_exception():
+    """When transcript.render raises, update_ui catches and does not crash."""
+    platform = MagicMock()
+    platform.queue_edit_message = AsyncMock()
+    platform.fire_and_forget = MagicMock(
+        side_effect=lambda c: getattr(c, "close", lambda: None)()
+    )
+
+    cli_manager = MagicMock()
+    session_store = MagicMock()
+
+    async def _mock_start_task(*args, **kwargs):
+        yield {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hi"}}
+        yield {"type": "complete", "status": "success"}
+
+    mock_session = MagicMock()
+    mock_session.start_task = _mock_start_task
+    cli_manager.get_or_create_session = AsyncMock(
+        return_value=(mock_session, "s1", False)
+    )
+    cli_manager.remove_session = AsyncMock()
+    cli_manager.get_stats.return_value = {"active_sessions": 0, "max_sessions": 10}
+
+    handler = ClaudeMessageHandler(platform, cli_manager, session_store)
+    handler.tree_queue = MagicMock()
+    handler.tree_queue.get_tree_for_node.return_value = None
+
+    incoming = IncomingMessage(
+        text="hi",
+        chat_id="c",
+        user_id="u",
+        message_id="n1",
+        platform="telegram",
+    )
+    node = MessageNode(node_id="n1", incoming=incoming, status_message_id="s1")
+
+    with patch.object(
+        handler, "_create_transcript_and_render_ctx"
+    ) as mock_create:
+        transcript = MagicMock()
+        transcript.render = MagicMock(side_effect=ValueError("render failed"))
+        render_ctx = MagicMock()
+        mock_create.return_value = (transcript, render_ctx)
+
+        await handler._process_node("n1", node)
+
+    assert transcript.render.call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_handle_message_incoming_text_none_safe():
+    """handle_message does not crash when incoming.text is None (e.g. malformed adapter)."""
+    platform = MagicMock()
+    platform.queue_send_message = AsyncMock(return_value="status_1")
+    platform.queue_edit_message = AsyncMock()
+
+    cli_manager = MagicMock()
+    cli_manager.get_stats.return_value = {"active_sessions": 0, "max_sessions": 10}
+
+    session_store = MagicMock()
+    handler = ClaudeMessageHandler(platform, cli_manager, session_store)
+    handler.tree_queue = MagicMock()
+    handler.tree_queue.get_tree_for_node.return_value = None
+    handler.tree_queue.resolve_parent_node_id.return_value = None
+    handler.tree_queue.create_tree = AsyncMock(
+        return_value=MagicMock(root_id="root", to_dict=MagicMock(return_value={"t": 1}))
+    )
+    handler.tree_queue.register_node = MagicMock()
+    handler.tree_queue.enqueue = AsyncMock(return_value=True)
+
+    incoming = MagicMock()
+    incoming.text = None
+    incoming.chat_id = "c"
+    incoming.user_id = "u"
+    incoming.message_id = "m1"
+    incoming.platform = "telegram"
+    incoming.reply_to_message_id = None
+    incoming.is_reply = MagicMock(return_value=False)
+
+    await handler.handle_message(incoming)
+    handler.tree_queue.create_tree.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_process_parsed_event_malformed_content_continues():
+    """Malformed/unknown parsed event does not crash _process_parsed_event."""
+    platform = MagicMock()
+    platform.queue_edit_message = AsyncMock()
+
+    cli_manager = MagicMock()
+    session_store = MagicMock()
+    handler = ClaudeMessageHandler(platform, cli_manager, session_store)
+
+    transcript = MagicMock()
+    update_ui = AsyncMock()
+
+    last_status, had = await handler._process_parsed_event(
+        parsed={"type": "unknown_type"},
+        transcript=transcript,
+        update_ui=update_ui,
+        last_status=None,
+        had_transcript_events=False,
+        tree=None,
+        node_id="n1",
+        captured_session_id=None,
+    )
+    assert last_status is None
+    assert had is False
+
+
+@pytest.mark.asyncio
+async def test_handler_update_ui_edit_failure_does_not_crash():
+    """When queue_edit_message raises during streaming, _process_node continues and completes."""
+    platform = MagicMock()
+    platform.queue_edit_message = AsyncMock(side_effect=RuntimeError("Telegram API error"))
+    platform.fire_and_forget = MagicMock(
+        side_effect=lambda c: getattr(c, "close", lambda: None)()
+    )
+
+    async def _mock_start_task(*args, **kwargs):
+        yield {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hello"}}
+        yield {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " world"}}
+        yield {"type": "complete", "status": "success"}
+
+    mock_session = MagicMock()
+    mock_session.start_task = _mock_start_task
+    cli_manager = MagicMock()
+    cli_manager.get_or_create_session = AsyncMock(
+        return_value=(mock_session, "s1", False)
+    )
+    cli_manager.remove_session = AsyncMock()
+    cli_manager.get_stats.return_value = {"active_sessions": 0, "max_sessions": 10}
+
+    session_store = MagicMock()
+    handler = ClaudeMessageHandler(platform, cli_manager, session_store)
+    handler.tree_queue = MagicMock()
+    handler.tree_queue.get_tree_for_node.return_value = None
+
+    incoming = IncomingMessage(
+        text="hi",
+        chat_id="c",
+        user_id="u",
+        message_id="n1",
+        platform="telegram",
+    )
+    node = MessageNode(node_id="n1", incoming=incoming, status_message_id="s1")
+
+    await handler._process_node("n1", node)
+
+    cli_manager.remove_session.assert_awaited_once()

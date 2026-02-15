@@ -139,7 +139,8 @@ class ClaudeMessageHandler:
             return
 
         # Filter out status messages (our own messages)
-        if any(incoming.text.startswith(p) for p in STATUS_MESSAGE_PREFIXES):
+        text = incoming.text or ""
+        if any(text.startswith(p) for p in STATUS_MESSAGE_PREFIXES):
             return
 
         # Check if this is a reply to an existing node in a tree
@@ -392,7 +393,11 @@ class ClaudeMessageHandler:
             last_ui_update = now
             if status is not None:
                 last_status = status
-            display = transcript.render(render_ctx, limit_chars=3900, status=status)
+            try:
+                display = transcript.render(render_ctx, limit_chars=3900, status=status)
+            except Exception as e:
+                logger.warning(f"Transcript render failed for node {node_id}: {e}")
+                return
             if display and display != last_displayed_text:
                 logger.debug(
                     "TELEGRAM_EDIT: node_id=%s chat_id=%s msg_id=%s force=%s status=%r chars=%d",
@@ -412,9 +417,14 @@ class ClaudeMessageHandler:
                     if tail:
                         logger.debug("TELEGRAM_EDIT_PREVIEW_TAIL:\n%s", tail)
                 last_displayed_text = display
-                await self.platform.queue_edit_message(
-                    chat_id, status_msg_id, display, parse_mode="MarkdownV2"
-                )
+                try:
+                    await self.platform.queue_edit_message(
+                        chat_id, status_msg_id, display, parse_mode="MarkdownV2"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to update Telegram for node {node_id}: {e}"
+                    )
 
         try:
             try:

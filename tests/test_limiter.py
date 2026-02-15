@@ -239,3 +239,41 @@ class TestMessagingRateLimiter:
                 f"Sliding window violated at i={i}: "
                 f"dt={acquired[i + rate_limit] - acquired[i]:.3f}s"
             )
+
+    @pytest.mark.asyncio
+    async def test_compaction_last_task_fails_all_futures_get_exception(self):
+        """When compacted task's last func fails, all futures get the exception."""
+        MessagingRateLimiter._instance = None
+        limiter = await MessagingRateLimiter.get_instance()
+
+        async def ok_task():
+            return "ok"
+
+        async def fail_task():
+            raise RuntimeError("last task failed")
+
+        future1 = asyncio.create_task(
+            limiter.enqueue(ok_task, dedup_key="fail_key")
+        )
+        future2 = asyncio.create_task(
+            limiter.enqueue(fail_task, dedup_key="fail_key")
+        )
+
+        with pytest.raises(RuntimeError, match="last task failed"):
+            await future1
+        with pytest.raises(RuntimeError, match="last task failed"):
+            await future2
+
+    @pytest.mark.asyncio
+    async def test_fire_and_forget_failure_logged(self, caplog):
+        """fire_and_forget with failing task logs error and does not re-raise."""
+        MessagingRateLimiter._instance = None
+        limiter = await MessagingRateLimiter.get_instance()
+
+        async def fail_task():
+            raise ValueError("fire_and_forget failed")
+
+        limiter.fire_and_forget(fail_task, dedup_key="fire_fail")
+        await asyncio.sleep(1.5)
+
+        assert any("fire_and_forget failed" in str(r) for r in caplog.records)
