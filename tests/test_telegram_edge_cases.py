@@ -121,7 +121,9 @@ async def test_queue_send_message_without_limiter_calls_send_message():
 
         platform = TelegramPlatform(bot_token="t")
         platform._limiter = None
-        with patch.object(platform, "send_message", new_callable=AsyncMock) as mock_send:
+        with patch.object(
+            platform, "send_message", new_callable=AsyncMock
+        ) as mock_send:
             mock_send.return_value = "1"
             assert await platform.queue_send_message("c", "t") == "1"
             mock_send.assert_awaited_once()
@@ -134,7 +136,9 @@ async def test_queue_edit_message_without_limiter_calls_edit_message():
 
         platform = TelegramPlatform(bot_token="t")
         platform._limiter = None
-        with patch.object(platform, "edit_message", new_callable=AsyncMock) as mock_edit:
+        with patch.object(
+            platform, "edit_message", new_callable=AsyncMock
+        ) as mock_edit:
             await platform.queue_edit_message("c", "1", "t")
             mock_edit.assert_awaited_once()
 
@@ -158,7 +162,9 @@ async def test_on_start_command_replies_and_forwards():
         from messaging.telegram import TelegramPlatform
 
         platform = TelegramPlatform(bot_token="t")
-        with patch.object(platform, "_on_telegram_message", new_callable=AsyncMock) as mock_msg:
+        with patch.object(
+            platform, "_on_telegram_message", new_callable=AsyncMock
+        ) as mock_msg:
             update = MagicMock()
             update.message.reply_text = AsyncMock()
 
@@ -173,7 +179,10 @@ async def test_on_telegram_message_handler_error_sends_error_message():
         from messaging.telegram import TelegramPlatform
 
         platform = TelegramPlatform(bot_token="t", allowed_user_id="123")
-        with patch.object(platform, "send_message", new_callable=AsyncMock) as mock_send:
+        with patch.object(
+            platform, "send_message", new_callable=AsyncMock
+        ) as mock_send:
+
             async def _boom(_incoming):
                 raise RuntimeError("bad")
 

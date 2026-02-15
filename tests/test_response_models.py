@@ -159,7 +159,9 @@ class TestMessagesResponse:
         """All valid stop_reason values should be accepted."""
         from typing import Literal
 
-        reasons: list[Literal["end_turn", "max_tokens", "stop_sequence", "tool_use"]] = [
+        reasons: list[
+            Literal["end_turn", "max_tokens", "stop_sequence", "tool_use"]
+        ] = [
             "end_turn",
             "max_tokens",
             "stop_sequence",

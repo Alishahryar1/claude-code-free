@@ -80,14 +80,18 @@ def test_get_initial_status_branches():
     handler = ClaudeMessageHandler(platform, cli_manager, session_store)
 
     with (
-        patch.object(handler.tree_queue, "is_node_tree_busy", MagicMock(return_value=True)),
+        patch.object(
+            handler.tree_queue, "is_node_tree_busy", MagicMock(return_value=True)
+        ),
         patch.object(handler.tree_queue, "get_queue_size", MagicMock(return_value=2)),
     ):
         s1 = handler._get_initial_status(tree=object(), parent_node_id="p")
     assert "Queued" in s1
     assert "position 3" in s1 or "position 3" in s1.replace("\\", "")
 
-    with patch.object(handler.tree_queue, "is_node_tree_busy", MagicMock(return_value=False)):
+    with patch.object(
+        handler.tree_queue, "is_node_tree_busy", MagicMock(return_value=False)
+    ):
         s2 = handler._get_initial_status(tree=object(), parent_node_id="p")
     assert "Continuing" in s2
 
@@ -151,7 +155,9 @@ async def test_process_node_session_limit_marks_error_and_updates_ui():
 
     fake_tree = MagicMock()
     fake_tree.update_state = AsyncMock()
-    with patch.object(handler.tree_queue, "get_tree_for_node", MagicMock(return_value=fake_tree)):
+    with patch.object(
+        handler.tree_queue, "get_tree_for_node", MagicMock(return_value=fake_tree)
+    ):
         incoming = IncomingMessage(
             text="hi",
             chat_id="c",
@@ -195,7 +201,9 @@ async def test_stop_all_tasks_saves_tree_for_cancelled_nodes():
     tree.to_dict = MagicMock(return_value={"root": "ok"})
     with (
         patch.object(handler.tree_queue, "cancel_all", AsyncMock(return_value=[node])),
-        patch.object(handler.tree_queue, "get_tree_for_node", MagicMock(return_value=tree)),
+        patch.object(
+            handler.tree_queue, "get_tree_for_node", MagicMock(return_value=tree)
+        ),
     ):
         count = await handler.stop_all_tasks()
     assert count == 1
