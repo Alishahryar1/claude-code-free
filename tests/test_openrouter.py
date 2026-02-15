@@ -209,9 +209,7 @@ async def test_tool_call_stream(openrouter_provider):
     mock_chunk = MagicMock()
     mock_chunk.choices = [
         MagicMock(
-            delta=MagicMock(
-                content=None, reasoning_content=None, tool_calls=[mock_tc]
-            ),
+            delta=MagicMock(content=None, reasoning_content=None, tool_calls=[mock_tc]),
             finish_reason=None,
         )
     ]
@@ -232,9 +230,7 @@ async def test_tool_call_stream(openrouter_provider):
             events.append(event)
 
         starts = [
-            e
-            for e in events
-            if "event: content_block_start" in e and '"tool_use"' in e
+            e for e in events if "event: content_block_start" in e and '"tool_use"' in e
         ]
         assert len(starts) == 1
         assert "search" in starts[0]
@@ -260,5 +256,7 @@ async def test_stream_response_api_error_emits_sse_error(openrouter_provider):
 
         # Should have message_start, then error content, then message_stop, done
         assert any("event: message_start" in e for e in events)
-        assert any("event: content_block_delta" in e and "API failed" in e for e in events)
+        assert any(
+            "event: content_block_delta" in e and "API failed" in e for e in events
+        )
         assert any("[DONE]" in e for e in events)
