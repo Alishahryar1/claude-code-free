@@ -1,6 +1,21 @@
-# free-claude-code
+<div align="center">
 
-Use **Claude Code CLI for free** with NVIDIA NIM's free unlimited 40 reqs/min API. This lightweight proxy converts Claude Code's Anthropic API requests to NVIDIA NIM format. **Includes Telegram bot integration** for remote control from your phone!
+# 🚀 Free Claude Code
+
+### Use Claude Code CLI for free with NVIDIA NIM
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Code style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+
+A lightweight proxy that converts Claude Code's Anthropic API requests to NVIDIA NIM format.  
+**40 reqs/min free** · **Telegram bot** · **VSCode & CLI**
+
+[Quick Start](#quick-start) · [Telegram Bot](#telegram-bot-integration) · [Models](#available-models) · [Configuration](#configuration)
+
+---
+
+</div>
 
 ![Claude Code exploring cc-nim](pic.png)
 
@@ -248,3 +263,9 @@ class MyPlatform(MessagingPlatform):
         # Handler expects an IncomingMessage object
         pass
 ```
+
+---
+
+## License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
