@@ -303,14 +303,6 @@ class NvidiaNimProvider(BaseProvider):
             # INTERCEPTION: Task args can stream in many partial chunks. Buffer until we
             # have valid JSON, then emit a single delta with run_in_background forced off.
             if current_name == "Task":
-                # Allow older tests to pass with MagicMock'd builders by lazily creating fields.
-                if not isinstance(getattr(sse.blocks, "task_arg_buffer", None), dict):
-                    sse.blocks.task_arg_buffer = {}
-                if not isinstance(getattr(sse.blocks, "task_args_emitted", None), dict):
-                    sse.blocks.task_args_emitted = {}
-                if not isinstance(getattr(sse.blocks, "tool_ids", None), dict):
-                    sse.blocks.tool_ids = {}
-
                 if not sse.blocks.task_args_emitted.get(tc_index, False):
                     buf = sse.blocks.task_arg_buffer.get(tc_index, "") + args
                     sse.blocks.task_arg_buffer[tc_index] = buf
@@ -336,14 +328,7 @@ class NvidiaNimProvider(BaseProvider):
 
     def _flush_task_arg_buffers(self, sse: Any):
         """Emit buffered Task args as a single JSON delta (best-effort)."""
-        if not isinstance(getattr(sse.blocks, "task_arg_buffer", None), dict):
-            return
-        if not isinstance(getattr(sse.blocks, "task_args_emitted", None), dict):
-            sse.blocks.task_args_emitted = {}
-        if not isinstance(getattr(sse.blocks, "tool_ids", None), dict):
-            sse.blocks.tool_ids = {}
-        # Iterate over a copy; we will mutate dicts.
-        for tool_index, buf in list(getattr(sse.blocks, "task_arg_buffer", {}).items()):
+        for tool_index, buf in list(sse.blocks.task_arg_buffer.items()):
             if sse.blocks.task_args_emitted.get(tool_index, False):
                 sse.blocks.task_arg_buffer.pop(tool_index, None)
                 continue

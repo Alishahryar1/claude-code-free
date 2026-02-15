@@ -7,18 +7,10 @@ from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from .models.anthropic import MessagesRequest, TokenCountRequest
-from .models.responses import MessagesResponse, TokenCountResponse, Usage
+from .models.responses import MessagesResponse, TokenCountResponse
 from .dependencies import get_provider, get_settings
-from .request_utils import (
-    is_quota_check_request,
-    is_title_generation_request,
-    is_prefix_detection_request,
-    is_suggestion_mode_request,
-    is_filepath_extraction_request,
-    extract_command_prefix,
-    extract_filepaths_from_command,
-    get_token_count,
-)
+from .request_utils import get_token_count
+from .optimization_handlers import try_optimizations
 from config.settings import Settings
 from providers.base import BaseProvider
 from providers.exceptions import ProviderError
@@ -44,71 +36,9 @@ async def create_message(
     """Create a message (streaming or non-streaming)."""
 
     try:
-        if settings.fast_prefix_detection:
-            is_prefix_req, command = is_prefix_detection_request(request_data)
-            if is_prefix_req:
-                return MessagesResponse(
-                    id=f"msg_{uuid.uuid4()}",
-                    model=request_data.model,
-                    content=[{"type": "text", "text": extract_command_prefix(command)}],
-                    stop_reason="end_turn",
-                    usage=Usage(input_tokens=100, output_tokens=5),
-                )
-
-        # Optimization: Mock network probe/quota requests
-        if settings.enable_network_probe_mock and is_quota_check_request(request_data):
-            logger.info("Optimization: Intercepted and mocked quota probe")
-            return MessagesResponse(
-                id=f"msg_{uuid.uuid4()}",
-                model=request_data.model,
-                role="assistant",
-                content=[{"type": "text", "text": "Quota check passed."}],
-                stop_reason="end_turn",
-                usage=Usage(input_tokens=10, output_tokens=5),
-            )
-
-        # Optimization: Skip title generation requests
-        if settings.enable_title_generation_skip and is_title_generation_request(
-            request_data
-        ):
-            logger.info("Optimization: Skipped title generation request")
-            return MessagesResponse(
-                id=f"msg_{uuid.uuid4()}",
-                model=request_data.model,
-                role="assistant",
-                content=[{"type": "text", "text": "Conversation"}],
-                stop_reason="end_turn",
-                usage=Usage(input_tokens=100, output_tokens=5),
-            )
-
-        # Optimization: Skip suggestion mode requests
-        if settings.enable_suggestion_mode_skip and is_suggestion_mode_request(
-            request_data
-        ):
-            logger.info("Optimization: Skipped suggestion mode request")
-            return MessagesResponse(
-                id=f"msg_{uuid.uuid4()}",
-                model=request_data.model,
-                role="assistant",
-                content=[{"type": "text", "text": ""}],
-                stop_reason="end_turn",
-                usage=Usage(input_tokens=100, output_tokens=1),
-            )
-
-        # Optimization: Mock filepath extraction requests
-        if settings.enable_filepath_extraction_mock:
-            is_fp, cmd, output = is_filepath_extraction_request(request_data)
-            if is_fp:
-                filepaths = extract_filepaths_from_command(cmd, output)
-                logger.info("Optimization: Mocked filepath extraction")
-                return MessagesResponse(
-                    id=f"msg_{uuid.uuid4()}",
-                    model=request_data.model,
-                    role="assistant",
-                    content=[{"type": "text", "text": filepaths}],
-                    stop_reason="end_turn",
-                    usage=Usage(input_tokens=100, output_tokens=10),
-                )
+        optimized = try_optimizations(request_data, settings)
+        if optimized is not None:
+            return optimized
 
         request_id = f"req_{uuid.uuid4().hex[:12]}"
         log_request_compact(logger, request_id, request_data)

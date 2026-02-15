@@ -47,6 +47,14 @@ class TreeRepository:
         """Register a node ID to a tree."""
         self._node_to_tree[node_id] = root_id
 
+    def has_node(self, node_id: str) -> bool:
+        """Check if a node is registered in any tree."""
+        return node_id in self._node_to_tree
+
+    def tree_count(self) -> int:
+        """Get the number of trees in the repository."""
+        return len(self._trees)
+
     def is_tree_busy(self, root_id: str) -> bool:
         """Check if a tree is currently processing."""
         tree = self._trees.get(root_id)

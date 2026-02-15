@@ -165,7 +165,4 @@ class TreeQueueProcessor:
 
     def cancel_current(self, tree: MessageTree) -> bool:
         """Cancel the currently running task in a tree."""
-        if tree._current_task and not tree._current_task.done():
-            tree._current_task.cancel()
-            return True
-        return False
+        return tree.cancel_current_task()

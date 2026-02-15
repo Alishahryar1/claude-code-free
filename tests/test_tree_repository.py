@@ -28,7 +28,7 @@ def test_add_and_get_tree(repository, sample_tree):
 
     assert repository.get_tree("root_id") == sample_tree
     assert repository.get_tree_for_node("root_id") == sample_tree
-    assert repository._node_to_tree["root_id"] == "root_id"
+    assert repository.has_node("root_id")
 
 
 def test_get_tree_nonexistent(repository):
@@ -41,7 +41,7 @@ def test_register_node(repository, sample_tree):
     repository.register_node("child_id", "root_id")
 
     assert repository.get_tree_for_node("child_id") == sample_tree
-    assert repository._node_to_tree["child_id"] == "root_id"
+    assert repository.has_node("child_id")
 
 
 def test_get_node(repository, sample_tree):
@@ -132,7 +132,7 @@ def test_to_from_dict(repository, sample_tree):
     tree = new_repo.get_tree("root_id")
     assert tree is not None
     assert tree.root_id == "root_id"
-    assert new_repo._node_to_tree["root_id"] == "root_id"
+    assert new_repo.get_tree_for_node("root_id") == tree
 
 
 def test_all_trees(repository, sample_tree):

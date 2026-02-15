@@ -1,6 +1,5 @@
 from messaging.transcript import TranscriptBuffer, RenderCtx
-
-from messaging.handler import (
+from messaging.telegram_markdown import (
     escape_md_v2,
     escape_md_v2_code,
     mdv2_bold,

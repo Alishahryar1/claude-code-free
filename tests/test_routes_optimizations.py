@@ -29,8 +29,15 @@ def test_create_message_fast_prefix_detection(client, mock_settings):
         "messages": [{"role": "user", "content": "What is the prefix?"}],
     }
 
-    with patch("api.routes.is_prefix_detection_request", return_value=(True, "/ask")):
-        response = client.post("/v1/messages", json=payload)
+    with patch(
+        "api.optimization_handlers.is_prefix_detection_request",
+        return_value=(True, "/ask"),
+    ):
+        with patch(
+            "api.optimization_handlers.extract_command_prefix",
+            return_value="/ask",
+        ):
+            response = client.post("/v1/messages", json=payload)
 
     assert response.status_code == 200
     data = response.json()
@@ -48,7 +55,9 @@ def test_create_message_quota_check_mock(client, mock_settings):
         "messages": [{"role": "user", "content": "quota check"}],
     }
 
-    with patch("api.routes.is_quota_check_request", return_value=True):
+    with patch(
+        "api.optimization_handlers.is_quota_check_request", return_value=True
+    ):
         response = client.post("/v1/messages", json=payload)
 
     assert response.status_code == 200
@@ -66,7 +75,9 @@ def test_create_message_title_generation_skip(client, mock_settings):
         "messages": [{"role": "user", "content": "generate title"}],
     }
 
-    with patch("api.routes.is_title_generation_request", return_value=True):
+    with patch(
+        "api.optimization_handlers.is_title_generation_request", return_value=True
+    ):
         response = client.post("/v1/messages", json=payload)
 
     assert response.status_code == 200

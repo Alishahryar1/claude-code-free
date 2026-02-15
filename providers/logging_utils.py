@@ -14,11 +14,6 @@ from utils.text import extract_text_from_content
 logger = logging.getLogger(__name__)
 
 
-def _extract_text_from_content(content: Any) -> str:
-    """Backward-compatible wrapper for tests and legacy imports."""
-    return extract_text_from_content(content)
-
-
 def generate_request_fingerprint(messages: List[Any]) -> str:
     """Generate unique short hash for message content.
 

@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import dataclass
-from typing import Optional, Tuple, Iterator, Any
+from typing import Optional, Tuple, Iterator
 from enum import Enum
 
 
@@ -183,25 +183,3 @@ def extract_think_content(text: str) -> Tuple[Optional[str], str]:
         return thinking, remaining
 
     return None, text
-
-
-def extract_reasoning_from_delta(delta: Any) -> Optional[str]:
-    """
-    Extract reasoning content from an OpenAI delta object.
-
-    Checks both 'reasoning_content' and 'reasoning_details' fields.
-    """
-    if isinstance(delta, dict):
-        reasoning = delta.get("reasoning_content")
-        if reasoning:
-            return reasoning
-
-        reasoning_details = delta.get("reasoning_details")
-        if reasoning_details and isinstance(reasoning_details, list):
-            return "".join(
-                item.get("text", "")
-                for item in reasoning_details
-                if isinstance(item, dict)
-            )
-
-    return None

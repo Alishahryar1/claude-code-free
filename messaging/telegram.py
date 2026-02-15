@@ -16,16 +16,9 @@ from typing import Callable, Awaitable, Optional, Any
 
 from .base import MessagingPlatform
 from .models import IncomingMessage
+from .telegram_markdown import escape_md_v2
 
 logger = logging.getLogger(__name__)
-
-# Telegram MarkdownV2 escaping for inline strings.
-MDV2_SPECIAL_CHARS = set("\\_*[]()~`>#+-=|{}.!")
-
-
-def escape_md_v2(text: str) -> str:
-    return "".join(f"\\{ch}" if ch in MDV2_SPECIAL_CHARS else ch for ch in text)
-
 
 # Optional import - python-telegram-bot may not be installed
 try:

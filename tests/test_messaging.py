@@ -359,7 +359,7 @@ class TestTreeQueueManager:
         from messaging.tree_queue import TreeQueueManager
 
         mgr = TreeQueueManager()
-        assert mgr._trees == {}
+        assert mgr.get_tree_count() == 0
 
     def test_tree_not_busy_initially(self):
         """Test tree is not busy when no messages."""

@@ -6,7 +6,6 @@ from .think_parser import (
     ContentType,
     ContentChunk,
     extract_think_content,
-    extract_reasoning_from_delta,
 )
 from .heuristic_tool_parser import HeuristicToolParser
 from .message_converter import (
@@ -24,7 +23,6 @@ __all__ = [
     "ContentType",
     "ContentChunk",
     "extract_think_content",
-    "extract_reasoning_from_delta",
     "AnthropicToOpenAIConverter",
     "get_block_attr",
     "get_block_type",

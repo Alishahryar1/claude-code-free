@@ -3,12 +3,11 @@
 import pytest
 from unittest.mock import MagicMock
 
-from api.request_utils import extract_text_from_content
-from providers.logging_utils import _extract_text_from_content as logging_extract
+from utils.text import extract_text_from_content
 
 
 class TestExtractTextFromContent:
-    """Tests for api.request_utils.extract_text_from_content."""
+    """Tests for utils.text.extract_text_from_content."""
 
     def test_string_content(self):
         """Return string content as-is."""
@@ -73,26 +72,6 @@ class TestExtractTextFromContent:
         assert extract_text_from_content([b1, b2]) == "valid"
 
 
-class TestLoggingExtractText:
-    """Tests for providers.logging_utils._extract_text_from_content.
-
-    Verifies the local helper in logging_utils behaves the same.
-    """
-
-    def test_string_content(self):
-        assert logging_extract("hello") == "hello"
-
-    def test_list_content(self):
-        b = MagicMock()
-        b.text = "test"
-        assert logging_extract([b]) == "test"
-
-    def test_empty_inputs(self):
-        assert logging_extract("") == ""
-        assert logging_extract([]) == ""
-        assert logging_extract(None) == ""
-
-
 # --- Parametrized Edge Case Tests ---
 
 
@@ -119,21 +98,11 @@ def test_extract_text_scalar_and_empty_parametrized(content, expected):
     assert extract_text_from_content(content) == expected
 
 
-@pytest.mark.parametrize(
-    "func",
-    [extract_text_from_content, logging_extract],
-    ids=["request_utils", "logging_utils"],
-)
-def test_both_extract_functions_whitespace_only(func):
-    """Both extract functions handle whitespace-only string identically."""
-    assert func("   ") == "   "
+def test_extract_functions_whitespace_only():
+    """extract_text_from_content handles whitespace-only string."""
+    assert extract_text_from_content("   ") == "   "
 
 
-@pytest.mark.parametrize(
-    "func",
-    [extract_text_from_content, logging_extract],
-    ids=["request_utils", "logging_utils"],
-)
-def test_both_extract_functions_unicode(func):
-    """Both extract functions handle unicode content."""
-    assert func("日本語テスト") == "日本語テスト"
+def test_extract_functions_unicode():
+    """extract_text_from_content handles unicode content."""
+    assert extract_text_from_content("日本語テスト") == "日本語テスト"

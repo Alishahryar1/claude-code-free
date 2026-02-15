@@ -120,6 +120,9 @@ class MessageTree:
         """
         self.root_id = root_node.node_id
         self._nodes: Dict[str, MessageNode] = {root_node.node_id: root_node}
+        self._status_to_node: Dict[str, str] = {
+            root_node.status_message_id: root_node.node_id
+        }
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._lock = asyncio.Lock()
         self._is_processing = False
@@ -165,6 +168,7 @@ class MessageTree:
             )
 
             self._nodes[node_id] = node
+            self._status_to_node[status_message_id] = node_id
             self._nodes[parent_id].children_ids.append(node_id)
 
             logger.debug(f"Added node {node_id} as child of {parent_id}")
@@ -265,15 +269,42 @@ class MessageTree:
         """Get number of messages waiting in queue."""
         return self._queue.qsize()
 
-    def get_queue_position(self, node_id: str) -> int:
-        """
-        Get position of a node in the queue.
+    def cancel_current_task(self) -> bool:
+        """Cancel the currently running task. Returns True if a task was cancelled."""
+        if self._current_task and not self._current_task.done():
+            self._current_task.cancel()
+            return True
+        return False
 
-        Returns 0 if not in queue, 1+ for queue position.
+    def drain_queue_and_mark_cancelled(
+        self, error_message: str = "Cancelled by user"
+    ) -> List["MessageNode"]:
         """
-        # Note: asyncio.Queue doesn't support direct iteration
-        # This is an approximation based on order
-        return 0  # TODO: Track positions separately if needed
+        Drain the queue, mark each node as ERROR, and return affected nodes.
+        Does not acquire lock; caller must ensure no concurrent queue access.
+        """
+        nodes: List[MessageNode] = []
+        while True:
+            try:
+                node_id = self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            node = self._nodes.get(node_id)
+            if node:
+                node.state = MessageState.ERROR
+                node.error_message = error_message
+                nodes.append(node)
+        return nodes
+
+    def reset_processing_state(self) -> None:
+        """Reset processing flags after cancel/cleanup."""
+        self._is_processing = False
+        self._current_node_id = None
+
+    @property
+    def current_node_id(self) -> Optional[str]:
+        """Get the ID of the node currently being processed."""
+        return self._current_node_id
 
     def to_dict(self) -> dict:
         """Serialize tree to dictionary."""
@@ -292,10 +323,12 @@ class MessageTree:
         root_node = MessageNode.from_dict(nodes_data[root_id])
         tree = cls(root_node)
 
-        # Add remaining nodes
+        # Add remaining nodes and build status->node index
         for node_id, node_data in nodes_data.items():
             if node_id != root_id:
-                tree._nodes[node_id] = MessageNode.from_dict(node_data)
+                node = MessageNode.from_dict(node_data)
+                tree._nodes[node_id] = node
+                tree._status_to_node[node.status_message_id] = node_id
 
         return tree
 
@@ -308,8 +341,6 @@ class MessageTree:
         return node_id in self._nodes
 
     def find_node_by_status_message(self, status_msg_id: str) -> Optional[MessageNode]:
-        """Find the node that has this status message ID."""
-        for node in self._nodes.values():
-            if node.status_message_id == status_msg_id:
-                return node
-        return None
+        """Find the node that has this status message ID (O(1) lookup)."""
+        node_id = self._status_to_node.get(status_msg_id)
+        return self._nodes.get(node_id) if node_id else None

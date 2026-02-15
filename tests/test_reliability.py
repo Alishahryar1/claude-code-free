@@ -2,7 +2,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from messaging.telegram import TelegramPlatform
 from telegram.error import NetworkError, RetryAfter, TelegramError
-from messaging.handler import ClaudeMessageHandler, format_status
+from messaging.handler import ClaudeMessageHandler
+from messaging.telegram_markdown import format_status
 
 
 @pytest.fixture
@@ -76,8 +77,7 @@ async def test_telegram_no_retry_on_bad_request(telegram_platform):
 def test_handler_build_message_hardening():
     # Formatting hardening now lives in TranscriptBuffer rendering.
     from messaging.transcript import TranscriptBuffer, RenderCtx
-
-    from messaging.handler import (
+    from messaging.telegram_markdown import (
         escape_md_v2,
         escape_md_v2_code,
         mdv2_bold,

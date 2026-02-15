@@ -21,6 +21,9 @@ async def test_task_tool_interception():
     sse.blocks.tool_indices = {}
     sse.blocks.tool_names = {}
     sse.blocks.tool_started = {}
+    sse.blocks.task_arg_buffer = {}
+    sse.blocks.task_args_emitted = {}
+    sse.blocks.tool_ids = {}
 
     # Tool call data (Task tool)
     tc = {
