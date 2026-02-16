@@ -393,7 +393,7 @@ Contributions are welcome! Here are some ways to help:
 # Fork the repo, then:
 git checkout -b my-feature
 # Make your changes
-uv run pytest && uv run ty check
+uv run pytest && uv run ty check && uv run ruff check && uv run ruff format --check
 # Open a pull request
 ```
 
