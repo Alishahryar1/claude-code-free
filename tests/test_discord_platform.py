@@ -49,9 +49,8 @@ class TestDiscordPlatform:
 
     def test_empty_allowed_channels_rejects_all_messages(self):
         """When allowed_channel_ids is empty, no channels are allowed (secure default)."""
-        platform = DiscordPlatform(
-            bot_token="token", allowed_channel_ids=""
-        )
+        with patch.dict("os.environ", {"ALLOWED_DISCORD_CHANNELS": ""}, clear=False):
+            platform = DiscordPlatform(bot_token="token", allowed_channel_ids="")
         assert platform.allowed_channel_ids == set()
         # Empty set means: not self.allowed_channel_ids is True -> reject
 
@@ -74,10 +73,11 @@ class TestDiscordPlatform:
         mock_msg.id = 999
         mock_channel = AsyncMock()
         mock_channel.send = AsyncMock(return_value=mock_msg)
-        platform._client.get_channel = MagicMock(return_value=mock_channel)  # type: ignore[method-assign]
         platform._connected = True
-
-        msg_id = await platform.send_message("123", "Hello")
+        with patch.object(
+            platform._client, "get_channel", MagicMock(return_value=mock_channel)
+        ):
+            msg_id = await platform.send_message("123", "Hello")
         assert msg_id == "999"
 
     @pytest.mark.asyncio
@@ -86,8 +86,9 @@ class TestDiscordPlatform:
         mock_msg = AsyncMock()
         mock_channel = AsyncMock()
         mock_channel.fetch_message = AsyncMock(return_value=mock_msg)
-        platform._client.get_channel = MagicMock(return_value=mock_channel)  # type: ignore[method-assign]
         platform._connected = True
-
-        await platform.edit_message("123", "456", "Updated text")
+        with patch.object(
+            platform._client, "get_channel", MagicMock(return_value=mock_channel)
+        ):
+            await platform.edit_message("123", "456", "Updated text")
         mock_msg.edit.assert_called_once_with(content="Updated text")

@@ -6,7 +6,7 @@ Implements MessagingPlatform for Discord using discord.py.
 
 import asyncio
 import os
-from typing import Callable, Awaitable, Optional, Any, Set
+from typing import Callable, Awaitable, Optional, Any, Set, cast
 
 from loguru import logger
 
@@ -14,15 +14,25 @@ from .base import MessagingPlatform
 from .models import IncomingMessage
 from .discord_markdown import format_status_discord
 
+_discord_module: Any = None
 try:
-    import discord
+    import discord as _discord_import
 
+    _discord_module = _discord_import
     DISCORD_AVAILABLE = True
 except ImportError:
-    discord = None  # type: ignore
     DISCORD_AVAILABLE = False
 
 DISCORD_MESSAGE_LIMIT = 2000
+
+
+def _get_discord() -> Any:
+    """Return the discord module. Raises if not available."""
+    if not DISCORD_AVAILABLE or _discord_module is None:
+        raise ImportError(
+            "discord.py is required. Install with: pip install discord.py"
+        )
+    return _discord_module
 
 
 def _parse_allowed_channels(raw: Optional[str]) -> Set[str]:
@@ -32,15 +42,16 @@ def _parse_allowed_channels(raw: Optional[str]) -> Set[str]:
     return {s.strip() for s in raw.split(",") if s.strip()}
 
 
-if DISCORD_AVAILABLE and discord is not None:
+if DISCORD_AVAILABLE and _discord_module is not None:
+    _discord = _discord_module
 
-    class _DiscordClient(discord.Client):
+    class _DiscordClient(_discord.Client):
         """Internal Discord client that forwards events to DiscordPlatform."""
 
         def __init__(
             self,
             platform: "DiscordPlatform",
-            intents: discord.Intents,
+            intents: _discord.Intents,
         ) -> None:
             super().__init__(intents=intents)
             self._platform = platform
@@ -84,10 +95,12 @@ class DiscordPlatform(MessagingPlatform):
         if not self.bot_token:
             logger.warning("DISCORD_BOT_TOKEN not set")
 
+        discord = _get_discord()
         intents = discord.Intents.default()
         intents.message_content = True
 
-        self._client = _DiscordClient(self, intents)  # type: ignore[misc]
+        assert _DiscordClient is not None
+        self._client = _DiscordClient(self, intents)
         self._message_handler: Optional[
             Callable[[IncomingMessage], Awaitable[None]]
         ] = None
@@ -217,15 +230,17 @@ class DiscordPlatform(MessagingPlatform):
             raise RuntimeError(f"Channel {chat_id} not found")
 
         text = self._truncate(text)
+        channel = cast(Any, channel)
 
+        discord = _get_discord()
         if reply_to:
             ref = discord.MessageReference(
                 message_id=int(reply_to),
                 channel_id=int(chat_id),
             )
-            msg = await channel.send(content=text, reference=ref)  # type: ignore[union-attr]
+            msg = await channel.send(content=text, reference=ref)
         else:
-            msg = await channel.send(content=text)  # type: ignore[union-attr]
+            msg = await channel.send(content=text)
 
         return str(msg.id)
 
@@ -241,8 +256,10 @@ class DiscordPlatform(MessagingPlatform):
         if not channel or not hasattr(channel, "fetch_message"):
             raise RuntimeError(f"Channel {chat_id} not found")
 
+        discord = _get_discord()
+        channel = cast(Any, channel)
         try:
-            msg = await channel.fetch_message(int(message_id))  # type: ignore[union-attr]
+            msg = await channel.fetch_message(int(message_id))
         except discord.NotFound:
             return
 
@@ -259,8 +276,10 @@ class DiscordPlatform(MessagingPlatform):
         if not channel or not hasattr(channel, "fetch_message"):
             return
 
+        discord = _get_discord()
+        channel = cast(Any, channel)
         try:
-            msg = await channel.fetch_message(int(message_id))  # type: ignore[union-attr]
+            msg = await channel.fetch_message(int(message_id))
             await msg.delete()
         except discord.NotFound, discord.Forbidden:
             pass
