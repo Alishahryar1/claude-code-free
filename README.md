@@ -71,7 +71,7 @@ Choose your provider and edit `.env`:
 ```dotenv
 PROVIDER_TYPE=nvidia_nim
 NVIDIA_NIM_API_KEY=nvapi-your-key-here
-MODEL=moonshotai/kimi-k2-thinking
+MODEL=stepfun-ai/step-3.5-flash
 ```
 
 </details>
@@ -245,7 +245,6 @@ Get a token from [@BotFather](https://t.me/BotFather); find your user ID via [@u
 Full list in [`nvidia_nim_models.json`](nvidia_nim_models.json).
 
 Popular models:
-- `moonshotai/kimi-k2-thinking`
 - `z-ai/glm5`
 - `stepfun-ai/step-3.5-flash`
 - `moonshotai/kimi-k2.5`
@@ -266,10 +265,10 @@ curl "https://integrate.api.nvidia.com/v1/models" > nvidia_nim_models.json
 
 Hundreds of models from StepFun, OpenAI, Anthropic, Google, and more.
 
-Examples:
+Popular models:
 - `stepfun/step-3.5-flash:free`
-- `openai/gpt-4o-mini`
-- `anthropic/claude-3.5-sonnet`
+- `deepseek/deepseek-r1-0528:free`
+- `openai/gpt-oss-120b:free`
 
 Browse: [openrouter.ai/models](https://openrouter.ai/models)
 
