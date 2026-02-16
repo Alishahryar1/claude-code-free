@@ -41,7 +41,7 @@ jobs:
       - name: Lint check
         run: uv run ruff format --check
 
-      - name: Format check
+      - name: Style check
         run: uv run ruff check
 
       - name: Type check
