@@ -107,6 +107,152 @@ def test_transcript_subagent_closes_on_whitespace_tool_ids():
     assert "\n  🤖 *Subagent:* `Next`" not in out
 
 
+def test_transcript_subagent_closes_on_task_result_id_suffix_match():
+    t = TranscriptBuffer()
+    t.apply(
+        {
+            "type": "tool_use",
+            "id": "task_1",
+            "name": "Task",
+            "input": {"description": "Outer"},
+        }
+    )
+    t.apply({"type": "tool_result", "tool_use_id": "task_1_result", "content": "done"})
+    t.apply(
+        {
+            "type": "tool_use",
+            "id": "task_2",
+            "name": "Task",
+            "input": {"description": "Next"},
+        }
+    )
+
+    out = t.render(_ctx(), limit_chars=3900, status=None)
+    assert out.count("Subagent:") == 2
+    assert "\n  🤖 *Subagent:* `Next`" not in out
+
+
+def test_transcript_unmatched_non_task_tool_result_does_not_pop_subagent():
+    t = TranscriptBuffer()
+    t.apply(
+        {
+            "type": "tool_use",
+            "id": "task_1",
+            "name": "Task",
+            "input": {"description": "Outer"},
+        }
+    )
+    t.apply({"type": "tool_result", "tool_use_id": "totally_unrelated", "content": "x"})
+
+    assert t._subagent_stack == ["task_1"]
+
+
+def test_transcript_sequential_tasks_mismatched_results_no_depth_drift():
+    t = TranscriptBuffer()
+    t.apply(
+        {
+            "type": "tool_use",
+            "id": "task_1",
+            "name": "Task",
+            "input": {"description": "A"},
+        }
+    )
+    t.apply({"type": "tool_result", "tool_use_id": "task_1_result", "content": "done"})
+    t.apply(
+        {
+            "type": "tool_use",
+            "id": "task_2",
+            "name": "Task",
+            "input": {"description": "B"},
+        }
+    )
+    t.apply({"type": "tool_result", "tool_use_id": "task_2_result", "content": "done"})
+    t.apply(
+        {
+            "type": "tool_use",
+            "id": "task_3",
+            "name": "Task",
+            "input": {"description": "C"},
+        }
+    )
+
+    out = t.render(_ctx(), limit_chars=3900, status=None)
+    assert "🤖 *Subagent:* `A`\n  🤖 *Subagent:* `B`" not in out
+    assert "\n  🤖 *Subagent:* `C`" not in out
+    assert t._subagent_stack == ["task_3"]
+
+
+def test_transcript_synthetic_task_start_closes_on_functions_task_result_id():
+    t = TranscriptBuffer()
+    t.apply(
+        {
+            "type": "tool_use_start",
+            "index": 0,
+            "id": "",
+            "name": "Task",
+            "input": {"description": "Outer"},
+        }
+    )
+    t.apply({"type": "tool_result", "tool_use_id": "functions.Task:0", "content": "x"})
+    t.apply(
+        {
+            "type": "tool_use_start",
+            "index": 1,
+            "id": "",
+            "name": "Task",
+            "input": {"description": "Next"},
+        }
+    )
+
+    out = t.render(_ctx(), limit_chars=3900, status=None)
+    assert out.count("Subagent:") == 2
+    assert "\n  🤖 *Subagent:* `Next`" not in out
+
+
+def test_transcript_synthetic_task_not_closed_by_unknown_non_task_result_id():
+    t = TranscriptBuffer()
+    t.apply(
+        {
+            "type": "tool_use_start",
+            "index": 0,
+            "id": "",
+            "name": "Task",
+            "input": {"description": "Outer"},
+        }
+    )
+    t.apply({"type": "tool_result", "tool_use_id": "call_deadbeef", "content": "x"})
+
+    assert t._subagent_stack == ["__task_1"]
+
+
+def test_transcript_overlapping_tasks_are_flat_not_nested():
+    t = TranscriptBuffer()
+    t.apply(
+        {
+            "type": "tool_use",
+            "id": "task_a",
+            "name": "Task",
+            "input": {"description": "A"},
+        }
+    )
+    t.apply(
+        {
+            "type": "tool_use",
+            "id": "task_b",
+            "name": "Task",
+            "input": {"description": "B"},
+        }
+    )
+    t.apply({"type": "tool_result", "tool_use_id": "task_b", "content": "done"})
+    t.apply({"type": "tool_result", "tool_use_id": "task_a", "content": "done"})
+
+    out = t.render(_ctx(), limit_chars=3900, status=None)
+    assert "🤖 *Subagent:* `A`" in out
+    assert "🤖 *Subagent:* `B`" in out
+    assert out.find("🤖 *Subagent:* `A`") < out.find("🤖 *Subagent:* `B`")
+    assert "\n  🤖 *Subagent:* `B`" not in out
+
+
 def test_transcript_truncates_by_dropping_oldest_segments():
     t = TranscriptBuffer()
 
