@@ -137,9 +137,9 @@ class DiscordPlatform(MessagingPlatform):
         if not self._message_handler:
             return False
 
-        await self.queue_send_message(
+        status_msg_id = await self.queue_send_message(
             channel_id,
-            format_status_discord("Processing voice note..."),
+            format_status_discord("Transcribing voice note..."),
             reply_to=str(message.id),
             fire_and_forget=False,
         )
@@ -190,6 +190,7 @@ class DiscordPlatform(MessagingPlatform):
                 reply_to_message_id=reply_to,
                 username=message.author.display_name,
                 raw_event=message,
+                status_message_id=status_msg_id,
             )
 
             logger.info(

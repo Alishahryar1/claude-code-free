@@ -87,7 +87,7 @@ async def test_telegram_voice_success_invokes_handler(telegram_platform):
             whisper_model="base",
         )
 
-        mock_queue_send = AsyncMock()
+        mock_queue_send = AsyncMock(return_value="999")
         with (
             patch(
                 "config.settings.get_settings",
@@ -107,7 +107,7 @@ async def test_telegram_voice_success_invokes_handler(telegram_platform):
 
         mock_queue_send.assert_called_once()
         call_args, call_kw = mock_queue_send.call_args
-        assert "Processing voice note" in call_args[1]
+        assert "Transcribing voice note" in call_args[1]
         assert call_kw["reply_to"] == "42"
         assert call_kw["fire_and_forget"] is False
 
@@ -117,6 +117,7 @@ async def test_telegram_voice_success_invokes_handler(telegram_platform):
         assert incoming.chat_id == "6789"
         assert incoming.user_id == "12345"
         assert incoming.platform == "telegram"
+        assert incoming.status_message_id == "999"
     finally:
         tmp_path.unlink(missing_ok=True)
 

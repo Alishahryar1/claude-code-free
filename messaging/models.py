@@ -22,6 +22,8 @@ class IncomingMessage:
     # Optional fields
     reply_to_message_id: Optional[str] = None
     username: Optional[str] = None
+    # Pre-sent status message ID (e.g. "Transcribing voice note..."); handler edits in place
+    status_message_id: Optional[str] = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Platform-specific raw event for edge cases

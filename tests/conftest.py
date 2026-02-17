@@ -123,6 +123,7 @@ def incoming_message_factory():
             "username",
             "timestamp",
             "raw_event",
+            "status_message_id",
         }
     )
 

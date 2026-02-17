@@ -525,9 +525,9 @@ class TelegramPlatform(MessagingPlatform):
         if not self._message_handler:
             return
 
-        await self.queue_send_message(
+        status_msg_id = await self.queue_send_message(
             chat_id,
-            format_status("⏳", "Processing voice note..."),
+            format_status("⏳", "Transcribing voice note..."),
             reply_to=str(update.message.message_id),
             parse_mode="MarkdownV2",
             fire_and_forget=False,
@@ -573,6 +573,7 @@ class TelegramPlatform(MessagingPlatform):
                 platform="telegram",
                 reply_to_message_id=reply_to,
                 raw_event=update,
+                status_message_id=status_msg_id,
             )
 
             logger.info(

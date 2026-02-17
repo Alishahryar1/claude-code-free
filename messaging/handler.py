@@ -237,14 +237,24 @@ class ClaudeMessageHandler:
         # Generate node ID
         node_id = incoming.message_id
 
-        # Send initial status message
+        # Use pre-sent status (e.g. voice note) or send new
         status_text = self._get_initial_status(tree, parent_node_id)
-        status_msg_id = await self.platform.queue_send_message(
-            incoming.chat_id,
-            status_text,
-            reply_to=incoming.message_id,
-            fire_and_forget=False,
-        )
+        if incoming.status_message_id:
+            status_msg_id = incoming.status_message_id
+            await self.platform.queue_edit_message(
+                incoming.chat_id,
+                status_msg_id,
+                status_text,
+                parse_mode=self._parse_mode(),
+                fire_and_forget=False,
+            )
+        else:
+            status_msg_id = await self.platform.queue_send_message(
+                incoming.chat_id,
+                status_text,
+                reply_to=incoming.message_id,
+                fire_and_forget=False,
+            )
         self._record_outgoing_message(
             incoming.platform, incoming.chat_id, status_msg_id, "status"
         )
