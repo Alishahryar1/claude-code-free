@@ -11,13 +11,18 @@ import asyncio
 import os
 from typing import List, Optional, Tuple
 
-from .base import MessagingPlatform, SessionManagerInterface
+from .platforms.base import MessagingPlatform, SessionManagerInterface
 from .models import IncomingMessage
 from .session import SessionStore
-from .tree_queue import TreeQueueManager, MessageNode, MessageState, MessageTree
+from .trees.queue_manager import (
+    TreeQueueManager,
+    MessageNode,
+    MessageState,
+    MessageTree,
+)
 from .event_parser import parse_cli_event
 from .transcript import TranscriptBuffer, RenderCtx
-from .telegram_markdown import (
+from .rendering.telegram_markdown import (
     escape_md_v2,
     escape_md_v2_code,
     mdv2_bold,
@@ -25,7 +30,7 @@ from .telegram_markdown import (
     format_status as format_status_telegram,
     render_markdown_to_mdv2,
 )
-from .discord_markdown import (
+from .rendering.discord_markdown import (
     escape_discord,
     escape_discord_code,
     discord_bold,

@@ -11,9 +11,10 @@ class TestCreateMessagingPlatform:
     def test_telegram_with_token(self):
         """Create Telegram platform when bot_token is provided."""
         mock_platform = MagicMock()
-        with patch("messaging.telegram.TELEGRAM_AVAILABLE", True):
+        with patch("messaging.platforms.telegram.TELEGRAM_AVAILABLE", True):
             with patch(
-                "messaging.telegram.TelegramPlatform", return_value=mock_platform
+                "messaging.platforms.telegram.TelegramPlatform",
+                return_value=mock_platform,
             ):
                 result = create_messaging_platform(
                     "telegram",
@@ -36,8 +37,11 @@ class TestCreateMessagingPlatform:
     def test_discord_with_token(self):
         """Create Discord platform when discord_bot_token is provided."""
         mock_platform = MagicMock()
-        with patch("messaging.discord.DISCORD_AVAILABLE", True):
-            with patch("messaging.discord.DiscordPlatform", return_value=mock_platform):
+        with patch("messaging.platforms.discord.DISCORD_AVAILABLE", True):
+            with patch(
+                "messaging.platforms.discord.DiscordPlatform",
+                return_value=mock_platform,
+            ):
                 result = create_messaging_platform(
                     "discord",
                     discord_bot_token="test_token",
