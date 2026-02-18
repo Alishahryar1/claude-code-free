@@ -76,7 +76,8 @@ def transcribe_audio(
     Args:
         file_path: Path to audio file (OGG, MP3, MP4, WAV, M4A supported)
         mime_type: MIME type of the audio (e.g. "audio/ogg")
-        whisper_model: Model size: "tiny", "base", "small", "medium", "large-v2"
+        whisper_model: Model: "tiny", "base", "small", "medium", "large-v2",
+            "large-v3", "large-v3-turbo" (or HF ID e.g. Systran/faster-whisper-large-v3-turbo)
         whisper_device: "cpu" | "cuda" | "auto" (auto = try GPU, fall back to CPU)
 
     Returns:

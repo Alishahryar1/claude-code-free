@@ -84,7 +84,7 @@ async def test_telegram_voice_success_invokes_handler(telegram_platform):
 
         mock_settings = MagicMock(
             voice_note_enabled=True,
-            whisper_model="base",
+            whisper_model="large-v3-turbo",
         )
 
         mock_queue_send = AsyncMock(return_value="999")

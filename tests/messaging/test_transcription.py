@@ -45,7 +45,7 @@ def test_transcribe_local_success():
             "messaging.transcription._get_local_model",
             return_value=mock_model,
         ):
-            result = transcribe_audio(path, "audio/ogg", whisper_model="base")
+            result = transcribe_audio(path, "audio/ogg", whisper_model="large-v3-turbo")
 
         assert result == "Hello world"
         mock_model.transcribe.assert_called_once()
@@ -66,7 +66,7 @@ def test_transcribe_local_empty_segments_returns_no_speech():
             "messaging.transcription._get_local_model",
             return_value=mock_model,
         ):
-            result = transcribe_audio(path, "audio/ogg", whisper_model="base")
+            result = transcribe_audio(path, "audio/ogg", whisper_model="large-v3-turbo")
 
         assert result == "(no speech detected)"
     finally:
