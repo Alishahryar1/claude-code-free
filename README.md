@@ -111,7 +111,7 @@ ANTHROPIC_AUTH_TOKEN=freecc ANTHROPIC_BASE_URL=http://localhost:8082 claude
 That's it! Claude Code now uses your configured provider for free.
 
 <details>
-<summary><b>Model Picker</b></summary>
+<summary><b>Multi-Model Support (Model Picker)</b></summary>
 
 `claude-pick` is an interactive model selector that lets you choose any model from your active provider each time you launch Claude — no need to edit `MODEL` in `.env` every time you want to switch.
 
