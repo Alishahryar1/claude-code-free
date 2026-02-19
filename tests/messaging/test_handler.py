@@ -70,6 +70,7 @@ async def test_handle_message_stop_command(
         incoming.chat_id,
         "⏹ *Stopped\\.* Cancelled 5 pending or active requests\\.",
         fire_and_forget=False,
+        message_thread_id=None,
     )
 
 
@@ -106,6 +107,7 @@ async def test_handle_message_stop_command_reply_stops_only_target_node(
         incoming.chat_id,
         "⏹ *Stopped\\.* Cancelled 1 request\\.",
         fire_and_forget=False,
+        message_thread_id=None,
     )
 
 
@@ -129,6 +131,7 @@ async def test_handle_message_stop_command_reply_unknown_does_not_stop_all(
         incoming.chat_id,
         "⏹ *Stopped\\.* Nothing to stop for that message\\.",
         fire_and_forget=False,
+        message_thread_id=None,
     )
 
 
@@ -146,6 +149,7 @@ async def test_handle_message_stats_command(
     assert "Active CLI: 2" in args[1]
     assert "Max CLI: 5" in args[1]
     assert kwargs["fire_and_forget"] is False
+    assert kwargs.get("message_thread_id") is None
 
 
 @pytest.mark.asyncio

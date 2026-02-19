@@ -255,6 +255,7 @@ class ClaudeMessageHandler:
                 status_text,
                 reply_to=incoming.message_id,
                 fire_and_forget=False,
+                message_thread_id=incoming.message_thread_id,
             )
         self._record_outgoing_message(
             incoming.platform, incoming.chat_id, status_msg_id, "status"
@@ -766,6 +767,7 @@ class ClaudeMessageHandler:
                         "⏹", "Stopped.", "Nothing to stop for that message."
                     ),
                     fire_and_forget=False,
+                    message_thread_id=incoming.message_thread_id,
                 )
                 self._record_outgoing_message(
                     incoming.platform, incoming.chat_id, msg_id, "command"
@@ -778,6 +780,7 @@ class ClaudeMessageHandler:
                 incoming.chat_id,
                 self._format_status("⏹", "Stopped.", f"Cancelled {count} {noun}."),
                 fire_and_forget=False,
+                message_thread_id=incoming.message_thread_id,
             )
             self._record_outgoing_message(
                 incoming.platform, incoming.chat_id, msg_id, "command"
@@ -792,6 +795,7 @@ class ClaudeMessageHandler:
                 "⏹", "Stopped.", f"Cancelled {count} pending or active requests."
             ),
             fire_and_forget=False,
+            message_thread_id=incoming.message_thread_id,
         )
         self._record_outgoing_message(
             incoming.platform, incoming.chat_id, msg_id, "command"
@@ -813,6 +817,7 @@ class ClaudeMessageHandler:
             + "\n"
             + ctx.escape_text(f"• Message Trees: {tree_count}"),
             fire_and_forget=False,
+            message_thread_id=incoming.message_thread_id,
         )
         self._record_outgoing_message(
             incoming.platform, incoming.chat_id, msg_id, "command"
@@ -938,6 +943,7 @@ class ClaudeMessageHandler:
                                 "🗑", "Cleared.", "Voice note cancelled."
                             ),
                             fire_and_forget=False,
+                            message_thread_id=incoming.message_thread_id,
                         )
                         self._record_outgoing_message(
                             incoming.platform, incoming.chat_id, msg_id, "command"
@@ -949,6 +955,7 @@ class ClaudeMessageHandler:
                         "🗑", "Cleared.", "Nothing to clear for that message."
                     ),
                     fire_and_forget=False,
+                    message_thread_id=incoming.message_thread_id,
                 )
                 self._record_outgoing_message(
                     incoming.platform, incoming.chat_id, msg_id, "command"

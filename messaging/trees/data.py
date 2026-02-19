@@ -81,6 +81,7 @@ class MessageNode:
                 "message_id": self.incoming.message_id,
                 "platform": self.incoming.platform,
                 "reply_to_message_id": self.incoming.reply_to_message_id,
+                "message_thread_id": self.incoming.message_thread_id,
                 "username": self.incoming.username,
             },
             "status_message_id": self.status_message_id,
@@ -106,6 +107,7 @@ class MessageNode:
             message_id=incoming_data["message_id"],
             platform=incoming_data["platform"],
             reply_to_message_id=incoming_data.get("reply_to_message_id"),
+            message_thread_id=incoming_data.get("message_thread_id"),
             username=incoming_data.get("username"),
         )
         return cls(

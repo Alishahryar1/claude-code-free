@@ -123,6 +123,7 @@ def incoming_message_factory():
             "message_id",
             "platform",
             "reply_to_message_id",
+            "message_thread_id",
             "username",
             "timestamp",
             "raw_event",

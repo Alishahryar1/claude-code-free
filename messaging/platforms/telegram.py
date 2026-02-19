@@ -264,6 +264,7 @@ class TelegramPlatform(MessagingPlatform):
         text: str,
         reply_to: str | None = None,
         parse_mode: str | None = "MarkdownV2",
+        message_thread_id: str | None = None,
     ) -> str:
         """Send a message to a chat."""
         app = self._application
@@ -272,12 +273,15 @@ class TelegramPlatform(MessagingPlatform):
 
         async def _do_send(parse_mode=parse_mode):
             bot = app.bot
-            msg = await bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                reply_to_message_id=int(reply_to) if reply_to else None,
-                parse_mode=parse_mode,
-            )
+            kwargs: dict[str, Any] = {
+                "chat_id": chat_id,
+                "text": text,
+                "reply_to_message_id": int(reply_to) if reply_to else None,
+                "parse_mode": parse_mode,
+            }
+            if message_thread_id is not None:
+                kwargs["message_thread_id"] = int(message_thread_id)
+            msg = await bot.send_message(**kwargs)
             return str(msg.message_id)
 
         return await self._with_retry(_do_send, parse_mode=parse_mode)
@@ -358,14 +362,19 @@ class TelegramPlatform(MessagingPlatform):
         reply_to: str | None = None,
         parse_mode: str | None = "MarkdownV2",
         fire_and_forget: bool = True,
+        message_thread_id: str | None = None,
     ) -> str | None:
         """Enqueue a message to be sent (using limiter)."""
         # Note: Bot API handles limits better, but we still use our limiter for nice queuing
         if not self._limiter:
-            return await self.send_message(chat_id, text, reply_to, parse_mode)
+            return await self.send_message(
+                chat_id, text, reply_to, parse_mode, message_thread_id
+            )
 
         async def _send():
-            return await self.send_message(chat_id, text, reply_to, parse_mode)
+            return await self.send_message(
+                chat_id, text, reply_to, parse_mode, message_thread_id
+            )
 
         if fire_and_forget:
             self._limiter.fire_and_forget(_send)
@@ -490,6 +499,11 @@ class TelegramPlatform(MessagingPlatform):
             if update.message.reply_to_message
             else None
         )
+        thread_id = (
+            str(update.message.message_thread_id)
+            if getattr(update.message, "message_thread_id", None) is not None
+            else None
+        )
         text_preview = (update.message.text or "")[:80]
         if len(update.message.text or "") > 80:
             text_preview += "..."
@@ -511,6 +525,7 @@ class TelegramPlatform(MessagingPlatform):
             message_id=message_id,
             platform="telegram",
             reply_to_message_id=reply_to,
+            message_thread_id=thread_id,
             raw_event=update,
         )
 
@@ -523,6 +538,7 @@ class TelegramPlatform(MessagingPlatform):
                     chat_id,
                     f"❌ *{escape_md_v2('Error:')}* {escape_md_v2(str(e)[:200])}",
                     reply_to=incoming.message_id,
+                    message_thread_id=thread_id,
                     parse_mode="MarkdownV2",
                 )
 
@@ -555,12 +571,18 @@ class TelegramPlatform(MessagingPlatform):
         if not self._message_handler:
             return
 
+        thread_id = (
+            str(update.message.message_thread_id)
+            if getattr(update.message, "message_thread_id", None) is not None
+            else None
+        )
         status_msg_id = await self.queue_send_message(
             chat_id,
             format_status("⏳", "Transcribing voice note..."),
             reply_to=str(update.message.message_id),
             parse_mode="MarkdownV2",
             fire_and_forget=False,
+            message_thread_id=thread_id,
         )
 
         message_id = str(update.message.message_id)
@@ -610,6 +632,7 @@ class TelegramPlatform(MessagingPlatform):
                 message_id=message_id,
                 platform="telegram",
                 reply_to_message_id=reply_to,
+                message_thread_id=thread_id,
                 raw_event=update,
                 status_message_id=status_msg_id,
             )

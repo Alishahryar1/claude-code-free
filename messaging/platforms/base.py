@@ -91,6 +91,7 @@ class MessagingPlatform(ABC):
         text: str,
         reply_to: str | None = None,
         parse_mode: str | None = None,
+        message_thread_id: str | None = None,
     ) -> str:
         """
         Send a message to a chat.
@@ -100,6 +101,7 @@ class MessagingPlatform(ABC):
             text: Message content
             reply_to: Optional message ID to reply to
             parse_mode: Optional formatting mode ("markdown", "html")
+            message_thread_id: Optional forum topic ID (Telegram)
 
         Returns:
             The message ID of the sent message
@@ -148,6 +150,7 @@ class MessagingPlatform(ABC):
         reply_to: str | None = None,
         parse_mode: str | None = None,
         fire_and_forget: bool = True,
+        message_thread_id: str | None = None,
     ) -> str | None:
         """
         Enqueue a message to be sent.

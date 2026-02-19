@@ -21,6 +21,8 @@ class IncomingMessage:
 
     # Optional fields
     reply_to_message_id: str | None = None
+    # Forum topic ID (Telegram); required when replying in forum supergroups
+    message_thread_id: str | None = None
     username: str | None = None
     # Pre-sent status message ID (e.g. "Transcribing voice note..."); handler edits in place
     status_message_id: str | None = None

@@ -376,6 +376,7 @@ class DiscordPlatform(MessagingPlatform):
         text: str,
         reply_to: str | None = None,
         parse_mode: str | None = None,
+        message_thread_id: str | None = None,
     ) -> str:
         """Send a message to a channel."""
         channel = self._client.get_channel(int(chat_id))
@@ -449,13 +450,18 @@ class DiscordPlatform(MessagingPlatform):
         reply_to: str | None = None,
         parse_mode: str | None = None,
         fire_and_forget: bool = True,
+        message_thread_id: str | None = None,
     ) -> str | None:
         """Enqueue a message to be sent."""
         if not self._limiter:
-            return await self.send_message(chat_id, text, reply_to, parse_mode)
+            return await self.send_message(
+                chat_id, text, reply_to, parse_mode, message_thread_id
+            )
 
         async def _send():
-            return await self.send_message(chat_id, text, reply_to, parse_mode)
+            return await self.send_message(
+                chat_id, text, reply_to, parse_mode, message_thread_id
+            )
 
         if fire_and_forget:
             self._limiter.fire_and_forget(_send)
