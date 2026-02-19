@@ -326,3 +326,18 @@ def test_transcript_render_status_only_exceeds_limit():
     long_status = "A" * 500
     msg = t.render(_ctx(), limit_chars=100, status=long_status)
     assert "... (truncated)" in msg or long_status in msg
+
+
+def test_transcript_truncation_preserves_last_segment_tail():
+    """When all segments exceed limit, preserve tail of last segment (not just marker+status)."""
+    t = TranscriptBuffer()
+    t.apply({"type": "thinking_chunk", "text": "Thinking..."})
+    t.apply(
+        {"type": "text_chunk", "text": "The actual output content here" + "x" * 500}
+    )
+
+    msg = t.render(_ctx(), limit_chars=100, status="✅ *Complete*")
+    # Must include actual content (tail of last segment), not only "... (truncated)\n✅ *Complete*"
+    assert escape_md_v2("... (truncated)") in msg
+    assert "✅ *Complete*" in msg
+    assert "actual output" in msg or "content" in msg or "x" in msg
