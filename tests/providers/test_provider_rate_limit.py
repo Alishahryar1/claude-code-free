@@ -260,19 +260,6 @@ class TestProviderRateLimiter:
             GlobalRateLimiter(rate_limit=10, rate_window=60, max_concurrency=0)
 
     @pytest.mark.asyncio
-    async def test_concurrency_slot_noop_when_not_configured(self):
-        """concurrency_slot() is a no-op when max_concurrency is None."""
-        GlobalRateLimiter.reset_instance()
-        limiter = GlobalRateLimiter.get_instance(rate_limit=100, rate_window=60)
-        assert limiter._concurrency_sem is None
-
-        # Should not block and complete immediately
-        entered = False
-        async with limiter.concurrency_slot():
-            entered = True
-        assert entered
-
-    @pytest.mark.asyncio
     async def test_concurrency_slot_limits_simultaneous_streams(self):
         """At most max_concurrency streams can hold a slot simultaneously."""
         GlobalRateLimiter.reset_instance()

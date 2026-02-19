@@ -34,7 +34,7 @@ class GlobalRateLimiter:
         self,
         rate_limit: int = 40,
         rate_window: float = 60.0,
-        max_concurrency: int | None = None,
+        max_concurrency: int = 5,
     ):
         # Prevent double initialization in singleton
         if hasattr(self, "_initialized"):
@@ -44,7 +44,7 @@ class GlobalRateLimiter:
             raise ValueError("rate_limit must be > 0")
         if rate_window <= 0:
             raise ValueError("rate_window must be > 0")
-        if max_concurrency is not None and max_concurrency <= 0:
+        if max_concurrency <= 0:
             raise ValueError("max_concurrency must be > 0")
 
         self._rate_limit = rate_limit
@@ -53,18 +53,11 @@ class GlobalRateLimiter:
         self._request_times: deque[float] = deque()
         self._blocked_until: float = 0
         self._lock = asyncio.Lock()
-        self._concurrency_sem: asyncio.Semaphore | None = (
-            asyncio.Semaphore(max_concurrency) if max_concurrency is not None else None
-        )
+        self._concurrency_sem = asyncio.Semaphore(max_concurrency)
         self._initialized = True
 
-        concurrency_info = (
-            f", max_concurrency={max_concurrency}"
-            if max_concurrency is not None
-            else ""
-        )
         logger.info(
-            f"GlobalRateLimiter (Provider) initialized ({rate_limit} req / {rate_window}s{concurrency_info})"
+            f"GlobalRateLimiter (Provider) initialized ({rate_limit} req / {rate_window}s, max_concurrency={max_concurrency})"
         )
 
     @classmethod
@@ -72,7 +65,7 @@ class GlobalRateLimiter:
         cls,
         rate_limit: int | None = None,
         rate_window: float | None = None,
-        max_concurrency: int | None = None,
+        max_concurrency: int = 5,
     ) -> GlobalRateLimiter:
         """Get or create the singleton instance.
 
@@ -167,16 +160,13 @@ class GlobalRateLimiter:
     async def concurrency_slot(self) -> AsyncIterator[None]:
         """Async context manager that holds one concurrency slot for a stream.
 
-        Blocks until a slot is available when max_concurrency is set.
-        Is a no-op when max_concurrency was not configured.
+        Blocks until a slot is available (controlled by max_concurrency).
         """
-        if self._concurrency_sem is not None:
-            await self._concurrency_sem.acquire()
+        await self._concurrency_sem.acquire()
         try:
             yield
         finally:
-            if self._concurrency_sem is not None:
-                self._concurrency_sem.release()
+            self._concurrency_sem.release()
 
     async def execute_with_retry(
         self,

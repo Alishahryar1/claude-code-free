@@ -320,7 +320,7 @@ Browse: [model.lmstudio.ai](https://model.lmstudio.ai)
 | `LM_STUDIO_BASE_URL` | LM Studio server URL | `http://localhost:1234/v1` |
 | `PROVIDER_RATE_LIMIT` | LLM API requests per window | `40` |
 | `PROVIDER_RATE_WINDOW` | Rate limit window (seconds) | `60` |
-| `PROVIDER_MAX_CONCURRENCY` | Max simultaneous open provider streams (unset = unlimited) | — |
+| `PROVIDER_MAX_CONCURRENCY` | Max simultaneous open provider streams | `5` |
 | `HTTP_READ_TIMEOUT` | Read timeout for provider API requests (seconds) | `300` |
 | `HTTP_WRITE_TIMEOUT` | Write timeout for provider API requests (seconds) | `10` |
 | `HTTP_CONNECT_TIMEOUT` | Connect timeout for provider API requests (seconds) | `2` |
