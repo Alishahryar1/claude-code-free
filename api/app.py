@@ -188,6 +188,35 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Rebuild all Pydantic models BEFORE include_router.
+    # FastAPI creates TypeAdapter[Annotated[MessagesRequest, FieldInfo(...)]] during
+    # route registration — if the model is not fully built at that point, the TypeAdapter
+    # becomes a mock and raises PydanticUserError on every request (Python 3.14 + Pydantic 2.12).
+    from api.models.anthropic import (
+        ContentBlockImage,
+        ContentBlockText,
+        ContentBlockThinking,
+        ContentBlockToolResult,
+        ContentBlockToolUse,
+        Message,
+        MessagesRequest,
+        ThinkingConfig,
+        TokenCountRequest,
+    )
+
+    for _model in (
+        ThinkingConfig,
+        ContentBlockText,
+        ContentBlockImage,
+        ContentBlockToolUse,
+        ContentBlockToolResult,
+        ContentBlockThinking,
+        Message,
+        MessagesRequest,
+        TokenCountRequest,
+    ):
+        _model.model_rebuild(force=True)
+
     # Register routes
     app.include_router(router)
 

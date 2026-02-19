@@ -1,7 +1,7 @@
 """Pydantic models for Anthropic-compatible requests."""
 
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
 from loguru import logger
 from pydantic import BaseModel, field_validator, model_validator
@@ -22,13 +22,15 @@ class Role(StrEnum):
 
 class ContentBlockText(BaseModel):
     type: Literal["text"]
-    text: Optional[str] = None
+    text: str = ""
 
-    @field_validator("text", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def coerce_none_text(cls, v):
-        # Model sometimes returns text: null for empty blocks — treat as empty string
-        return v if v is not None else ""
+    def coerce_none_text(cls, data: Any) -> Any:
+        """Model sometimes returns text: null — treat as empty string."""
+        if isinstance(data, dict) and data.get("text") is None:
+            return {**data, "text": ""}
+        return data
 
 
 class ContentBlockImage(BaseModel):
@@ -52,7 +54,7 @@ class ContentBlockToolResult(BaseModel):
 class ContentBlockThinking(BaseModel):
     type: Literal["thinking"]
     thinking: str
-    signature: Optional[str] = None  # Claude sometimes includes this field
+    signature: str | None = None  # Claude sometimes includes this field
 
 
 class SystemContent(BaseModel):
@@ -87,7 +89,18 @@ class Tool(BaseModel):
 
 
 class ThinkingConfig(BaseModel):
+    """Supports both {enabled: true} and {type: "enabled"} formats."""
+
     enabled: bool = True
+    type: str | None = None  # Claude Code sends {"type": "enabled"}
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalise(cls, data: Any) -> Any:
+        """Accept {type: 'enabled'/'disabled'} as well as {enabled: bool}."""
+        if isinstance(data, dict) and "type" in data and "enabled" not in data:
+            return {**data, "enabled": data["type"] == "enabled"}
+        return data
 
 
 # =============================================================================
@@ -113,7 +126,7 @@ class MessagesRequest(BaseModel):
     original_model: str | None = None
 
     @model_validator(mode="after")
-    def map_model(self) -> MessagesRequest:
+    def map_model(self) -> Self:
         """Map any Claude model name to the configured model."""
         settings = get_settings()
         if self.original_model is None:
@@ -140,8 +153,14 @@ class TokenCountRequest(BaseModel):
 
     @field_validator("model")
     @classmethod
-    def validate_model_field(cls, v, info):
+    def validate_model_field(cls, v: str, info: Any) -> str:
         """Map any Claude model name to the configured model."""
         settings = get_settings()
-        # Use centralized model normalization
         return normalize_model_name(v, settings.model)
+
+
+# Force Pydantic to fully resolve all forward references.
+# force=True is required for Python 3.14 + Pydantic 2.12 compat —
+# without it the FastAPI TypeAdapter wrapper stays as a mock validator.
+MessagesRequest.model_rebuild(force=True)
+TokenCountRequest.model_rebuild(force=True)

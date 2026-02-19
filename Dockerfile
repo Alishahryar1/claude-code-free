@@ -1,8 +1,8 @@
 # ─── Build stage ─────────────────────────────────────────────────────────────
-FROM python:3.14-slim AS builder
+FROM python:3.14.3-slim AS builder
 
 # Install uv (fast Python package manager used by this project)
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.6.6 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
@@ -13,7 +13,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
 # ─── Runtime stage ────────────────────────────────────────────────────────────
-FROM python:3.14-slim AS runtime
+FROM python:3.14.3-slim AS runtime
 
 # Install Node.js (required for Claude Code CLI)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN npm install -g @anthropic-ai/claude-code
 
 # Copy uv binary
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.6.6 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
