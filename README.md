@@ -37,7 +37,7 @@ Get **40 free requests/min** on NVIDIA NIM, access **hundreds of models** on Ope
 | **Heuristic Tool Parser** | Models outputting tool calls as text are auto-parsed into structured tool use |
 | **Request Optimization** | 5 categories of trivial API calls intercepted locally — saves quota and latency |
 | **Discord Bot** | Remote autonomous coding with tree-based threading, session persistence, and live progress (Telegram also supported) |
-| **Smart Rate Limiting** | Proactive rolling-window throttle + reactive 429 exponential backoff across all providers |
+| **Smart Rate Limiting** | Proactive rolling-window throttle + reactive 429 exponential backoff + optional concurrency cap across all providers |
 | **Subagent Control** | Task tool interception forces `run_in_background=False` — no runaway subagents |
 | **Extensible** | Clean `BaseProvider` and `MessagingPlatform` ABCs — add new providers or platforms easily |
 
@@ -189,7 +189,7 @@ Control Claude Code remotely from Discord. Send tasks, watch live progress, and 
 - Tree-based message threading — reply to messages to fork conversations
 - Session persistence across server restarts
 - Live streaming of thinking tokens, tool calls, and results
-- Up to 10 concurrent Claude CLI sessions
+- Unlimited concurrent Claude CLI sessions (provider concurrency controlled by `PROVIDER_MAX_CONCURRENCY`)
 - **Voice notes** — send voice messages; they are transcribed to text and processed like regular prompts (see [Voice Notes](#voice-notes))
 - Commands: `/stop` (cancel tasks; reply to a message to stop only that task), `/clear` (standalone: reset all sessions; reply to a message to clear that branch downwards), `/stats`
 
@@ -320,6 +320,7 @@ Browse: [model.lmstudio.ai](https://model.lmstudio.ai)
 | `LM_STUDIO_BASE_URL` | LM Studio server URL | `http://localhost:1234/v1` |
 | `PROVIDER_RATE_LIMIT` | LLM API requests per window | `40` |
 | `PROVIDER_RATE_WINDOW` | Rate limit window (seconds) | `60` |
+| `PROVIDER_MAX_CONCURRENCY` | Max simultaneous open provider streams (unset = unlimited) | — |
 | `HTTP_READ_TIMEOUT` | Read timeout for provider API requests (seconds) | `300` |
 | `HTTP_WRITE_TIMEOUT` | Write timeout for provider API requests (seconds) | `10` |
 | `HTTP_CONNECT_TIMEOUT` | Connect timeout for provider API requests (seconds) | `2` |
@@ -340,7 +341,6 @@ Browse: [model.lmstudio.ai](https://model.lmstudio.ai)
 | `MESSAGING_RATE_WINDOW` | Messaging window (seconds) | `1` |
 | `CLAUDE_WORKSPACE` | Directory for agent workspace | `./agent_workspace` |
 | `ALLOWED_DIR` | Allowed directories for agent | `""` |
-| `MAX_CLI_SESSIONS` | Max concurrent CLI sessions | `10` |
 
 See [`.env.example`](.env.example) for all supported parameters.
 
