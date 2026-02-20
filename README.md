@@ -194,13 +194,13 @@ To switch back to Anthropic models, comment out the added block and reload exten
 | **OpenRouter** | Free / Paid | Varies | 200+ (GPT-4o, Claude, Step, etc.) | Model variety, fallback options |
 | **LM Studio** | Free (local) | Unlimited | Any GGUF model | Privacy, offline use, no rate limits |
 
-Switch providers by changing `PROVIDER_TYPE` in `.env`:
+Switch providers by changing `MODEL` in `.env` — use the prefix format `provider/model/name`. Invalid prefix causes an error.
 
-| Provider | `PROVIDER_TYPE` | API Key Variable | Base URL |
-|----------|-----------------|------------------|----------|
-| NVIDIA NIM | `nvidia_nim` | `NVIDIA_NIM_API_KEY` | `integrate.api.nvidia.com/v1` |
-| OpenRouter | `open_router` | `OPENROUTER_API_KEY` | `openrouter.ai/api/v1` |
-| LM Studio | `lmstudio` | (none) | `localhost:1234/v1` |
+| Provider | MODEL prefix | API Key Variable | Base URL |
+|----------|--------------|------------------|----------|
+| NVIDIA NIM | `nvidia_nim/...` | `NVIDIA_NIM_API_KEY` | `integrate.api.nvidia.com/v1` |
+| OpenRouter | `open_router/...` | `OPENROUTER_API_KEY` | `openrouter.ai/api/v1` |
+| LM Studio | `lmstudio/...` | (none) | `localhost:1234/v1` |
 
 OpenRouter gives access to hundreds of models (StepFun, OpenAI, Anthropic, etc.) through a single API. Set `MODEL` to any OpenRouter model ID.
 
@@ -340,8 +340,7 @@ Browse: [model.lmstudio.ai](https://model.lmstudio.ai)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PROVIDER_TYPE` | Provider: `nvidia_nim`, `open_router`, or `lmstudio` | `nvidia_nim` |
-| `MODEL` | Model to use for all requests | `nvidia_nim/stepfun-ai/step-3.5-flash` |
+| `MODEL` | Model to use (prefix format: `provider/model/name`; invalid prefix causes error) | `nvidia_nim/stepfun-ai/step-3.5-flash` |
 | `NVIDIA_NIM_API_KEY` | NVIDIA API key (NIM provider) | required |
 | `OPENROUTER_API_KEY` | OpenRouter API key (OpenRouter provider) | required |
 | `LM_STUDIO_BASE_URL` | LM Studio server URL | `http://localhost:1234/v1` |
