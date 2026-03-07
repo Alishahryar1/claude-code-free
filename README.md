@@ -53,24 +53,7 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
 3. Install [uv](https://github.com/astral-sh/uv)
 4. Update uv if already installed: `uv self update`
 
-### Option A — Install as a package (no clone needed)
-
-Install directly from GitHub and set up your config in one step:
-
-```bash
-uv tool install git+https://github.com/Alishahryar1/free-claude-code.git
-fcc-init
-```
-
-`fcc-init` creates `~/.config/free-claude-code/.env` from the built-in template. Open that file and fill in your API keys and model names (see provider examples below), then start the server:
-
-```bash
-free-claude-code
-```
-
-> To update to the latest version later: `uv tool upgrade free-claude-code`
-
-### Option B — Clone & Configure
+### Clone & Configure
 
 ```bash
 git clone https://github.com/Alishahryar1/free-claude-code.git
@@ -142,10 +125,6 @@ MODEL="nvidia_nim/z-ai/glm4.7"                      # fallback
 **Terminal 1:** Start the proxy server:
 
 ```bash
-# If installed as a package (Option A):
-free-claude-code
-
-# If cloned (Option B):
 uv run uvicorn server:app --host 0.0.0.0 --port 8082
 ```
 
@@ -207,6 +186,23 @@ alias claude-kimi='ANTHROPIC_BASE_URL="http://localhost:8082" ANTHROPIC_AUTH_TOK
 ```
 
 </details>
+
+### Install as a Package (no clone needed)
+
+If you just want to use the proxy without cloning the repo, install it as a `uv` tool:
+
+```bash
+uv tool install git+https://github.com/Alishahryar1/free-claude-code.git
+fcc-init        # creates ~/.config/free-claude-code/.env from the built-in template
+```
+
+Edit `~/.config/free-claude-code/.env` with your API keys and model names, then:
+
+```bash
+free-claude-code    # starts the server
+```
+
+> To update: `uv tool upgrade free-claude-code`
 
 ---
 
@@ -294,8 +290,7 @@ ALLOWED_DIR="C:/Users/yourname/projects"
 4. **Start the server:**
 
 ```bash
-free-claude-code                                    # if installed as a package
-uv run uvicorn server:app --host 0.0.0.0 --port 8082  # if cloned
+uv run uvicorn server:app --host 0.0.0.0 --port 8082
 ```
 
 5. **Invite the bot** (OAuth2 URL Generator, scopes: `bot`, permissions: Read Messages, Send Messages, Manage Messages, Read Message History). Send a task to an allowed channel and Claude responds with live thinking tokens and tool calls. Use commands above to cancel or clear.
