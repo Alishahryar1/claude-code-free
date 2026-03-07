@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "free-claude-code"
 version = "2.0.0"
@@ -19,6 +23,10 @@ dependencies = [
     "loguru>=0.7.0",
 ]
 
+[project.scripts]
+free-claude-code = "cli.entrypoints:serve"
+fcc-init = "cli.entrypoints:init"
+
 [project.optional-dependencies]
 voice = [
     "grpcio>=1.78.0",
@@ -31,6 +39,9 @@ voice_local = [
     "accelerate>=0.30.0",
     "librosa>=0.10.0",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["api", "cli", "config", "messaging", "providers"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu130" }

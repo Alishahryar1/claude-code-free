@@ -1,11 +1,24 @@
 """Centralized configuration using Pydantic Settings."""
 
+import os
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .nim import NimSettings
+
+
+def _env_files() -> tuple[Path, ...]:
+    """Return env file paths in priority order (later overrides earlier)."""
+    files: list[Path] = [
+        Path.home() / ".config" / "free-claude-code" / ".env",
+        Path(".env"),
+    ]
+    if explicit := os.environ.get("FCC_ENV_FILE"):
+        files.append(Path(explicit))
+    return tuple(files)
 
 
 class Settings(BaseSettings):
@@ -196,7 +209,7 @@ class Settings(BaseSettings):
         return model_string.split("/", 1)[1]
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_env_files(),
         env_file_encoding="utf-8",
         extra="ignore",
     )
