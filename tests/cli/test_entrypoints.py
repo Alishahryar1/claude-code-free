@@ -11,9 +11,12 @@ def _run_init(tmp_home: Path) -> tuple[str, Path]:
     env_file = tmp_home / ".config" / "free-claude-code" / ".env"
     printed: list[str] = []
 
-    with patch("pathlib.Path.home", return_value=tmp_home), patch(
-        "builtins.print",
-        side_effect=lambda *a: printed.append(" ".join(str(x) for x in a)),
+    with (
+        patch("pathlib.Path.home", return_value=tmp_home),
+        patch(
+            "builtins.print",
+            side_effect=lambda *a: printed.append(" ".join(str(x) for x in a)),
+        ),
     ):
         init()
 
