@@ -192,6 +192,19 @@ uv tool install git+https://github.com/Alishahryar1/free-claude-code.git
 fcc-init        # creates ~/.config/free-claude-code/.env from the built-in template
 ```
 
+To include voice note support, install with the relevant extra:
+
+```bash
+# Local Whisper (cpu/cuda) — no API key needed
+uv tool install "free-claude-code[voice_local] @ git+https://github.com/Alishahryar1/free-claude-code.git"
+
+# NVIDIA NIM transcription via gRPC
+uv tool install "free-claude-code[voice] @ git+https://github.com/Alishahryar1/free-claude-code.git"
+
+# Both
+uv tool install "free-claude-code[voice,voice_local] @ git+https://github.com/Alishahryar1/free-claude-code.git"
+```
+
 Edit `~/.config/free-claude-code/.env` with your API keys and model names, then:
 
 ```bash
