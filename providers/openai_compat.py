@@ -34,13 +34,11 @@ class OpenAICompatibleProvider(BaseProvider):
         provider_name: str,
         base_url: str,
         api_key: str,
-        nim_settings: Any = None,
     ):
         super().__init__(config)
         self._provider_name = provider_name
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
-        self._nim_settings = nim_settings
         self._global_rate_limiter = GlobalRateLimiter.get_instance(
             rate_limit=config.rate_limit,
             rate_window=config.rate_window,

@@ -20,10 +20,9 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
             provider_name="NIM",
             base_url=config.base_url or NVIDIA_NIM_BASE_URL,
             api_key=config.api_key,
-            nim_settings=nim_settings,
         )
+        self._nim_settings = nim_settings
 
     def _build_request_body(self, request: Any) -> dict:
         """Internal helper for tests and shared building."""
-        assert self._nim_settings is not None
         return build_request_body(request, self._nim_settings)
