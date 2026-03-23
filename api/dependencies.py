@@ -7,6 +7,7 @@ from config.settings import Settings
 from config.settings import get_settings as _get_settings
 from providers.base import BaseProvider, ProviderConfig
 from providers.common import get_user_facing_error_message
+from providers.custom_openai import CustomOpenAIProvider
 from providers.exceptions import AuthenticationError
 from providers.llamacpp import LlamaCppProvider
 from providers.lmstudio import LMStudioProvider
@@ -82,13 +83,40 @@ def _create_provider_for_type(provider_type: str, settings: Settings) -> BasePro
             http_connect_timeout=settings.http_connect_timeout,
         )
         return LlamaCppProvider(config)
+    if provider_type == "custom_openai":
+        if (
+            not settings.custom_openai_api_key
+            or not settings.custom_openai_api_key.strip()
+        ):
+            raise AuthenticationError(
+                "CUSTOM_OPENAI_API_KEY is not set. Add it to your .env file."
+            )
+        if (
+            not settings.custom_openai_base_url
+            or not settings.custom_openai_base_url.strip()
+        ):
+            raise ValueError(
+                "CUSTOM_OPENAI_BASE_URL is not set. Add it to your .env file "
+                "with the base URL of your OpenAI-compatible API."
+            )
+        config = ProviderConfig(
+            api_key=settings.custom_openai_api_key,
+            base_url=settings.custom_openai_base_url,
+            rate_limit=settings.provider_rate_limit,
+            rate_window=settings.provider_rate_window,
+            max_concurrency=settings.provider_max_concurrency,
+            http_read_timeout=settings.http_read_timeout,
+            http_write_timeout=settings.http_write_timeout,
+            http_connect_timeout=settings.http_connect_timeout,
+        )
+        return CustomOpenAIProvider(config)
     logger.error(
-        "Unknown provider_type: '{}'. Supported: 'nvidia_nim', 'open_router', 'lmstudio', 'llamacpp'",
+        "Unknown provider_type: '{}'. Supported: 'nvidia_nim', 'open_router', 'lmstudio', 'llamacpp', 'custom_openai'",
         provider_type,
     )
     raise ValueError(
         f"Unknown provider_type: '{provider_type}'. "
-        f"Supported: 'nvidia_nim', 'open_router', 'lmstudio', 'llamacpp'"
+        f"Supported: 'nvidia_nim', 'open_router', 'lmstudio', 'llamacpp', 'custom_openai'"
     )
 
 
