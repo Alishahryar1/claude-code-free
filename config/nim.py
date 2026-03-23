@@ -23,7 +23,6 @@ class NimSettings(BaseModel):
 
     parallel_tool_calls: bool = True
     return_tokens_as_token_ids: bool = False
-    include_stop_str_in_output: bool = False
     ignore_eos: bool = False
 
     min_tokens: int = Field(0, ge=0)
