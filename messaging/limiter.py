@@ -5,6 +5,8 @@ Centralizes outgoing message requests and ensures compliance with rate limits
 using a strict sliding window algorithm and a task queue.
 """
 
+from __future__ import annotations
+
 import asyncio
 import os
 import time

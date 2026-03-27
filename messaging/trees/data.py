@@ -3,6 +3,8 @@
 Contains MessageState, MessageNode, and MessageTree classes.
 """
 
+from __future__ import annotations
+
 import asyncio
 from collections import deque
 from contextlib import asynccontextmanager

@@ -7,7 +7,7 @@ name = "free-claude-code"
 version = "2.0.0"
 description = "Middleware between Claude Code CLI (Anthropic API) and NVIDIA NIM"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.13"
 dependencies = [
     "fastapi[standard]>=0.115.11",
     "uvicorn>=0.34.0",
@@ -61,7 +61,7 @@ dev = [
 ]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py313"
 line-length = 88
 
 [tool.ruff.lint]
@@ -96,7 +96,7 @@ skip-magic-trailing-comma = false
 pythonpath = ["."]
 
 [tool.ty.environment]
-python-version = "3.14"
+python-version = "3.13"
 
 [tool.ty.analysis]
 # Optional voice_local extra: torch, transformers, librosa for local whisper transcription

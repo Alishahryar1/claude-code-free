@@ -167,7 +167,7 @@ class Settings(BaseSettings):
         return v
 
     @model_validator(mode="after")
-    def check_nvidia_nim_api_key(self) -> Settings:
+    def check_nvidia_nim_api_key(self) -> "Settings":
         if (
             self.voice_note_enabled
             and self.whisper_device == "nvidia_nim"
