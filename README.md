@@ -135,12 +135,15 @@ MODEL="nvidia_nim/z-ai/glm4.7"                      # fallback
 </details>
 
 ### Run It
+
 **Terminal 1:** Start the proxy server:
+
 ```bash
 uv run uvicorn server:app --host 0.0.0.0 --port 8082
 ```
 
 **Terminal 2:** Run Claude Code:
+
 #### Powershell
 ```powershell
 $env:ANTHROPIC_AUTH_TOKEN="freecc"; $env:ANTHROPIC_BASE_URL="http://localhost:8082"; claude
