@@ -136,7 +136,6 @@ MODEL="nvidia_nim/z-ai/glm4.7"                      # fallback
 
 ### Run It
 **Terminal 1:** Start the proxy server:
-
 ```bash
 uv run uvicorn server:app --host 0.0.0.0 --port 8082
 ```
