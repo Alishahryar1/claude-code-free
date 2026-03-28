@@ -5,6 +5,8 @@ Provides persistent storage for mapping platform messages to Claude CLI session 
 and message trees for conversation continuation.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import threading

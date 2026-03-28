@@ -3,11 +3,11 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "free-claude-code"
+name = "liberated-claude-code"
 version = "2.0.0"
 description = "Middleware between Claude Code CLI (Anthropic API) and NVIDIA NIM"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]>=0.115.11",
     "uvicorn>=0.34.0",
@@ -21,10 +21,11 @@ dependencies = [
     "pydantic-settings>=2.12.0",
     "openai>=2.16.0",
     "loguru>=0.7.0",
+    "pydantic-core>=2.41.5",
 ]
 
 [project.scripts]
-free-claude-code = "cli.entrypoints:serve"
+liberated-claude-code = "cli.entrypoints:serve"
 fcc-init = "cli.entrypoints:init"
 
 [project.optional-dependencies]

@@ -1,5 +1,7 @@
 """Centralized configuration using Pydantic Settings."""
 
+from __future__ import annotations
+
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -13,7 +15,7 @@ from .nim import NimSettings
 def _env_files() -> tuple[Path, ...]:
     """Return env file paths in priority order (later overrides earlier)."""
     files: list[Path] = [
-        Path.home() / ".config" / "free-claude-code" / ".env",
+        Path.home() / ".config" / "liberated-claude-code" / ".env",
         Path(".env"),
     ]
     if explicit := os.environ.get("FCC_ENV_FILE"):
@@ -125,6 +127,9 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8082
     log_file: str = "server.log"
+    # Opt-in: log full request payloads (messages, system prompts) at DEBUG level.
+    # Disabled by default — conversation content would otherwise persist in server.log.
+    log_full_payload: bool = Field(default=False, validation_alias="LOG_FULL_PAYLOAD")
     # Optional server API key to protect endpoints (Anthropic-style)
     # Set via env `ANTHROPIC_AUTH_TOKEN`. When empty, no auth is required.
     anthropic_auth_token: str = Field(

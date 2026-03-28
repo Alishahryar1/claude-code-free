@@ -1,13 +1,13 @@
 <div align="center">
 
-# 🤖 Free Claude Code
+# 🤖 Liberated Claude Code
 
 ### Use Claude Code CLI & VSCode for free. No Anthropic API key required.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-3776ab.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json&style=for-the-badge)](https://github.com/astral-sh/uv)
-[![Tested with Pytest](https://img.shields.io/badge/testing-Pytest-00c0ff.svg?style=for-the-badge)](https://github.com/Alishahryar1/free-claude-code/actions/workflows/tests.yml)
+[![Tested with Pytest](https://img.shields.io/badge/testing-Pytest-00c0ff.svg?style=for-the-badge)](https://github.com/jcntrl/liberated-claude-code/actions/workflows/tests.yml)
 [![Type checking: Ty](https://img.shields.io/badge/type%20checking-ty-ffcc00.svg?style=for-the-badge)](https://pypi.org/project/ty/)
 [![Code style: Ruff](https://img.shields.io/badge/code%20formatting-ruff-f5a623.svg?style=for-the-badge)](https://github.com/astral-sh/ruff)
 [![Logging: Loguru](https://img.shields.io/badge/logging-loguru-4ecdc4.svg?style=for-the-badge)](https://github.com/Delgan/loguru)
@@ -21,7 +21,7 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
 </div>
 
 <div align="center">
-  <img src="pic.png" alt="Free Claude Code in action" width="700">
+  <img src="pic.png" alt="Liberated Claude Code in action" width="700">
   <p><em>Claude Code running via NVIDIA NIM, completely free</em></p>
 </div>
 
@@ -56,8 +56,8 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
 ### Clone & Configure
 
 ```bash
-git clone https://github.com/Alishahryar1/free-claude-code.git
-cd free-claude-code
+git clone https://github.com/jcntrl/liberated-claude-code.git
+cd liberated-claude-code
 cp .env.example .env
 ```
 
@@ -226,7 +226,7 @@ brew install fzf        # macOS/Linux
 **2. Add the alias to `~/.zshrc` or `~/.bashrc`:**
 
 ```bash
-alias claude-pick="/absolute/path/to/free-claude-code/claude-pick"
+alias claude-pick="/absolute/path/to/liberated-claude-code/claude-pick"
 ```
 
 Then reload your shell (`source ~/.zshrc` or `source ~/.bashrc`) and run `claude-pick`.
@@ -242,17 +242,17 @@ alias claude-kimi='ANTHROPIC_BASE_URL="http://localhost:8082" ANTHROPIC_AUTH_TOK
 ### Install as a Package (no clone needed)
 
 ```bash
-uv tool install git+https://github.com/Alishahryar1/free-claude-code.git
-fcc-init        # creates ~/.config/free-claude-code/.env from the built-in template
+uv tool install git+https://github.com/jcntrl/liberated-claude-code.git
+fcc-init        # creates ~/.config/liberated-claude-code/.env from the built-in template
 ```
 
-Edit `~/.config/free-claude-code/.env` with your API keys and model names, then:
+Edit `~/.config/liberated-claude-code/.env` with your API keys and model names, then:
 
 ```bash
-free-claude-code    # starts the server
+liberated-claude-code    # starts the server
 ```
 
-> To update: `uv tool upgrade free-claude-code`
+> To update: `uv tool upgrade liberated-claude-code`
 
 ---
 
@@ -260,7 +260,7 @@ free-claude-code    # starts the server
 
 ```
 ┌─────────────────┐        ┌──────────────────────┐        ┌──────────────────┐
-│  Claude Code    │───────>│  Free Claude Code    │───────>│  LLM Provider    │
+│  Claude Code    │───────>│  Liberated Claude Code    │───────>│  LLM Provider    │
 │  CLI / VSCode   │<───────│  Proxy (:8082)       │<───────│  NIM / OR / LMS  │
 └─────────────────┘        └──────────────────────┘        └──────────────────┘
    Anthropic API                                             OpenAI-compatible
@@ -421,9 +421,9 @@ uv sync --extra voice                # NVIDIA NIM
 uv sync --extra voice --extra voice_local  # Both
 
 # If you installed as a package (no clone):
-uv tool install "free-claude-code[voice_local] @ git+https://github.com/Alishahryar1/free-claude-code.git"
-uv tool install "free-claude-code[voice] @ git+https://github.com/Alishahryar1/free-claude-code.git"
-uv tool install "free-claude-code[voice,voice_local] @ git+https://github.com/Alishahryar1/free-claude-code.git"
+uv tool install "liberated-claude-code[voice_local] @ git+https://github.com/jcntrl/liberated-claude-code.git"
+uv tool install "liberated-claude-code[voice] @ git+https://github.com/jcntrl/liberated-claude-code.git"
+uv tool install "liberated-claude-code[voice,voice_local] @ git+https://github.com/jcntrl/liberated-claude-code.git"
 ```
 
 Configure via `WHISPER_DEVICE` (`cpu` | `cuda` | `nvidia_nim`) and `WHISPER_MODEL`. See the [Configuration](#configuration) table for all voice variables and supported model values.
@@ -499,7 +499,7 @@ See [`.env.example`](.env.example) for all supported parameters.
 ### Project Structure
 
 ```
-free-claude-code/
+liberated-claude-code/
 ├── server.py              # Entry point
 ├── api/                   # FastAPI routes, request detection, optimization handlers
 ├── providers/             # BaseProvider, OpenAICompatibleProvider, NIM, OpenRouter, LM Studio, llamacpp
@@ -541,7 +541,7 @@ class MyProvider(OpenAICompatibleProvider):
 
 ## Contributing
 
-- Report bugs or suggest features via [Issues](https://github.com/Alishahryar1/free-claude-code/issues)
+- Report bugs or suggest features via [Issues](https://github.com/jcntrl/liberated-claude-code/issues)
 - Add new LLM providers (Groq, Together AI, etc.)
 - Add new messaging platforms (Slack, etc.)
 - Improve test coverage

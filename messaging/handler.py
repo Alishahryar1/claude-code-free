@@ -6,6 +6,8 @@ Handles the core workflow of processing user messages via Claude CLI.
 Uses tree-based queuing for message ordering.
 """
 
+from __future__ import annotations
+
 import asyncio
 import os
 import time

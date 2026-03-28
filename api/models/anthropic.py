@@ -1,5 +1,7 @@
 """Pydantic models for Anthropic-compatible requests."""
 
+from __future__ import annotations
+
 from enum import StrEnum
 from typing import Any, Literal
 

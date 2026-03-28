@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 def serve() -> None:
-    """Start the FastAPI server (registered as `free-claude-code` script)."""
+    """Start the FastAPI server (registered as `liberated-claude-code` script)."""
     import uvicorn
 
     from cli.process_registry import kill_all_best_effort
@@ -24,11 +24,11 @@ def serve() -> None:
 
 
 def init() -> None:
-    """Scaffold config at ~/.config/free-claude-code/.env (registered as `fcc-init`)."""
+    """Scaffold config at ~/.config/liberated-claude-code/.env (registered as `fcc-init`)."""
     import importlib.resources
     from pathlib import Path
 
-    config_dir = Path.home() / ".config" / "free-claude-code"
+    config_dir = Path.home() / ".config" / "liberated-claude-code"
     env_file = config_dir / ".env"
 
     if env_file.exists():
@@ -43,5 +43,5 @@ def init() -> None:
     env_file.write_text(template, encoding="utf-8")
     print(f"Config created at {env_file}")
     print(
-        "Edit it to set your API keys and model preferences, then run: free-claude-code"
+        "Edit it to set your API keys and model preferences, then run: liberated-claude-code"
     )

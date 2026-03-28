@@ -4,6 +4,8 @@ Telegram Platform Adapter
 Implements MessagingPlatform for Telegram using python-telegram-bot.
 """
 
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import os

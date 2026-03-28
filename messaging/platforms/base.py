@@ -1,5 +1,7 @@
 """Abstract base class for messaging platforms."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import (

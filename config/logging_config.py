@@ -6,6 +6,8 @@ Context vars (request_id, node_id, chat_id) from contextualize() are
 included at top level for easy grep/filter.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from pathlib import Path

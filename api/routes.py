@@ -54,7 +54,8 @@ async def create_message(
             request_data.model,
             len(request_data.messages),
         )
-        logger.debug("FULL_PAYLOAD [{}]: {}", request_id, request_data.model_dump())
+        if settings.log_full_payload:
+            logger.debug("FULL_PAYLOAD [{}]: {}", request_id, request_data.model_dump())
 
         input_tokens = get_token_count(
             request_data.messages, request_data.system, request_data.tools

@@ -4,6 +4,8 @@ Coordinates data access, async processing, and error handling.
 Uses TreeRepository for data, TreeQueueProcessor for async logic.
 """
 
+from __future__ import annotations
+
 import asyncio
 from collections.abc import Awaitable, Callable
 
