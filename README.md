@@ -51,7 +51,13 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
    - **LM Studio**: No API key needed. Run locally with [LM Studio](https://lmstudio.ai)
    - **llama.cpp**: No API key needed. Run `llama-server` locally.
 2. Install [Claude Code](https://github.com/anthropics/claude-code)
-3. Install [uv](https://github.com/astral-sh/uv) (or `uv self update` if already installed)
+
+### Install `uv`
+```bash
+# Install uv (required to run the project)
+pip install uv
+```
+If uv is already installed, run uv self update to get the latest version.
 
 ### Clone & Configure
 
