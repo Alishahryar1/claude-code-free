@@ -48,6 +48,95 @@ class Settings(BaseSettings):
         validation_alias="LLAMACPP_BASE_URL",
     )
 
+    # ==================== Groq Config ====================
+    groq_api_key: str = Field(default="", validation_alias="GROQ_API_KEY")
+
+    # ==================== Together AI Config ====================
+    together_api_key: str = Field(default="", validation_alias="TOGETHER_API_KEY")
+
+    # ==================== DeepInfra Config ====================
+    deepinfra_api_key: str = Field(default="", validation_alias="DEEPINFRA_API_KEY")
+
+    # ==================== Custom Provider Config ====================
+    custom_api_key: str = Field(default="", validation_alias="CUSTOM_API_KEY")
+    custom_base_url: str = Field(default="", validation_alias="CUSTOM_BASE_URL")
+
+    # ==================== HuggingFace Config ====================
+    huggingface_api_key: str = Field(default="", validation_alias="HUGGINGFACE_API_KEY")
+    huggingface_base_url: str = Field(
+        default="", validation_alias="HUGGINGFACE_BASE_URL"
+    )
+
+    # ==================== Replicate Config ====================
+    replicate_api_key: str = Field(default="", validation_alias="REPLICATE_API_KEY")
+
+    # ==================== Fireworks Config ====================
+    fireworks_api_key: str = Field(default="", validation_alias="FIREWORKS_API_KEY")
+
+    # ==================== Anyscale Config ====================
+    anyscale_api_key: str = Field(default="", validation_alias="ANYSCALE_API_KEY")
+
+    # ==================== Novita Config ====================
+    novita_api_key: str = Field(default="", validation_alias="NOVITA_API_KEY")
+
+    # ==================== Cohere Config ====================
+    cohere_api_key: str = Field(default="", validation_alias="COHERE_API_KEY")
+
+    # ==================== AI21 Config ====================
+    ai21_api_key: str = Field(default="", validation_alias="AI21_API_KEY")
+
+    # ==================== Perplexity Config ====================
+    perplexity_api_key: str = Field(default="", validation_alias="PERPLEXITY_API_KEY")
+
+    # ==================== SambaNova Config ====================
+    sambanova_api_key: str = Field(default="", validation_alias="SAMBANOVA_API_KEY")
+
+    # ==================== Cerebras Config ====================
+    cerebras_api_key: str = Field(default="", validation_alias="CEREBRAS_API_KEY")
+
+    # ==================== Mistral Config ====================
+    mistral_api_key: str = Field(default="", validation_alias="MISTRAL_API_KEY")
+
+    # ==================== Google Config ====================
+    google_api_key: str = Field(default="", validation_alias="GOOGLE_API_KEY")
+
+    # ==================== xAI Config ====================
+    xai_api_key: str = Field(default="", validation_alias="XAI_API_KEY")
+
+    # ==================== Kilo Gateway Config ====================
+    kilo_gateway_api_key: str = Field(
+        default="", validation_alias="KILO_GATEWAY_API_KEY"
+    )
+
+    # ==================== OpenCode Zen Config ====================
+    opencode_zen_api_key: str = Field(
+        default="", validation_alias="OPENCODE_ZEN_API_KEY"
+    )
+
+    # ==================== Anthropic Config ====================
+    anthropic_api_key: str = Field(default="", validation_alias="ANTHROPIC_API_KEY")
+
+    # ==================== OpenAI Config ====================
+    openai_api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
+
+    # ==================== Ollama Config ====================
+    ollama_base_url: str = Field(
+        default="http://localhost:11434/v1",
+        validation_alias="OLLAMA_BASE_URL",
+    )
+
+    # ==================== VLLM Config ====================
+    vllm_base_url: str = Field(default="", validation_alias="VLLM_BASE_URL")
+
+    # ==================== TextSynth Config ====================
+    textsynth_api_key: str = Field(default="", validation_alias="TEXTSYNTH_API_KEY")
+
+    # ==================== Predibase Config ====================
+    predibase_api_key: str = Field(default="", validation_alias="PREDIBASE_API_KEY")
+
+    # ==================== RunPod Config ====================
+    runpod_api_key: str = Field(default="", validation_alias="RUNPOD_API_KEY")
+
     # ==================== Model ====================
     # All Claude model requests are mapped to this single model (fallback)
     # Format: provider_type/model/name

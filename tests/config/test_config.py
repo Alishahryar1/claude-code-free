@@ -472,6 +472,27 @@ class TestPerModelMapping:
         assert Settings.parse_provider_type("open_router/deepseek/r1") == "open_router"
         assert Settings.parse_provider_type("lmstudio/qwen") == "lmstudio"
         assert Settings.parse_provider_type("llamacpp/model") == "llamacpp"
+        assert Settings.parse_provider_type("groq/llama3-70b") == "groq"
+        assert Settings.parse_provider_type("together/llama-2-70b") == "together"
+        assert Settings.parse_provider_type("deepinfra/mistral-7b") == "deepinfra"
+        assert Settings.parse_provider_type("custom/my-model") == "custom"
+        assert (
+            Settings.parse_provider_type("huggingface/microsoft/DialoGPT-medium")
+            == "huggingface"
+        )
+        assert (
+            Settings.parse_provider_type("replicate/meta/llama-2-70b-chat")
+            == "replicate"
+        )
+        assert (
+            Settings.parse_provider_type(
+                "fireworks/accounts/fireworks/models/llama-v2-7b-chat"
+            )
+            == "fireworks"
+        )
+        assert Settings.parse_provider_type("ollama/llama2") == "ollama"
+        assert Settings.parse_provider_type("openai/gpt-4") == "openai"
+        assert Settings.parse_provider_type("anthropic/claude-3-opus") == "anthropic"
 
     def test_parse_model_name(self):
         """parse_model_name extracts model name from model string."""

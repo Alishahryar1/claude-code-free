@@ -31,7 +31,7 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
 | -------------------------- | ----------------------------------------------------------------------------------------------- |
 | **Zero Cost**              | 40 req/min free on NVIDIA NIM. Free models on OpenRouter. Fully local with LM Studio            |
 | **Drop-in Replacement**    | Set 2 env vars. No modifications to Claude Code CLI or VSCode extension needed                  |
-| **4 Providers**            | NVIDIA NIM, OpenRouter (hundreds of models), LM Studio (local), llama.cpp (`llama-server`)      |
+| **31+ Providers**          | NVIDIA NIM, OpenRouter, Groq, Together, DeepInfra, HuggingFace, Ollama, and 25+ more           |
 | **Per-Model Mapping**      | Route Opus / Sonnet / Haiku to different models and providers. Mix providers freely             |
 | **Thinking Token Support** | Parses `<think>` tags and `reasoning_content` into native Claude thinking blocks                |
 | **Heuristic Tool Parser**  | Models outputting tool calls as text are auto-parsed into structured tool use                   |
@@ -139,6 +139,111 @@ MODEL_OPUS="nvidia_nim/moonshotai/kimi-k2.5"
 MODEL_SONNET="open_router/deepseek/deepseek-r1-0528:free"
 MODEL_HAIKU="lmstudio/unsloth/GLM-4.7-Flash-GGUF"
 MODEL="nvidia_nim/z-ai/glm4.7"                      # fallback
+```
+
+</details>
+
+<details>
+<summary><b>Groq</b> (fast inference)</summary>
+
+```dotenv
+GROQ_API_KEY="gsk_your-key-here"
+
+MODEL_OPUS="groq/llama3-70b-8192"
+MODEL_SONNET="groq/llama3-8b-8192"
+MODEL_HAIKU="groq/mixtral-8x7b-32768"
+MODEL="groq/llama3-8b-8192"                          # fallback
+```
+
+</details>
+
+<details>
+<summary><b>Together AI</b> (open-source models)</summary>
+
+```dotenv
+TOGETHER_API_KEY="your-key-here"
+
+MODEL_OPUS="together/meta-llama/Llama-3-70b-chat-hf"
+MODEL_SONNET="together/mistralai/Mixtral-8x7B-Instruct-v0.1"
+MODEL_HAIKU="together/microsoft/WizardLM-2-8x22B"
+MODEL="together/meta-llama/Llama-3-8b-chat-hf"       # fallback
+```
+
+</details>
+
+<details>
+<summary><b>DeepInfra</b> (diverse models)</summary>
+
+```dotenv
+DEEPINFRA_API_KEY="your-key-here"
+
+MODEL_OPUS="deepinfra/meta-llama/Meta-Llama-3-70B-Instruct"
+MODEL_SONNET="deepinfra/mistralai/Mistral-7B-Instruct-v0.1"
+MODEL_HAIKU="deepinfra/Qwen/Qwen2-72B-Instruct"
+MODEL="deepinfra/meta-llama/Meta-Llama-3-8B-Instruct" # fallback
+```
+
+</details>
+
+<details>
+<summary><b>Custom provider</b> (any OpenAI-compatible API)</summary>
+
+```dotenv
+CUSTOM_API_KEY="your-api-key"
+CUSTOM_BASE_URL="https://your-custom-endpoint.com/v1"
+
+MODEL_OPUS="custom/your-opus-model"
+MODEL_SONNET="custom/your-sonnet-model"
+MODEL_HAIKU="custom/your-haiku-model"
+MODEL="custom/your-fallback-model"                   # fallback
+```
+
+</details>
+
+<details>
+<summary><b>HuggingFace (Free) - Inference API</b></summary>
+
+HuggingFace requires the model ID to be part of the base URL:
+
+```dotenv
+HUGGINGFACE_API_KEY="your-huggingface-token"
+# Set HUGGINGFACE_BASE_URL with your model ID
+HUGGINGFACE_BASE_URL="https://api-inference.huggingface.co/models/meta-llama/Llama-2-7b-hf/v1"
+
+MODEL="huggingface/meta-llama/Llama-2-7b-hf"
+```
+
+Available models (examples - use any HF model with chat API support):
+- `meta-llama/Llama-2-7b-hf`
+- `mistralai/Mistral-7B-Instruct-v0.1`
+- `google/flan-t5-large`
+
+</details>
+
+<details>
+<summary><b>Ollama (Free, Local)</b></summary>
+
+```dotenv
+OLLAMA_BASE_URL="http://localhost:11434/v1"
+
+MODEL_OPUS="ollama/llama3.1:70b"
+MODEL_SONNET="ollama/llama3.1:8b"
+MODEL_HAIKU="ollama/llama3.1:8b"
+MODEL="ollama/llama3.1:8b"                            # fallback
+```
+
+</details>
+
+<details>
+<summary><b>VLLM (Free, Local)</b></summary>
+
+```dotenv
+VLLM_BASE_URL="http://localhost:8000/v1"
+
+MODEL_OPUS="vllm/your-large-model"
+MODEL_SONNET="vllm/your-medium-model"
+MODEL_HAIKU="vllm/your-small-model"
+MODEL="vllm/your-fallback-model"                      # fallback
 ```
 
 </details>
@@ -287,8 +392,34 @@ free-claude-code    # starts the server
 | -------------- | ------------ | ---------- | ------------------------------------ |
 | **NVIDIA NIM** | Free         | 40 req/min | Daily driver, generous free tier     |
 | **OpenRouter** | Free / Paid  | Varies     | Model variety, fallback options      |
+| **Groq**       | Free / Paid  | Varies     | Fast inference, Llama models         |
+| **Together AI**| Free / Paid  | Varies     | Open-source models, fine-tuning      |
+| **DeepInfra**  | Free / Paid  | Varies     | Diverse model selection              |
+| **HuggingFace**| Free         | Varies     | Free inference API, research models  |
+| **Replicate**  | Free / Paid  | Varies     | Model hosting, custom deployments    |
+| **Fireworks**  | Free / Paid  | Varies     | Optimized inference, enterprise      |
+| **Ollama**     | Free (local) | Unlimited  | Local models, easy setup             |
 | **LM Studio**  | Free (local) | Unlimited  | Privacy, offline use, no rate limits |
 | **llama.cpp**  | Free (local) | Unlimited  | Lightweight local inference engine   |
+| **Anyscale**   | Free / Paid  | Varies     | Ray-based serving, scaling           |
+| **Cohere**     | Free / Paid  | Varies     | Command models, RAG optimization     |
+| **AI21**       | Free / Paid  | Varies     | Jurassic models, creative writing    |
+| **Mistral**    | Free / Paid  | Varies     | European models, privacy-focused     |
+| **Perplexity** | Free / Paid  | Varies     | Search-enhanced responses            |
+| **Cerebras**   | Free / Paid  | Varies     | Fast inference, wafer-scale chips    |
+| **SambaNova**  | Free / Paid  | Varies     | Enterprise AI, custom models         |
+| **TextSynth**  | Free / Paid  | Varies     | Budget-friendly inference            |
+| **Novita**     | Free / Paid  | Varies     | Creative AI, multimodal             |
+| **Predibase**  | Free / Paid  | Varies     | Fine-tuning, model management        |
+| **RunPod**     | Free / Paid  | Varies     | GPU cloud, serverless inference     |
+| **VLLM**       | Free (local) | Unlimited  | High-throughput local serving        |
+| **Google**     | Free / Paid  | Varies     | PaLM, Gemini models                  |
+| **xAI**        | Free / Paid  | Varies     | Grok models, truth-seeking           |
+| **Kilo Gateway** | Free / Paid | Varies     | API gateway aggregator               |
+| **OpenCode Zen** | Free / Paid | Varies     | Open-source model platform           |
+| **Anthropic**  | Paid         | Varies     | Claude models, safety-focused        |
+| **OpenAI**     | Paid         | Varies     | GPT models, industry standard        |
+| **Custom**     | Varies       | Varies     | User-defined OpenAI-compatible APIs  |
 
 Models use a prefix format: `provider_prefix/model/name`. An invalid prefix causes an error.
 
@@ -296,8 +427,34 @@ Models use a prefix format: `provider_prefix/model/name`. An invalid prefix caus
 | ---------- | ----------------- | -------------------- | ----------------------------- |
 | NVIDIA NIM | `nvidia_nim/...`  | `NVIDIA_NIM_API_KEY` | `integrate.api.nvidia.com/v1` |
 | OpenRouter | `open_router/...` | `OPENROUTER_API_KEY` | `openrouter.ai/api/v1`        |
+| Groq       | `groq/...`        | `GROQ_API_KEY`       | `api.groq.com/openai/v1`      |
+| Together AI| `together/...`    | `TOGETHER_API_KEY`   | `api.together.xyz/v1`         |
+| DeepInfra  | `deepinfra/...`   | `DEEPINFRA_API_KEY`  | `api.deepinfra.com/v1/openai` |
+| HuggingFace| `huggingface/...` | `HUGGINGFACE_API_KEY`| `api-inference.huggingface.co/models` |
+| Replicate  | `replicate/...`   | `REPLICATE_API_KEY`  | `api.replicate.com/v1`        |
+| Fireworks  | `fireworks/...`   | `FIREWORKS_API_KEY`  | `api.fireworks.ai/v1`         |
+| Anyscale   | `anyscale/...`    | `ANYSCALE_API_KEY`   | `api.anyscale.com/v1`         |
+| Cohere     | `cohere/...`      | `COHERE_API_KEY`     | `api.cohere.ai/v1`            |
+| AI21       | `ai21/...`        | `AI21_API_KEY`       | `api.ai21.com/v1`             |
+| Mistral    | `mistral/...`     | `MISTRAL_API_KEY`    | `api.mistral.ai/v1`           |
+| Perplexity | `perplexity/...`  | `PERPLEXITY_API_KEY` | `api.perplexity.ai/v1`        |
+| Cerebras   | `cerebras/...`    | `CEREBRAS_API_KEY`   | `api.cerebras.ai/v1`          |
+| SambaNova  | `sambanova/...`   | `SAMBANOVA_API_KEY`  | `api.sambanova.ai/v1`         |
+| TextSynth  | `textsynth/...`   | `TEXTSYNTH_API_KEY`  | `api.textsynth.com/v1`        |
+| Novita     | `novita/...`      | `NOVITA_API_KEY`     | `api.novita.ai/v1`            |
+| Predibase  | `predibase/...`   | `PREDIBASE_API_KEY`  | `api.predibase.com/v1`        |
+| RunPod     | `runpod/...`      | `RUNPOD_API_KEY`     | `api.runpod.ai/v1`            |
+| Google     | `google/...`      | `GOOGLE_API_KEY`     | `generativelanguage.googleapis.com/v1beta/openai/` |
+| xAI        | `xai/...`         | `XAI_API_KEY`        | `api.x.ai/v1`                 |
+| Kilo Gateway | `kilo_gateway/...` | `KILO_GATEWAY_API_KEY` | `api.kilogateway.com/v1`      |
+| OpenCode Zen | `opencode_zen/...` | `OPENCODE_ZEN_API_KEY` | `api.opencodezen.com/v1`      |
+| Anthropic  | `anthropic/...`   | `ANTHROPIC_API_KEY`  | `api.anthropic.com/v1`        |
+| OpenAI     | `openai/...`      | `OPENAI_API_KEY`     | `api.openai.com/v1`           |
+| Ollama     | `ollama/...`      | (none)               | `localhost:11434/v1`          |
 | LM Studio  | `lmstudio/...`    | (none)               | `localhost:1234/v1`           |
 | llama.cpp  | `llamacpp/...`    | (none)               | `localhost:8080/v1`           |
+| VLLM       | `vllm/...`        | (none)               | User-defined                  |
+| Custom     | `custom/...`      | `CUSTOM_API_KEY`     | User-defined                  |
 
 <details>
 <summary><b>NVIDIA NIM models</b></summary>
@@ -351,6 +508,61 @@ Run models locally using `llama-server`. Ensure you have a tool-capable GGUF. Se
 
 See the Unsloth docs for detailed instructions and capable models:
 [https://unsloth.ai/docs/models/qwen3.5#qwen3.5-small-0.8b-2b-4b-9b](https://unsloth.ai/docs/models/qwen3.5#qwen3.5-small-0.8b-2b-4b-9b)
+
+</details>
+
+<details>
+<summary><b>Groq models</b></summary>
+
+Popular models available on Groq:
+
+- `groq/llama3-8b-8192`
+- `groq/llama3-70b-8192`
+- `groq/mixtral-8x7b-32768`
+- `groq/gemma-7b-it`
+
+Browse: [console.groq.com/docs/models](https://console.groq.com/docs/models)
+
+</details>
+
+<details>
+<summary><b>Together AI models</b></summary>
+
+Popular models on Together AI:
+
+- `together/meta-llama/Llama-3-70b-chat-hf`
+- `together/mistralai/Mixtral-8x7B-Instruct-v0.1`
+- `together/microsoft/WizardLM-2-8x22B`
+
+Browse: [api.together.xyz/models](https://api.together.xyz/models)
+
+</details>
+
+<details>
+<summary><b>DeepInfra models</b></summary>
+
+Popular models on DeepInfra:
+
+- `deepinfra/meta-llama/Meta-Llama-3-70B-Instruct`
+- `deepinfra/mistralai/Mistral-7B-Instruct-v0.1`
+- `deepinfra/Qwen/Qwen2-72B-Instruct`
+
+Browse: [deepinfra.com/models](https://deepinfra.com/models)
+
+</details>
+
+<details>
+<summary><b>Custom provider</b></summary>
+
+Configure any OpenAI-compatible API endpoint:
+
+```dotenv
+CUSTOM_API_KEY="your-api-key"
+CUSTOM_BASE_URL="https://your-api-endpoint.com/v1"
+MODEL="custom/your-model-name"
+```
+
+The custom provider supports any OpenAI-compatible API that follows the standard chat completions format.
 
 </details>
 
@@ -449,8 +661,33 @@ Configure via `WHISPER_DEVICE` (`cpu` | `cuda` | `nvidia_nim`) and `WHISPER_MODE
 | `NVIDIA_NIM_API_KEY`    | NVIDIA API key                                                        | required for NIM                                  |
 | `NIM_ENABLE_THINKING`   | Send `chat_template_kwargs` + `reasoning_budget` on NIM requests. Enable for thinking models (kimi, nemotron); leave `false` for others (e.g. Mistral) | `false` |
 | `OPENROUTER_API_KEY` | OpenRouter API key                                                    | required for OpenRouter                           |
-| `LM_STUDIO_BASE_URL` | LM Studio server URL                                                  | `http://localhost:1234/v1`                        |
-| `LLAMACPP_BASE_URL`  | llama.cpp server URL                                                  | `http://localhost:8080/v1`                        |
+| `GROQ_API_KEY`         | Groq API key                                                          | required for Groq                                 |
+| `TOGETHER_API_KEY`     | Together AI API key                                                   | required for Together AI                          |
+| `DEEPINFRA_API_KEY`    | DeepInfra API key                                                     | required for DeepInfra                            |
+| `CUSTOM_API_KEY`       | Custom provider API key                                               | required for Custom provider                      |
+| `CUSTOM_BASE_URL`      | Custom provider base URL                                              | required for Custom provider                      |
+| `HUGGINGFACE_API_KEY`  | HuggingFace API token                                                 | required for HuggingFace                          |
+| `REPLICATE_API_KEY`    | Replicate API key                                                     | required for Replicate                            |
+| `FIREWORKS_API_KEY`    | Fireworks API key                                                     | required for Fireworks                            |
+| `ANYSCALE_API_KEY`     | Anyscale API key                                                      | required for Anyscale                             |
+| `COHERE_API_KEY`       | Cohere API key                                                        | required for Cohere                               |
+| `AI21_API_KEY`         | AI21 API key                                                          | required for AI21                                 |
+| `MISTRAL_API_KEY`      | Mistral API key                                                       | required for Mistral                              |
+| `PERPLEXITY_API_KEY`   | Perplexity API key                                                    | required for Perplexity                           |
+| `CEREBRAS_API_KEY`     | Cerebras API key                                                      | required for Cerebras                             |
+| `SAMBANOVA_API_KEY`    | SambaNova API key                                                     | required for SambaNova                            |
+| `TEXTSYNTH_API_KEY`    | TextSynth API key                                                     | required for TextSynth                            |
+| `NOVITA_API_KEY`       | Novita API key                                                        | required for Novita                               |
+| `PREDIBASE_API_KEY`    | Predibase API key                                                     | required for Predibase                            |
+| `RUNPOD_API_KEY`       | RunPod API key                                                        | required for RunPod                               |
+| `GOOGLE_API_KEY`       | Google AI API key                                                     | required for Google                               |
+| `XAI_API_KEY`          | xAI API key                                                           | required for xAI                                  |
+| `ANTHROPIC_API_KEY`    | Anthropic API key                                                     | required for Anthropic                            |
+| `OPENAI_API_KEY`       | OpenAI API key                                                        | required for OpenAI                               |
+| `OLLAMA_BASE_URL`      | Ollama server URL                                                     | `http://localhost:11434/v1`                       |
+| `VLLM_BASE_URL`        | VLLM server URL                                                       | required for VLLM                                 |
+| `LM_STUDIO_BASE_URL`   | LM Studio server URL                                                  | `http://localhost:1234/v1`                        |
+| `LLAMACPP_BASE_URL`    | llama.cpp server URL                                                  | `http://localhost:8080/v1`                        |
 
 ### Rate Limiting & Timeouts
 
