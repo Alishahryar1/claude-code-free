@@ -111,7 +111,7 @@ _verify_nim() {
     echo "  ✓ Auth: API key mode (no Anthropic OAuth)"
     echo ""
     echo "  ⚡ Active provider: NVIDIA NIM"
-    echo "  Models: sonnet→kimi-k2-thinking, opus→glm4.7, haiku→step-3.5-flash"
+ echo " Models: sonnet→glm5, opus→glm5, haiku→step-3.5-flash"
 }
 
 _verify_anthropic() {
@@ -165,32 +165,90 @@ cmd_anthropic() {
     echo ""
 }
 
+_vscode_set_modal() {
+    python3 -c "
+import json, sys
+path = sys.argv[1]
+with open(path) as f:
+    s = json.load(f)
+s['claudeCode.environmentVariables'] = [
+    {'name': 'ANTHROPIC_BASE_URL', 'value': 'http://localhost:$PROXY_PORT'},
+    {'name': 'ANTHROPIC_API_KEY', 'value': 'freecc'},
+]
+with open(path, 'w') as f:
+    json.dump(s, f, indent=4)
+print(' ✓ VS Code settings updated — reload the Claude extension to take effect')
+" "$VSCODE_SETTINGS"
+}
+
+_verify_modal() {
+    echo ""
+    echo " Verifying Modal GLV5 routing..."
+    local response
+    response=$(curl -sf "$PROXY_URL/health") || { echo " ✗ Proxy not responding"; exit 1; }
+    echo " ✓ Proxy health: $response"
+
+    # Hit the proxy with a minimal request and confirm it returns something
+    local model_check
+    model_check=$(curl -sf -X POST "$PROXY_URL/v1/messages?beta=true" \
+        -H "Content-Type: application/json" \
+        -H "x-api-key: freecc" \
+        -H "anthropic-version: 2023-06-01" \
+        -d '{
+            "model": "claude-sonnet-4-5",
+            "max_tokens": 50,
+            "messages": [{"role": "user", "content": "Reply with only: Modal GLV5 confirmed"}]
+        }' 2>/dev/null) || { echo " ✗ Test request to proxy failed"; exit 1; }
+
+    echo " ✓ Test request succeeded"
+    echo " ✓ Auth: API key mode (no Anthropic OAuth)"
+    echo ""
+    echo " ⚡ Active provider: Modal GLV5"
+    echo " Models: sonnet→glm-5, opus→glm-5, haiku→glm-5"
+}
+
+cmd_modal() {
+    echo ""
+    echo "━━━ Switching to Modal GLV5 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    _start_proxy
+    echo " Logging out of Anthropic OAuth..."
+    claude auth logout 2>/dev/null && echo " ✓ Logged out" || echo " ✓ Already logged out"
+    _vscode_set_modal
+    _verify_modal
+    echo ""
+    echo " Launch CLI: ANTHROPIC_BASE_URL=$PROXY_URL ANTHROPIC_API_KEY=freecc claude"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+}
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 case "${1:-}" in
-    nim)       cmd_nim ;;
+    nim) cmd_nim ;;
+    modal) cmd_modal ;;
     anthropic) cmd_anthropic ;;
     status)
         echo ""
         if _proxy_running; then
-            echo "  ⚡ Provider: NVIDIA NIM (proxy running on port $PROXY_PORT)"
+            echo " ⚡ Provider: NVIDIA NIM or Modal (proxy running on port $PROXY_PORT)"
         else
-            echo "  ⚡ Provider: Anthropic (proxy not running)"
+            echo " ⚡ Provider: Anthropic (proxy not running)"
         fi
         claude auth status 2>/dev/null | python3 -c "
 import json,sys
 try:
     d=json.load(sys.stdin)
     if d.get('loggedIn'):
-        print('  Auth: OAuth active (' + d.get('email','') + ' / ' + d.get('subscriptionType','') + ')')
+        print(' Auth: OAuth active (' + d.get('email','') + ' / ' + d.get('subscriptionType','') + ')')
     else:
-        print('  Auth: No OAuth session (API key mode)')
+        print(' Auth: No OAuth session (API key mode)')
 except: pass
 " 2>/dev/null
         echo ""
         ;;
     *)
-        echo "Usage: claude-switch [nim|anthropic|status]"
+        echo "Usage: claude-switch [nim|modal|anthropic|status]"
         exit 1
         ;;
 esac
