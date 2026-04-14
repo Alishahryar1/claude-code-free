@@ -48,6 +48,7 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
 1. Get an API key (or use LM Studio / llama.cpp locally):
    - **NVIDIA NIM**: [build.nvidia.com/settings/api-keys](https://build.nvidia.com/settings/api-keys)
    - **OpenRouter**: [openrouter.ai/keys](https://openrouter.ai/keys)
+   - **Modal**: [modal.com/glm-5-endpoint](https://modal.com/glm-5-endpoint)
    - **LM Studio**: No API key needed. Run locally with [LM Studio](https://lmstudio.ai)
    - **llama.cpp**: No API key needed. Run `llama-server` locally.
 2. Install [Claude Code](https://github.com/anthropics/claude-code)
@@ -101,6 +102,20 @@ MODEL="open_router/stepfun/step-3.5-flash:free"     # fallback
 </details>
 
 <details>
+<summary><b>Modal</b> (GLM 5.1)</summary>
+
+```dotenv
+MODAL_API_KEY="modalresearch-your-key-here"
+
+MODEL_OPUS="modal/zai-org/GLM-5.1-FP8"
+MODEL_SONNET="modal/zai-org/GLM-5.1-FP8"
+MODEL_HAIKU="modal/zai-org/GLM-5.1-FP8"
+MODEL="modal/zai-org/GLM-5.1-FP8"         # fallback
+```
+
+</details>
+
+<details>
 <summary><b>LM Studio</b> (fully local, no API key)</summary>
 
 ```dotenv
@@ -134,11 +149,13 @@ Each `MODEL_*` variable can use a different provider. `MODEL` is the fallback fo
 ```dotenv
 NVIDIA_NIM_API_KEY="nvapi-your-key-here"
 OPENROUTER_API_KEY="sk-or-your-key-here"
+MODAL_API_KEY="modalresearch-your-key-here"
 
-MODEL_OPUS="nvidia_nim/moonshotai/kimi-k2.5"
-MODEL_SONNET="open_router/deepseek/deepseek-r1-0528:free"
+
+MODEL_OPUS="modal/zai-org/GLM-5.1-FP8"
+MODEL_SONNET="nvidia_nim/minimaxai/minimax-m2.7"
 MODEL_HAIKU="lmstudio/unsloth/GLM-4.7-Flash-GGUF"
-MODEL="nvidia_nim/z-ai/glm4.7"                      # fallback
+MODEL="open_router/deepseek/deepseek-r1-0528:free"  # fallback
 ```
 
 </details>
@@ -283,21 +300,23 @@ free-claude-code    # starts the server
 
 ## Providers
 
-| Provider       | Cost         | Rate Limit | Best For                             |
-| -------------- | ------------ | ---------- | ------------------------------------ |
-| **NVIDIA NIM** | Free         | 40 req/min | Daily driver, generous free tier     |
-| **OpenRouter** | Free / Paid  | Varies     | Model variety, fallback options      |
-| **LM Studio**  | Free (local) | Unlimited  | Privacy, offline use, no rate limits |
-| **llama.cpp**  | Free (local) | Unlimited  | Lightweight local inference engine   |
+| Provider       | Cost         | Rate Limit            | Best For                             |
+| -------------- | ------------ | --------------------- | ------------------------------------ |
+| **NVIDIA NIM** | Free         | 40 req/min            | Daily driver, generous free tier     |
+| **OpenRouter** | Free / Paid  | Varies                | Model variety, fallback options      |
+| **Modal**      | Free / Paid  | 1 concurrent request  | Long-running reasoning tasks         |
+| **LM Studio**  | Free (local) | Unlimited             | Privacy, offline use, no rate limits |
+| **llama.cpp**  | Free (local) | Unlimited             | Lightweight local inference engine   |
 
 Models use a prefix format: `provider_prefix/model/name`. An invalid prefix causes an error.
 
-| Provider   | `MODEL` prefix    | API Key Variable     | Default Base URL              |
-| ---------- | ----------------- | -------------------- | ----------------------------- |
-| NVIDIA NIM | `nvidia_nim/...`  | `NVIDIA_NIM_API_KEY` | `integrate.api.nvidia.com/v1` |
-| OpenRouter | `open_router/...` | `OPENROUTER_API_KEY` | `openrouter.ai/api/v1`        |
-| LM Studio  | `lmstudio/...`    | (none)               | `localhost:1234/v1`           |
-| llama.cpp  | `llamacpp/...`    | (none)               | `localhost:8080/v1`           |
+| Provider   | `MODEL` prefix    | API Key Variable     | Default Base URL                                   |
+| ---------- | ----------------- | -------------------- | -------------------------------------------------- |
+| NVIDIA NIM | `nvidia_nim/...`  | `NVIDIA_NIM_API_KEY` | `integrate.api.nvidia.com/v1`                      |
+| OpenRouter | `open_router/...` | `OPENROUTER_API_KEY` | `openrouter.ai/api/v1`                             |
+| modal      | `modal/...`       | `MODAL_API_KEY`      | `api.us-west-2.modal.direct/v1/chat/completions`   |
+| LM Studio  | `lmstudio/...`    | (none)               | `localhost:1234/v1`                                |
+| llama.cpp  | `llamacpp/...`    | (none)               | `localhost:8080/v1`                                |
 
 <details>
 <summary><b>NVIDIA NIM models</b></summary>
@@ -327,7 +346,16 @@ Popular free models:
 Browse: [openrouter.ai/models](https://openrouter.ai/models) · [Free models](https://openrouter.ai/collections/free-models)
 
 </details>
+<details>
+<summary><b>Modal model</b></summary>
 
+Popular free model:
+
+- `modal/zai-org/GLM-5.1-FP8`
+
+Browse: [modal.com/glm-5-endpoint](https://modal.com/glm-5-endpoint) 
+
+</details>
 <details>
 <summary><b>LM Studio models</b></summary>
 

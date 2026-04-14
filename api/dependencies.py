@@ -10,6 +10,7 @@ from providers.common import get_user_facing_error_message
 from providers.exceptions import AuthenticationError
 from providers.llamacpp import LlamaCppProvider
 from providers.lmstudio import LMStudioProvider
+from providers.modal import MODAL_BASE_URL, ModalProvider
 from providers.nvidia_nim import NVIDIA_NIM_BASE_URL, NvidiaNimProvider
 from providers.open_router import OPENROUTER_BASE_URL, OpenRouterProvider
 
@@ -24,6 +25,23 @@ def get_settings() -> Settings:
 
 def _create_provider_for_type(provider_type: str, settings: Settings) -> BaseProvider:
     """Construct and return a new provider instance for the given provider type."""
+    if provider_type == "modal":
+        if not settings.modal_api_key or not settings.modal_api_key.strip():
+            raise AuthenticationError(
+                "MODAL_API_KEY is not set. Add it to your .env file. "
+                "Get a token from your Modal dashboard."
+            )
+        config = ProviderConfig(
+            api_key=settings.modal_api_key,
+            base_url=settings.modal_base_url,
+            rate_limit=settings.provider_rate_limit,
+            rate_window=settings.provider_rate_window,
+            max_concurrency=settings.provider_max_concurrency,
+            http_read_timeout=settings.http_read_timeout,
+            http_write_timeout=settings.http_write_timeout,
+            http_connect_timeout=settings.http_connect_timeout,
+        )
+        return ModalProvider(config)
     if provider_type == "nvidia_nim":
         if not settings.nvidia_nim_api_key or not settings.nvidia_nim_api_key.strip():
             raise AuthenticationError(
@@ -83,12 +101,12 @@ def _create_provider_for_type(provider_type: str, settings: Settings) -> BasePro
         )
         return LlamaCppProvider(config)
     logger.error(
-        "Unknown provider_type: '{}'. Supported: 'nvidia_nim', 'open_router', 'lmstudio', 'llamacpp'",
+        "Unknown provider_type: '{}'. Supported: 'modal', 'nvidia_nim', 'open_router', 'lmstudio', 'llamacpp'",
         provider_type,
     )
     raise ValueError(
         f"Unknown provider_type: '{provider_type}'. "
-        f"Supported: 'nvidia_nim', 'open_router', 'lmstudio', 'llamacpp'"
+        f"Supported: 'modal', 'nvidia_nim', 'open_router', 'lmstudio', 'llamacpp'"
     )
 
 
