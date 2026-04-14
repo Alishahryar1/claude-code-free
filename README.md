@@ -29,7 +29,7 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
 
 | Feature                    | Description                                                                                     |
 | -------------------------- | ----------------------------------------------------------------------------------------------- |
-| **Zero Cost**              | 40 req/min free on NVIDIA NIM. Free models on OpenRouter. Fully local with LM Studio            |
+| **Zero Cost**              | 40 req/min free on NVIDIA NIM. Free GLV5 on Modal. Free models on OpenRouter. Fully local with LM Studio            |
 | **Drop-in Replacement**    | Set 2 env vars. No modifications to Claude Code CLI or VSCode extension needed                  |
 | **4 Providers**            | NVIDIA NIM, OpenRouter (hundreds of models), LM Studio (local), llama.cpp (`llama-server`)      |
 | **Per-Model Mapping**      | Route Opus / Sonnet / Haiku to different models and providers. Mix providers freely             |
@@ -47,6 +47,7 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
 
 1. Get an API key (or use LM Studio / llama.cpp locally):
    - **NVIDIA NIM**: [build.nvidia.com/settings/api-keys](https://build.nvidia.com/settings/api-keys)
+   - **Modal GLV5**: [modal.com/glm-5-endpoint](https://modal.com/glm-5-endpoint)
    - **OpenRouter**: [openrouter.ai/keys](https://openrouter.ai/keys)
    - **LM Studio**: No API key needed. Run locally with [LM Studio](https://lmstudio.ai)
    - **llama.cpp**: No API key needed. Run `llama-server` locally.
@@ -95,6 +96,20 @@ MODEL="open_router/stepfun/step-3.5-flash:free"     # fallback
 </details>
 
 <details>
+<summary><b>Modal GLV5</b> (free endpoint, no rate limits)</summary>
+
+```dotenv
+MODAL_API_KEY="your-modal-token-here"
+
+MODEL_OPUS="modal/glm-5"
+MODEL_SONNET="modal/glm-5"
+MODEL_HAIKU="modal/glm-5"
+MODEL="modal/glm-5" # fallback
+```
+
+</details>
+
+<details>
 <summary><b>LM Studio</b> (fully local, no API key)</summary>
 
 ```dotenv
@@ -127,12 +142,13 @@ Each `MODEL_*` variable can use a different provider. `MODEL` is the fallback fo
 
 ```dotenv
 NVIDIA_NIM_API_KEY="nvapi-your-key-here"
+MODAL_API_KEY="your-modal-token-here"
 OPENROUTER_API_KEY="sk-or-your-key-here"
 
-MODEL_OPUS="nvidia_nim/moonshotai/kimi-k2.5"
-MODEL_SONNET="open_router/deepseek/deepseek-r1-0528:free"
-MODEL_HAIKU="lmstudio/unsloth/GLM-4.7-Flash-GGUF"
-MODEL="nvidia_nim/z-ai/glm4.7"                      # fallback
+MODEL_OPUS="modal/glm-5"
+MODEL_SONNET="nvidia_nim/moonshotai/kimi-k2.5"
+MODEL_HAIKU="open_router/deepseek/deepseek-r1-0528:free"
+MODEL="modal/glm-5"                      # fallback
 ```
 
 </details>

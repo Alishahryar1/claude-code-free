@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # ==================== NVIDIA NIM Config ====================
     nvidia_nim_api_key: str = ""
 
+    # ==================== Modal Config ====================
+    modal_api_key: str = Field(default="", validation_alias="MODAL_API_KEY")
+
     # ==================== LM Studio Config ====================
     lm_studio_base_url: str = Field(
         default="http://localhost:1234/v1",
@@ -164,7 +167,7 @@ class Settings(BaseSettings):
     def validate_model_format(cls, v: str | None) -> str | None:
         if v is None:
             return None
-        valid_providers = ("nvidia_nim", "open_router", "lmstudio", "llamacpp")
+        valid_providers = ("nvidia_nim", "open_router", "lmstudio", "llamacpp", "modal")
         if "/" not in v:
             raise ValueError(
                 f"Model must be prefixed with provider type. "
@@ -175,7 +178,7 @@ class Settings(BaseSettings):
         if provider not in valid_providers:
             raise ValueError(
                 f"Invalid provider: '{provider}'. "
-                f"Supported: 'nvidia_nim', 'open_router', 'lmstudio', 'llamacpp'"
+                f"Supported: 'nvidia_nim', 'open_router', 'lmstudio', 'llamacpp', 'modal'"
             )
         return v
 
