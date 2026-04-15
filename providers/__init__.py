@@ -1,6 +1,7 @@
 """Providers package - implement your own provider by extending BaseProvider."""
 
 from .base import BaseProvider, ProviderConfig
+from .deepseek import DeepSeekProvider
 from .exceptions import (
     APIError,
     AuthenticationError,
@@ -18,6 +19,7 @@ __all__ = [
     "APIError",
     "AuthenticationError",
     "BaseProvider",
+    "DeepSeekProvider",
     "InvalidRequestError",
     "LMStudioProvider",
     "LlamaCppProvider",
