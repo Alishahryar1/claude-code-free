@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     nim_enable_thinking: bool = Field(
         default=False, validation_alias="NIM_ENABLE_THINKING"
     )
+    nim_parallel_tool_calls: bool = Field(
+        default=True, validation_alias="NIM_PARALLEL_TOOL_CALLS"
+    )
 
     # ==================== Voice Note Transcription ====================
     voice_note_enabled: bool = Field(
@@ -175,9 +178,12 @@ class Settings(BaseSettings):
         return v
 
     @model_validator(mode="after")
-    def _inject_nim_thinking(self) -> Settings:
+    def _inject_nim_settings(self) -> Settings:
         self.nim = self.nim.model_copy(
-            update={"enable_thinking": self.nim_enable_thinking}
+            update={
+                "enable_thinking": self.nim_enable_thinking,
+                "parallel_tool_calls": self.nim_parallel_tool_calls,
+            }
         )
         return self
 

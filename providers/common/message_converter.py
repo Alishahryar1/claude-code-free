@@ -26,6 +26,7 @@ class AnthropicToOpenAIConverter:
         messages: list[Any],
         *,
         include_reasoning_for_openrouter: bool = False,
+        parallel_tool_calls: bool = True,
     ) -> list[dict[str, Any]]:
         """Convert a list of Anthropic messages to OpenAI format.
 
@@ -47,6 +48,7 @@ class AnthropicToOpenAIConverter:
                         AnthropicToOpenAIConverter._convert_assistant_message(
                             content,
                             include_reasoning_for_openrouter=include_reasoning_for_openrouter,
+                            parallel_tool_calls=parallel_tool_calls,
                         )
                     )
                 elif role == "user":
@@ -63,6 +65,7 @@ class AnthropicToOpenAIConverter:
         content: list[Any],
         *,
         include_reasoning_for_openrouter: bool = False,
+        parallel_tool_calls: bool = True,
     ) -> list[dict[str, Any]]:
         """Convert assistant message blocks, preserving interleaved thinking+text order."""
         content_parts: list[str] = []
@@ -106,7 +109,10 @@ class AnthropicToOpenAIConverter:
             "content": content_str,
         }
         if tool_calls:
-            msg["tool_calls"] = tool_calls
+            if not parallel_tool_calls:
+                msg["tool_calls"] = tool_calls[:1]
+            else:
+                msg["tool_calls"] = tool_calls
         if include_reasoning_for_openrouter and thinking_parts:
             msg["reasoning_content"] = "\n".join(thinking_parts)
 
@@ -185,6 +191,7 @@ def build_base_request_body(
     *,
     default_max_tokens: int | None = None,
     include_reasoning_for_openrouter: bool = False,
+    parallel_tool_calls: bool = True,
 ) -> dict[str, Any]:
     """Build the common parts of an OpenAI-format request body.
 
@@ -197,6 +204,7 @@ def build_base_request_body(
     messages = AnthropicToOpenAIConverter.convert_messages(
         request_data.messages,
         include_reasoning_for_openrouter=include_reasoning_for_openrouter,
+        parallel_tool_calls=getattr(request_data, "parallel_tool_calls", True),
     )
 
     system = getattr(request_data, "system", None)
