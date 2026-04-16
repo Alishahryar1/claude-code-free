@@ -193,6 +193,7 @@ def build_request_body(
             reasoning_replay=ReasoningReplayMode.REASONING_CONTENT
             if thinking_enabled
             else ReasoningReplayMode.DISABLED,
+            parallel_tool_calls=nim.parallel_tool_calls,
         )
     except OpenAIConversionError as exc:
         raise InvalidRequestError(str(exc)) from exc

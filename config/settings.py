@@ -255,6 +255,12 @@ class Settings(BaseSettings):
 
     # ==================== NIM Settings ====================
     nim: NimSettings = Field(default_factory=NimSettings)
+    nim_enable_thinking: bool = Field(
+        default=False, validation_alias="NIM_ENABLE_THINKING"
+    )
+    nim_parallel_tool_calls: bool = Field(
+        default=True, validation_alias="NIM_PARALLEL_TOOL_CALLS"
+    )
 
     # ==================== Voice Note Transcription ====================
     voice_note_enabled: bool = Field(
@@ -403,6 +409,15 @@ class Settings(BaseSettings):
             supported = ", ".join(f"'{p}'" for p in SUPPORTED_PROVIDER_IDS)
             raise ValueError(f"Invalid provider: '{provider}'. Supported: {supported}")
         return v
+
+    @model_validator(mode="after")
+    def _inject_nim_settings(self) -> "Settings":
+        self.nim = self.nim.model_copy(
+            update={
+                "parallel_tool_calls": self.nim_parallel_tool_calls,
+            }
+        )
+        return self
 
     @model_validator(mode="after")
     def check_nvidia_nim_api_key(self) -> "Settings":
