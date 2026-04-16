@@ -26,7 +26,7 @@ if %errorlevel% neq 0 goto :esperar
 
 :iniciar_claude
 echo  [OK] Proxy activo en localhost:3000
-echo  Modelo: Llama 3.1 70B (NVIDIA NIM - GRATIS)
+echo  Modelo: Llama 3.1 8B (NVIDIA NIM - GRATIS)
 echo.
 echo  Iniciando Claude Code...
 echo.
