@@ -39,6 +39,18 @@ def _make_provider():
     return NvidiaNimProvider(config, nim_settings=NimSettings())
 
 
+def _make_provider_with_thinking_enabled(enabled: bool):
+    """Create a provider instance with thinking explicitly enabled or disabled."""
+    config = ProviderConfig(
+        api_key="test_key",
+        base_url="https://test.api.nvidia.com/v1",
+        rate_limit=10,
+        rate_window=60,
+        enable_thinking=enabled,
+    )
+    return NvidiaNimProvider(config, nim_settings=NimSettings())
+
+
 def _make_request(model="test-model", stream=True):
     """Create a mock request with all fields build_request_body needs."""
     req = MagicMock()
@@ -271,6 +283,76 @@ class TestStreamingExceptionHandling:
         assert "thinking_delta" in event_text
         assert "I think..." in event_text
         assert "The answer" in event_text
+
+    @pytest.mark.asyncio
+    async def test_stream_with_reasoning_content_suppressed_when_disabled(self):
+        """reasoning deltas are stripped while normal text still streams."""
+        provider = _make_provider_with_thinking_enabled(False)
+        request = _make_request()
+
+        chunk1 = _make_chunk(reasoning_content="I think...")
+        chunk2 = _make_chunk(content="<think>secret</think>The answer")
+        chunk3 = _make_chunk(finish_reason="stop")
+        stream_mock = AsyncStreamMock([chunk1, chunk2, chunk3])
+
+        with (
+            patch.object(
+                provider._client.chat.completions,
+                "create",
+                new_callable=AsyncMock,
+                return_value=stream_mock,
+            ),
+            patch.object(
+                provider._global_rate_limiter,
+                "wait_if_blocked",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+        ):
+            events = await _collect_stream(provider, request)
+
+        event_text = "".join(events)
+        assert "thinking_delta" not in event_text
+        assert "I think..." not in event_text
+        assert "secret" not in event_text
+        assert "The answer" in event_text
+
+    @pytest.mark.asyncio
+    async def test_stream_with_upstream_405_mentions_provider_name(self):
+        """HTTP 405s are surfaced as upstream method/endpoint rejections."""
+        provider = _make_provider()
+        request = _make_request()
+
+        response = httpx.Response(
+            status_code=405,
+            request=httpx.Request("POST", "https://example.com/v1/chat/completions"),
+        )
+        error = httpx.HTTPStatusError(
+            "Method Not Allowed",
+            request=response.request,
+            response=response,
+        )
+
+        with patch.object(
+            provider._client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
+            side_effect=error,
+        ):
+            events = [
+                e
+                async for e in provider.stream_response(
+                    request,
+                    request_id="REQ405",
+                )
+            ]
+
+        event_text = "".join(events)
+        assert (
+            "Upstream provider NIM rejected the request method or endpoint (HTTP 405)."
+            in event_text
+        )
+        assert "request_id=REQ405" in event_text
 
     @pytest.mark.asyncio
     async def test_stream_rate_limited_retries_via_execute_with_retry(self):

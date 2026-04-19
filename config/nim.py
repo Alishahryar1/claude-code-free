@@ -21,7 +21,6 @@ class NimSettings(BaseModel):
 
     parallel_tool_calls: bool = True
     ignore_eos: bool = False
-    enable_thinking: bool = False
 
     min_tokens: int = Field(0, ge=0)
     chat_template: str | None = None

@@ -67,21 +67,21 @@ class TestBuildRequestBody:
     def test_max_tokens_capped_by_nim(self, req):
         req.max_tokens = 100000
         nim = NimSettings(max_tokens=4096)
-        body = build_request_body(req, nim)
+        body = build_request_body(req, nim, thinking_enabled=True)
         assert body["max_tokens"] == 4096
 
     def test_presence_penalty_included_when_nonzero(self, req):
         nim = NimSettings(presence_penalty=0.5)
-        body = build_request_body(req, nim)
+        body = build_request_body(req, nim, thinking_enabled=True)
         assert body["presence_penalty"] == 0.5
 
     def test_include_stop_str_in_output_not_sent(self, req):
-        body = build_request_body(req, NimSettings())
+        body = build_request_body(req, NimSettings(), thinking_enabled=True)
         assert "include_stop_str_in_output" not in body.get("extra_body", {})
 
     def test_parallel_tool_calls_included(self, req):
         nim = NimSettings(parallel_tool_calls=False)
-        body = build_request_body(req, nim)
+        body = build_request_body(req, nim, thinking_enabled=True)
         assert body["parallel_tool_calls"] is False
 
     def test_reasoning_params_in_extra_body(self):
@@ -98,8 +98,8 @@ class TestBuildRequestBody:
         req.extra_body = None
         req.top_k = None
 
-        nim = NimSettings(enable_thinking=True)
-        body = build_request_body(req, nim)
+        nim = NimSettings()
+        body = build_request_body(req, nim, thinking_enabled=True)
         extra = body["extra_body"]
         assert extra["chat_template_kwargs"] == {
             "thinking": True,
@@ -121,8 +121,8 @@ class TestBuildRequestBody:
         req.extra_body = None
         req.top_k = None
 
-        nim = NimSettings(enable_thinking=False)
-        body = build_request_body(req, nim)
+        nim = NimSettings()
+        body = build_request_body(req, nim, thinking_enabled=False)
         extra = body.get("extra_body", {})
         assert "chat_template_kwargs" not in extra
         assert "reasoning_budget" not in extra
@@ -142,7 +142,7 @@ class TestBuildRequestBody:
         req.top_k = None
 
         nim = NimSettings()
-        body = build_request_body(req, nim)
+        body = build_request_body(req, nim, thinking_enabled=False)
         extra = body.get("extra_body", {})
         for param in (
             "thinking",
@@ -152,3 +152,29 @@ class TestBuildRequestBody:
             "reasoning_effort",
         ):
             assert param not in extra
+
+    def test_assistant_thinking_blocks_removed_when_disabled(self):
+        req = MagicMock()
+        req.model = "test"
+        req.messages = [
+            MagicMock(
+                role="assistant",
+                content=[
+                    MagicMock(type="thinking", thinking="secret"),
+                    MagicMock(type="text", text="answer"),
+                ],
+            )
+        ]
+        req.max_tokens = 100
+        req.system = None
+        req.temperature = None
+        req.top_p = None
+        req.stop_sequences = None
+        req.tools = None
+        req.tool_choice = None
+        req.extra_body = None
+        req.top_k = None
+
+        body = build_request_body(req, NimSettings(), thinking_enabled=False)
+        assert "<think>" not in body["messages"][0]["content"]
+        assert "answer" in body["messages"][0]["content"]

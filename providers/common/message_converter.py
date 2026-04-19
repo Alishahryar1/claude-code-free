@@ -25,6 +25,7 @@ class AnthropicToOpenAIConverter:
     def convert_messages(
         messages: list[Any],
         *,
+        include_thinking: bool = True,
         include_reasoning_for_openrouter: bool = False,
         include_reasoning_content: bool = False,
     ) -> list[dict[str, Any]]:
@@ -47,6 +48,7 @@ class AnthropicToOpenAIConverter:
                     result.extend(
                         AnthropicToOpenAIConverter._convert_assistant_message(
                             content,
+                            include_thinking=include_thinking,
                             include_reasoning_for_openrouter=include_reasoning_for_openrouter,
                             include_reasoning_content=include_reasoning_content,
                         )
@@ -64,6 +66,7 @@ class AnthropicToOpenAIConverter:
     def _convert_assistant_message(
         content: list[Any],
         *,
+        include_thinking: bool = True,
         include_reasoning_for_openrouter: bool = False,
         include_reasoning_content: bool = False,
     ) -> list[dict[str, Any]]:
@@ -81,6 +84,8 @@ class AnthropicToOpenAIConverter:
             if block_type == "text":
                 content_parts.append(get_block_attr(block, "text", ""))
             elif block_type == "thinking":
+                if not include_thinking:
+                    continue
                 thinking = get_block_attr(block, "thinking", "")
                 content_parts.append(f"<think>\n{thinking}\n</think>")
                 if emit_reasoning_content:
@@ -190,6 +195,7 @@ def build_base_request_body(
     request_data: Any,
     *,
     default_max_tokens: int | None = None,
+    include_thinking: bool = True,
     include_reasoning_for_openrouter: bool = False,
     include_reasoning_content: bool = False,
 ) -> dict[str, Any]:
@@ -203,6 +209,7 @@ def build_base_request_body(
 
     messages = AnthropicToOpenAIConverter.convert_messages(
         request_data.messages,
+        include_thinking=include_thinking,
         include_reasoning_for_openrouter=include_reasoning_for_openrouter,
         include_reasoning_content=include_reasoning_content,
     )

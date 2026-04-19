@@ -25,4 +25,8 @@ class NvidiaNimProvider(OpenAICompatibleProvider):
 
     def _build_request_body(self, request: Any) -> dict:
         """Internal helper for tests and shared building."""
-        return build_request_body(request, self._nim_settings)
+        return build_request_body(
+            request,
+            self._nim_settings,
+            thinking_enabled=self._is_thinking_enabled(request),
+        )

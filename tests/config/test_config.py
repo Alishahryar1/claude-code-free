@@ -25,6 +25,7 @@ class TestSettings:
         assert isinstance(settings.provider_rate_window, int)
         assert isinstance(settings.nim.temperature, float)
         assert isinstance(settings.fast_prefix_detection, bool)
+        assert isinstance(settings.enable_thinking, bool)
 
     def test_get_settings_cached(self):
         """Test get_settings returns cached instance."""
@@ -111,6 +112,22 @@ class TestSettings:
         monkeypatch.setenv("HTTP_CONNECT_TIMEOUT", "5")
         settings = Settings()
         assert settings.http_connect_timeout == 5.0
+
+    def test_enable_thinking_from_env(self, monkeypatch):
+        """ENABLE_THINKING env var is loaded into settings."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("ENABLE_THINKING", "false")
+        settings = Settings()
+        assert settings.enable_thinking is False
+
+    def test_removed_nim_enable_thinking_raises(self, monkeypatch):
+        """NIM_ENABLE_THINKING now fails fast with a migration message."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("NIM_ENABLE_THINKING", "false")
+        with pytest.raises(ValidationError, match="Rename it to ENABLE_THINKING"):
+            Settings()
 
 
 # --- NimSettings Validation Tests ---
@@ -235,6 +252,13 @@ class TestNimSettingsValidators:
 
         with pytest.raises(ValidationError):
             NimSettings(**cast(Any, {"unknown_field": "value"}))
+
+    def test_enable_thinking_field_removed(self):
+        """NimSettings no longer accepts the removed thinking toggle."""
+        from typing import Any, cast
+
+        with pytest.raises(ValidationError):
+            NimSettings(**cast(Any, {"enable_thinking": True}))
 
 
 class TestSettingsOptionalStr:

@@ -25,10 +25,17 @@ class OpenRouterProvider(OpenAICompatibleProvider):
 
     def _build_request_body(self, request: Any) -> dict:
         """Internal helper for tests and shared building."""
-        return build_request_body(request)
+        return build_request_body(
+            request,
+            thinking_enabled=self._is_thinking_enabled(request),
+        )
 
-    def _handle_extra_reasoning(self, delta: Any, sse: SSEBuilder) -> Iterator[str]:
+    def _handle_extra_reasoning(
+        self, delta: Any, sse: SSEBuilder, *, thinking_enabled: bool
+    ) -> Iterator[str]:
         """Handle reasoning_details for StepFun models."""
+        if not thinking_enabled:
+            return
         reasoning_details = getattr(delta, "reasoning_details", None)
         if reasoning_details and isinstance(reasoning_details, list):
             for item in reasoning_details:

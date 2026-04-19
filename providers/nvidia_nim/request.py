@@ -21,14 +21,19 @@ def _set_extra(
     extra_body[key] = value
 
 
-def build_request_body(request_data: Any, nim: NimSettings) -> dict:
+def build_request_body(
+    request_data: Any, nim: NimSettings, *, thinking_enabled: bool
+) -> dict:
     """Build OpenAI-format request body from Anthropic request."""
     logger.debug(
         "NIM_REQUEST: conversion start model={} msgs={}",
         getattr(request_data, "model", "?"),
         len(getattr(request_data, "messages", [])),
     )
-    body = build_base_request_body(request_data)
+    body = build_base_request_body(
+        request_data,
+        include_thinking=thinking_enabled,
+    )
 
     # NIM-specific max_tokens: cap against nim.max_tokens
     max_tokens = body.get("max_tokens") or getattr(request_data, "max_tokens", None)
@@ -63,7 +68,7 @@ def build_request_body(request_data: Any, nim: NimSettings) -> dict:
     if request_extra:
         extra_body.update(request_extra)
 
-    if nim.enable_thinking:
+    if thinking_enabled:
         extra_body.setdefault(
             "chat_template_kwargs", {"thinking": True, "enable_thinking": True}
         )

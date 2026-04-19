@@ -14,7 +14,13 @@ from .anthropic import (
     TokenCountRequest,
     Tool,
 )
-from .responses import MessagesResponse, TokenCountResponse, Usage
+from .responses import (
+    MessagesResponse,
+    ModelResponse,
+    ModelsListResponse,
+    TokenCountResponse,
+    Usage,
+)
 
 __all__ = [
     "ContentBlockImage",
@@ -25,6 +31,8 @@ __all__ = [
     "Message",
     "MessagesRequest",
     "MessagesResponse",
+    "ModelResponse",
+    "ModelsListResponse",
     "Role",
     "SystemContent",
     "ThinkingConfig",

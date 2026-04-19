@@ -91,9 +91,7 @@ async def test_build_request_body(provider_config):
     """Test request body construction."""
     from config.nim import NimSettings
 
-    provider = NvidiaNimProvider(
-        provider_config, nim_settings=NimSettings(enable_thinking=True)
-    )
+    provider = NvidiaNimProvider(provider_config, nim_settings=NimSettings())
     req = MockRequest()
     body = provider._build_request_body(req)
 
@@ -108,6 +106,40 @@ async def test_build_request_body(provider_config):
     assert ctk["thinking"] is True
     assert ctk["enable_thinking"] is True
     assert body["extra_body"]["reasoning_budget"] == body["max_tokens"]
+
+
+@pytest.mark.asyncio
+async def test_build_request_body_omits_reasoning_when_globally_disabled(
+    provider_config,
+):
+    from config.nim import NimSettings
+
+    provider = NvidiaNimProvider(
+        provider_config.model_copy(update={"enable_thinking": False}),
+        nim_settings=NimSettings(),
+    )
+    req = MockRequest()
+    body = provider._build_request_body(req)
+
+    extra = body.get("extra_body", {})
+    assert "chat_template_kwargs" not in extra
+    assert "reasoning_budget" not in extra
+
+
+@pytest.mark.asyncio
+async def test_build_request_body_omits_reasoning_when_request_disables_thinking(
+    provider_config,
+):
+    from config.nim import NimSettings
+
+    provider = NvidiaNimProvider(provider_config, nim_settings=NimSettings())
+    req = MockRequest()
+    req.thinking.enabled = False
+    body = provider._build_request_body(req)
+
+    extra = body.get("extra_body", {})
+    assert "chat_template_kwargs" not in extra
+    assert "reasoning_budget" not in extra
 
 
 @pytest.mark.asyncio
@@ -193,6 +225,44 @@ async def test_stream_response_thinking_reasoning_content(nim_provider):
             ):
                 found_thinking = True
         assert found_thinking
+
+
+@pytest.mark.asyncio
+async def test_stream_response_suppresses_thinking_when_disabled(provider_config):
+    from config.nim import NimSettings
+
+    provider = NvidiaNimProvider(
+        provider_config.model_copy(update={"enable_thinking": False}),
+        nim_settings=NimSettings(),
+    )
+    req = MockRequest()
+
+    mock_chunk = MagicMock()
+    mock_chunk.choices = [
+        MagicMock(
+            delta=MagicMock(
+                content="<think>secret</think>Answer", reasoning_content="Thinking..."
+            ),
+            finish_reason="stop",
+        )
+    ]
+    mock_chunk.usage = None
+
+    async def mock_stream():
+        yield mock_chunk
+
+    with patch.object(
+        provider._client.chat.completions, "create", new_callable=AsyncMock
+    ) as mock_create:
+        mock_create.return_value = mock_stream()
+
+        events = [e async for e in provider.stream_response(req)]
+
+    event_text = "".join(events)
+    assert "thinking_delta" not in event_text
+    assert "Thinking..." not in event_text
+    assert "secret" not in event_text
+    assert "Answer" in event_text
 
 
 @pytest.mark.asyncio

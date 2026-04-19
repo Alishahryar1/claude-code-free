@@ -11,6 +11,20 @@ class TokenCountResponse(BaseModel):
     input_tokens: int
 
 
+class ModelResponse(BaseModel):
+    created_at: str
+    display_name: str
+    id: str
+    type: Literal["model"] = "model"
+
+
+class ModelsListResponse(BaseModel):
+    data: list[ModelResponse]
+    first_id: str | None
+    has_more: bool
+    last_id: str | None
+
+
 class Usage(BaseModel):
     input_tokens: int
     output_tokens: int

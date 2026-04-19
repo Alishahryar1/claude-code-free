@@ -105,6 +105,26 @@ def test_build_request_body_has_reasoning_extra(open_router_provider):
     assert body["extra_body"]["reasoning"]["enabled"] is True
 
 
+def test_build_request_body_omits_reasoning_when_globally_disabled(open_router_config):
+    provider = OpenRouterProvider(
+        open_router_config.model_copy(update={"enable_thinking": False})
+    )
+    req = MockRequest()
+    body = provider._build_request_body(req)
+
+    assert "extra_body" not in body or "reasoning" not in body["extra_body"]
+
+
+def test_build_request_body_omits_reasoning_when_request_disables_thinking(
+    open_router_provider,
+):
+    req = MockRequest()
+    req.thinking.enabled = False
+    body = open_router_provider._build_request_body(req)
+
+    assert "extra_body" not in body or "reasoning" not in body["extra_body"]
+
+
 def test_build_request_body_base_url_and_model(open_router_provider):
     """Base URL and model are correct in provider config."""
     assert open_router_provider._base_url == "https://openrouter.ai/api/v1"
@@ -203,6 +223,44 @@ async def test_stream_response_reasoning_content(open_router_provider):
             ):
                 found_thinking = True
         assert found_thinking
+
+
+@pytest.mark.asyncio
+async def test_stream_response_suppresses_reasoning_when_disabled(open_router_config):
+    provider = OpenRouterProvider(
+        open_router_config.model_copy(update={"enable_thinking": False})
+    )
+    req = MockRequest()
+
+    mock_chunk = MagicMock()
+    mock_chunk.choices = [
+        MagicMock(
+            delta=MagicMock(
+                content="<think>secret</think>Answer",
+                reasoning_content="Thinking...",
+                reasoning_details=[{"text": "Step 1"}],
+            ),
+            finish_reason="stop",
+        )
+    ]
+    mock_chunk.usage = None
+
+    async def mock_stream():
+        yield mock_chunk
+
+    with patch.object(
+        provider._client.chat.completions, "create", new_callable=AsyncMock
+    ) as mock_create:
+        mock_create.return_value = mock_stream()
+
+        events = [e async for e in provider.stream_response(req)]
+
+    event_text = "".join(events)
+    assert "thinking_delta" not in event_text
+    assert "Thinking..." not in event_text
+    assert "Step 1" not in event_text
+    assert "secret" not in event_text
+    assert "Answer" in event_text
 
 
 @pytest.mark.asyncio

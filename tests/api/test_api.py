@@ -40,6 +40,34 @@ def test_health():
     assert response.json()["status"] == "healthy"
 
 
+def test_models_list():
+    response = client.get("/v1/models")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["has_more"] is False
+    ids = [item["id"] for item in data["data"]]
+    assert "claude-sonnet-4-20250514" in ids
+    assert data["first_id"] == ids[0]
+    assert data["last_id"] == ids[-1]
+
+
+def test_probe_endpoints_return_204_with_allow_headers():
+    responses = [
+        client.head("/"),
+        client.options("/"),
+        client.head("/health"),
+        client.options("/health"),
+        client.head("/v1/messages"),
+        client.options("/v1/messages"),
+        client.head("/v1/messages/count_tokens"),
+        client.options("/v1/messages/count_tokens"),
+    ]
+
+    for response in responses:
+        assert response.status_code == 204
+        assert "Allow" in response.headers
+
+
 def test_create_message_stream():
     """Create message returns streaming response."""
     payload = {

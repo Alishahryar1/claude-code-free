@@ -22,6 +22,7 @@ class ProviderConfig(BaseModel):
     http_read_timeout: float = 300.0
     http_write_timeout: float = 10.0
     http_connect_timeout: float = 2.0
+    enable_thinking: bool = True
 
 
 class BaseProvider(ABC):
@@ -29,6 +30,16 @@ class BaseProvider(ABC):
 
     def __init__(self, config: ProviderConfig):
         self._config = config
+
+    def _is_thinking_enabled(self, request: Any) -> bool:
+        """Return whether thinking should be enabled for this request."""
+        thinking = getattr(request, "thinking", None)
+        request_enabled = (
+            thinking.enabled
+            if thinking is not None and hasattr(thinking, "enabled")
+            else True
+        )
+        return self._config.enable_thinking and request_enabled
 
     @abstractmethod
     async def cleanup(self) -> None:

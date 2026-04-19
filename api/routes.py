@@ -3,7 +3,7 @@
 import traceback
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from loguru import logger
 
@@ -13,11 +13,55 @@ from providers.exceptions import InvalidRequestError, ProviderError
 
 from .dependencies import get_provider_for_type, get_settings, require_api_key
 from .models.anthropic import MessagesRequest, TokenCountRequest
-from .models.responses import TokenCountResponse
+from .models.responses import ModelResponse, ModelsListResponse, TokenCountResponse
 from .optimization_handlers import try_optimizations
 from .request_utils import get_token_count
 
 router = APIRouter()
+
+
+SUPPORTED_CLAUDE_MODELS = [
+    ModelResponse(
+        id="claude-opus-4-20250514",
+        display_name="Claude Opus 4",
+        created_at="2025-05-14T00:00:00Z",
+    ),
+    ModelResponse(
+        id="claude-sonnet-4-20250514",
+        display_name="Claude Sonnet 4",
+        created_at="2025-05-14T00:00:00Z",
+    ),
+    ModelResponse(
+        id="claude-haiku-4-20250514",
+        display_name="Claude Haiku 4",
+        created_at="2025-05-14T00:00:00Z",
+    ),
+    ModelResponse(
+        id="claude-3-opus-20240229",
+        display_name="Claude 3 Opus",
+        created_at="2024-02-29T00:00:00Z",
+    ),
+    ModelResponse(
+        id="claude-3-5-sonnet-20241022",
+        display_name="Claude 3.5 Sonnet",
+        created_at="2024-10-22T00:00:00Z",
+    ),
+    ModelResponse(
+        id="claude-3-haiku-20240307",
+        display_name="Claude 3 Haiku",
+        created_at="2024-03-07T00:00:00Z",
+    ),
+    ModelResponse(
+        id="claude-3-5-haiku-20241022",
+        display_name="Claude 3.5 Haiku",
+        created_at="2024-10-22T00:00:00Z",
+    ),
+]
+
+
+def _probe_response(allow: str) -> Response:
+    """Return an empty success response for compatibility probes."""
+    return Response(status_code=204, headers={"Allow": allow})
 
 
 # =============================================================================
@@ -83,6 +127,12 @@ async def create_message(
         ) from e
 
 
+@router.api_route("/v1/messages", methods=["HEAD", "OPTIONS"])
+async def probe_messages(_auth=Depends(require_api_key)):
+    """Respond to Claude compatibility probes for the messages endpoint."""
+    return _probe_response("POST, HEAD, OPTIONS")
+
+
 @router.post("/v1/messages/count_tokens")
 async def count_tokens(request_data: TokenCountRequest, _auth=Depends(require_api_key)):
     """Count tokens for a request."""
@@ -112,6 +162,12 @@ async def count_tokens(request_data: TokenCountRequest, _auth=Depends(require_ap
             ) from e
 
 
+@router.api_route("/v1/messages/count_tokens", methods=["HEAD", "OPTIONS"])
+async def probe_count_tokens(_auth=Depends(require_api_key)):
+    """Respond to Claude compatibility probes for the token count endpoint."""
+    return _probe_response("POST, HEAD, OPTIONS")
+
+
 @router.get("/")
 async def root(
     settings: Settings = Depends(get_settings), _auth=Depends(require_api_key)
@@ -124,10 +180,33 @@ async def root(
     }
 
 
+@router.api_route("/", methods=["HEAD", "OPTIONS"])
+async def probe_root(_auth=Depends(require_api_key)):
+    """Respond to compatibility probes for the root endpoint."""
+    return _probe_response("GET, HEAD, OPTIONS")
+
+
 @router.get("/health")
 async def health():
     """Health check endpoint."""
     return {"status": "healthy"}
+
+
+@router.api_route("/health", methods=["HEAD", "OPTIONS"])
+async def probe_health():
+    """Respond to compatibility probes for the health endpoint."""
+    return _probe_response("GET, HEAD, OPTIONS")
+
+
+@router.get("/v1/models", response_model=ModelsListResponse)
+async def list_models(_auth=Depends(require_api_key)):
+    """List the Claude model ids this proxy advertises for compatibility."""
+    return ModelsListResponse(
+        data=SUPPORTED_CLAUDE_MODELS,
+        first_id=SUPPORTED_CLAUDE_MODELS[0].id if SUPPORTED_CLAUDE_MODELS else None,
+        has_more=False,
+        last_id=SUPPORTED_CLAUDE_MODELS[-1].id if SUPPORTED_CLAUDE_MODELS else None,
+    )
 
 
 @router.post("/stop")

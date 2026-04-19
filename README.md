@@ -81,8 +81,8 @@ MODEL_SONNET="nvidia_nim/moonshotai/kimi-k2-thinking"
 MODEL_HAIKU="nvidia_nim/stepfun-ai/step-3.5-flash"
 MODEL="nvidia_nim/z-ai/glm4.7"                     # fallback
 
-# Enable for thinking models (kimi, nemotron). Leave false for others (e.g. Mistral).
-NIM_ENABLE_THINKING=true
+# Global switch for provider reasoning requests and Claude thinking blocks.
+ENABLE_THINKING=true
 ```
 
 </details>
@@ -159,6 +159,8 @@ MODEL="nvidia_nim/z-ai/glm4.7"                      # fallback
 
 </details>
 
+> Migration: `NIM_ENABLE_THINKING` was removed in this release. Rename it to `ENABLE_THINKING`.
+
 <details>
 <summary><b>Optional Authentication</b> (restrict access to your proxy)</summary>
 
@@ -199,6 +201,8 @@ uv run uvicorn server:app --host 0.0.0.0 --port 8082
 ```
 
 **Terminal 2:** Run Claude Code:
+
+Point `ANTHROPIC_BASE_URL` at the proxy root URL, not `http://localhost:8082/v1`.
 
 #### Powershell
 ```powershell
@@ -293,7 +297,9 @@ free-claude-code    # starts the server
 - **Per-model routing**: Opus / Sonnet / Haiku requests resolve to their model-specific backend, with `MODEL` as fallback
 - **Request optimization**: 5 categories of trivial requests (quota probes, title generation, prefix detection, suggestions, filepath extraction) are intercepted and responded to locally without using API quota
 - **Format translation**: Requests are translated from Anthropic format to the provider's OpenAI-compatible format and streamed back
-- **Thinking tokens**: `<think>` tags and `reasoning_content` fields are converted into native Claude thinking blocks
+- **Thinking tokens**: `<think>` tags and `reasoning_content` fields are converted into native Claude thinking blocks when `ENABLE_THINKING=true`
+
+The proxy also exposes Claude-compatible probe routes: `GET /v1/models`, `POST /v1/messages`, `POST /v1/messages/count_tokens`, plus `HEAD`/`OPTIONS` support for the common probe endpoints.
 
 ---
 
@@ -477,7 +483,7 @@ Configure via `WHISPER_DEVICE` (`cpu` | `cuda` | `nvidia_nim`) and `WHISPER_MODE
 | `MODEL_SONNET`       | Model for Claude Sonnet requests (falls back to `MODEL`)              | `open_router/arcee-ai/trinity-large-preview:free` |
 | `MODEL_HAIKU`        | Model for Claude Haiku requests (falls back to `MODEL`)               | `open_router/stepfun/step-3.5-flash:free`         |
 | `NVIDIA_NIM_API_KEY`    | NVIDIA API key                                                        | required for NIM                                  |
-| `NIM_ENABLE_THINKING`   | Send `chat_template_kwargs` + `reasoning_budget` on NIM requests. Enable for thinking models (kimi, nemotron); leave `false` for others (e.g. Mistral) | `false` |
+| `ENABLE_THINKING`    | Global switch for provider reasoning requests and Claude thinking blocks. Set `false` to hide thinking across all providers. | `true` |
 | `OPENROUTER_API_KEY` | OpenRouter API key                                                    | required for OpenRouter                           |
 | `DEEPSEEK_API_KEY`   | DeepSeek API key                                                      | required for DeepSeek                             |
 | `DEEPSEEK_BASE_URL`  | DeepSeek API base URL (`https://api.deepseek.com` or `/v1`)           | `https://api.deepseek.com`                        |

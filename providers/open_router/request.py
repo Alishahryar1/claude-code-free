@@ -9,7 +9,7 @@ from providers.common.message_converter import build_base_request_body
 OPENROUTER_DEFAULT_MAX_TOKENS = 81920
 
 
-def build_request_body(request_data: Any) -> dict:
+def build_request_body(request_data: Any, *, thinking_enabled: bool) -> dict:
     """Build OpenAI-format request body from Anthropic request for OpenRouter."""
     logger.debug(
         "OPENROUTER_REQUEST: conversion start model={} msgs={}",
@@ -18,8 +18,9 @@ def build_request_body(request_data: Any) -> dict:
     )
     body = build_base_request_body(
         request_data,
+        include_thinking=thinking_enabled,
         default_max_tokens=OPENROUTER_DEFAULT_MAX_TOKENS,
-        include_reasoning_for_openrouter=True,
+        include_reasoning_for_openrouter=thinking_enabled,
     )
 
     # OpenRouter reasoning: extra_body={"reasoning": {"enabled": True}}
@@ -28,10 +29,6 @@ def build_request_body(request_data: Any) -> dict:
     if request_extra:
         extra_body.update(request_extra)
 
-    thinking = getattr(request_data, "thinking", None)
-    thinking_enabled = (
-        thinking.enabled if thinking and hasattr(thinking, "enabled") else True
-    )
     if thinking_enabled:
         extra_body.setdefault("reasoning", {"enabled": True})
 

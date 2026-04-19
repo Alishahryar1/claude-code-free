@@ -111,6 +111,37 @@ def test_init_base_url_strips_trailing_slash():
 
 
 @pytest.mark.asyncio
+async def test_stream_response_omits_thinking_when_globally_disabled(llamacpp_config):
+    provider = LlamaCppProvider(
+        llamacpp_config.model_copy(update={"enable_thinking": False})
+    )
+    req = MockRequest()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+
+    async def empty_aiter():
+        if False:
+            yield ""
+
+    mock_response.aiter_lines = empty_aiter
+
+    with (
+        patch.object(provider._client, "build_request") as mock_build,
+        patch.object(
+            provider._client,
+            "send",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ),
+    ):
+        [e async for e in provider.stream_response(req)]
+
+    _, kwargs = mock_build.call_args
+    assert "thinking" not in kwargs["json"]
+
+
+@pytest.mark.asyncio
 async def test_stream_response(llamacpp_provider):
     """Test streaming native Anthropic response."""
     req = MockRequest()
@@ -254,3 +285,38 @@ async def test_stream_network_error(llamacpp_provider):
         assert events[0].startswith("event: error\ndata: {")
         assert "Connection refused" in events[0]
         assert "TEST_ID2" in events[0]
+
+
+@pytest.mark.asyncio
+async def test_stream_error_405_mentions_upstream_provider(llamacpp_provider):
+    req = MockRequest()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 405
+    mock_response.aread = AsyncMock(return_value=b"Method Not Allowed")
+    mock_response.raise_for_status = MagicMock(
+        side_effect=httpx.HTTPStatusError(
+            "Method Not Allowed", request=MagicMock(), response=mock_response
+        )
+    )
+
+    with (
+        patch.object(
+            llamacpp_provider._client, "build_request", return_value=MagicMock()
+        ),
+        patch.object(
+            llamacpp_provider._client,
+            "send",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ),
+    ):
+        events = [
+            e async for e in llamacpp_provider.stream_response(req, request_id="REQ405")
+        ]
+
+    assert (
+        "Upstream provider LLAMACPP rejected the request method or endpoint (HTTP 405)."
+        in events[0]
+    )
+    assert "REQ405" in events[0]

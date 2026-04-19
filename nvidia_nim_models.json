@@ -26,12 +26,6 @@
             "owned_by": "ai21labs"
         },
         {
-            "id": "ai21labs/jamba-1.5-mini-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "ai21labs"
-        },
-        {
             "id": "aisingapore/sea-lion-7b-instruct",
             "object": "model",
             "created": 735790403,
@@ -44,19 +38,7 @@
             "owned_by": "baai"
         },
         {
-            "id": "baichuan-inc/baichuan2-13b-chat",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "baichuan-inc"
-        },
-        {
             "id": "bigcode/starcoder2-15b",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "bigcode"
-        },
-        {
-            "id": "bigcode/starcoder2-7b",
             "object": "model",
             "created": 735790403,
             "owned_by": "bigcode"
@@ -75,36 +57,6 @@
         },
         {
             "id": "deepseek-ai/deepseek-coder-6.7b-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "deepseek-ai"
-        },
-        {
-            "id": "deepseek-ai/deepseek-r1-distill-llama-8b",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "deepseek-ai"
-        },
-        {
-            "id": "deepseek-ai/deepseek-r1-distill-qwen-14b",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "deepseek-ai"
-        },
-        {
-            "id": "deepseek-ai/deepseek-r1-distill-qwen-32b",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "deepseek-ai"
-        },
-        {
-            "id": "deepseek-ai/deepseek-r1-distill-qwen-7b",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "deepseek-ai"
-        },
-        {
-            "id": "deepseek-ai/deepseek-v3.1",
             "object": "model",
             "created": 735790403,
             "owned_by": "deepseek-ai"
@@ -140,19 +92,7 @@
             "owned_by": "google"
         },
         {
-            "id": "google/gemma-2-27b-it",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "google"
-        },
-        {
             "id": "google/gemma-2-2b-it",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "google"
-        },
-        {
-            "id": "google/gemma-2-9b-it",
             "object": "model",
             "created": 735790403,
             "owned_by": "google"
@@ -165,12 +105,6 @@
         },
         {
             "id": "google/gemma-3-12b-it",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "google"
-        },
-        {
-            "id": "google/gemma-3-1b-it",
             "object": "model",
             "created": 735790403,
             "owned_by": "google"
@@ -200,13 +134,7 @@
             "owned_by": "google"
         },
         {
-            "id": "google/gemma-7b",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "google"
-        },
-        {
-            "id": "google/paligemma",
+            "id": "google/gemma-4-31b-it",
             "object": "model",
             "created": 735790403,
             "owned_by": "google"
@@ -218,18 +146,6 @@
             "owned_by": "google"
         },
         {
-            "id": "google/shieldgemma-9b",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "google"
-        },
-        {
-            "id": "gotocompany/gemma-2-9b-cpt-sahabatai-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "gotocompany"
-        },
-        {
             "id": "ibm/granite-3.0-3b-a800m-instruct",
             "object": "model",
             "created": 735790403,
@@ -237,12 +153,6 @@
         },
         {
             "id": "ibm/granite-3.0-8b-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "ibm"
-        },
-        {
-            "id": "ibm/granite-3.3-8b-instruct",
             "object": "model",
             "created": 735790403,
             "owned_by": "ibm"
@@ -258,48 +168,6 @@
             "object": "model",
             "created": 735790403,
             "owned_by": "ibm"
-        },
-        {
-            "id": "ibm/granite-guardian-3.0-8b",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "ibm"
-        },
-        {
-            "id": "igenius/colosseum_355b_instruct_16k",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "igenius"
-        },
-        {
-            "id": "igenius/italia_10b_instruct_16k",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "igenius"
-        },
-        {
-            "id": "institute-of-science-tokyo/llama-3.1-swallow-70b-instruct-v0.1",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "institute-of-science-tokyo"
-        },
-        {
-            "id": "institute-of-science-tokyo/llama-3.1-swallow-8b-instruct-v0.1",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "institute-of-science-tokyo"
-        },
-        {
-            "id": "marin/marin-8b-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "marin"
-        },
-        {
-            "id": "mediatek/breeze-7b-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "mediatek"
         },
         {
             "id": "meta/codellama-70b",
@@ -362,12 +230,6 @@
             "owned_by": "meta"
         },
         {
-            "id": "meta/llama-4-scout-17b-16e-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "meta"
-        },
-        {
             "id": "meta/llama-guard-4-12b",
             "object": "model",
             "created": 735790403,
@@ -380,55 +242,7 @@
             "owned_by": "meta"
         },
         {
-            "id": "meta/llama3-70b-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "meta"
-        },
-        {
-            "id": "meta/llama3-8b-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "meta"
-        },
-        {
             "id": "microsoft/kosmos-2",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "microsoft"
-        },
-        {
-            "id": "microsoft/phi-3-medium-128k-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "microsoft"
-        },
-        {
-            "id": "microsoft/phi-3-medium-4k-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "microsoft"
-        },
-        {
-            "id": "microsoft/phi-3-mini-128k-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "microsoft"
-        },
-        {
-            "id": "microsoft/phi-3-mini-4k-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "microsoft"
-        },
-        {
-            "id": "microsoft/phi-3-small-128k-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "microsoft"
-        },
-        {
-            "id": "microsoft/phi-3-small-8k-instruct",
             "object": "model",
             "created": 735790403,
             "owned_by": "microsoft"
@@ -440,25 +254,7 @@
             "owned_by": "microsoft"
         },
         {
-            "id": "microsoft/phi-3.5-mini-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "microsoft"
-        },
-        {
             "id": "microsoft/phi-3.5-moe-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "microsoft"
-        },
-        {
-            "id": "microsoft/phi-3.5-vision-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "microsoft"
-        },
-        {
-            "id": "microsoft/phi-4-mini-flash-reasoning",
             "object": "model",
             "created": 735790403,
             "owned_by": "microsoft"
@@ -482,6 +278,12 @@
             "owned_by": "minimaxai"
         },
         {
+            "id": "minimaxai/minimax-m2.7",
+            "object": "model",
+            "created": 735790403,
+            "owned_by": "minimaxai"
+        },
+        {
             "id": "mistralai/codestral-22b-instruct-v0.1",
             "object": "model",
             "created": 735790403,
@@ -500,25 +302,7 @@
             "owned_by": "mistralai"
         },
         {
-            "id": "mistralai/mamba-codestral-7b-v0.1",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "mistralai"
-        },
-        {
-            "id": "mistralai/mathstral-7b-v0.1",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "mistralai"
-        },
-        {
             "id": "mistralai/ministral-14b-instruct-2512",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "mistralai"
-        },
-        {
-            "id": "mistralai/mistral-7b-instruct-v0.2",
             "object": "model",
             "created": 735790403,
             "owned_by": "mistralai"
@@ -555,18 +339,6 @@
         },
         {
             "id": "mistralai/mistral-nemotron",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "mistralai"
-        },
-        {
-            "id": "mistralai/mistral-small-24b-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "mistralai"
-        },
-        {
-            "id": "mistralai/mistral-small-3.1-24b-instruct-2503",
             "object": "model",
             "created": 735790403,
             "owned_by": "mistralai"
@@ -644,6 +416,12 @@
             "owned_by": "nvidia"
         },
         {
+            "id": "nvidia/ising-calibration-1-35b-a3b",
+            "object": "model",
+            "created": 735790403,
+            "owned_by": "nvidia"
+        },
+        {
             "id": "nvidia/llama-3.1-nemoguard-8b-content-safety",
             "object": "model",
             "created": 735790403,
@@ -663,18 +441,6 @@
         },
         {
             "id": "nvidia/llama-3.1-nemotron-70b-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "nvidia"
-        },
-        {
-            "id": "nvidia/llama-3.1-nemotron-70b-reward",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "nvidia"
-        },
-        {
-            "id": "nvidia/llama-3.1-nemotron-nano-4b-v1.1",
             "object": "model",
             "created": 735790403,
             "owned_by": "nvidia"
@@ -758,19 +524,7 @@
             "owned_by": "nvidia"
         },
         {
-            "id": "nvidia/llama3-chatqa-1.5-8b",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "nvidia"
-        },
-        {
             "id": "nvidia/mistral-nemo-minitron-8b-8k-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "nvidia"
-        },
-        {
-            "id": "nvidia/mistral-nemo-minitron-8b-base",
             "object": "model",
             "created": 735790403,
             "owned_by": "nvidia"
@@ -782,7 +536,19 @@
             "owned_by": "nvidia"
         },
         {
+            "id": "nvidia/nemotron-3-content-safety",
+            "object": "model",
+            "created": 735790403,
+            "owned_by": "nvidia"
+        },
+        {
             "id": "nvidia/nemotron-3-nano-30b-a3b",
+            "object": "model",
+            "created": 735790403,
+            "owned_by": "nvidia"
+        },
+        {
+            "id": "nvidia/nemotron-3-super-120b-a12b",
             "object": "model",
             "created": 735790403,
             "owned_by": "nvidia"
@@ -801,12 +567,6 @@
         },
         {
             "id": "nvidia/nemotron-4-340b-reward",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "nvidia"
-        },
-        {
-            "id": "nvidia/nemotron-4-mini-hindi-4b-instruct",
             "object": "model",
             "created": 735790403,
             "owned_by": "nvidia"
@@ -896,24 +656,6 @@
             "owned_by": "nvidia"
         },
         {
-            "id": "nvidia/streampetr",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "nvidia"
-        },
-        {
-            "id": "nvidia/usdcode-llama-3.1-70b-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "nvidia"
-        },
-        {
-            "id": "nvidia/vila",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "nvidia"
-        },
-        {
             "id": "openai/gpt-oss-120b",
             "object": "model",
             "created": 735790403,
@@ -936,33 +678,9 @@
             "object": "model",
             "created": 735790403,
             "owned_by": "openai"
-        },
-        {
-            "id": "opengpt-x/teuken-7b-instruct-commercial-v0.4",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "opengpt-x"
-        },
-        {
-            "id": "qwen/qwen2-7b-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "qwen"
-        },
-        {
-            "id": "qwen/qwen2.5-7b-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "qwen"
         },
         {
             "id": "qwen/qwen2.5-coder-32b-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "qwen"
-        },
-        {
-            "id": "qwen/qwen2.5-coder-7b-instruct",
             "object": "model",
             "created": 735790403,
             "owned_by": "qwen"
@@ -998,24 +716,6 @@
             "owned_by": "qwen"
         },
         {
-            "id": "qwen/qwq-32b",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "qwen"
-        },
-        {
-            "id": "rakuten/rakutenai-7b-chat",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "rakuten"
-        },
-        {
-            "id": "rakuten/rakutenai-7b-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "rakuten"
-        },
-        {
             "id": "sarvamai/sarvam-m",
             "object": "model",
             "created": 735790403,
@@ -1026,18 +726,6 @@
             "object": "model",
             "created": 735790403,
             "owned_by": "snowflake"
-        },
-        {
-            "id": "speakleash/bielik-11b-v2.3-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "speakleash"
-        },
-        {
-            "id": "speakleash/bielik-11b-v2.6-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "speakleash"
         },
         {
             "id": "stepfun-ai/step-3.5-flash",
@@ -1052,34 +740,10 @@
             "owned_by": "stockmark"
         },
         {
-            "id": "thudm/chatglm3-6b",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "thudm"
-        },
-        {
-            "id": "tiiuae/falcon3-7b-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "tiiuae"
-        },
-        {
-            "id": "tokyotech-llm/llama-3-swallow-70b-instruct-v0.1",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "tokyotech-llm"
-        },
-        {
             "id": "upstage/solar-10.7b-instruct",
             "object": "model",
             "created": 735790403,
             "owned_by": "upstage"
-        },
-        {
-            "id": "utter-project/eurollm-9b-instruct",
-            "object": "model",
-            "created": 735790403,
-            "owned_by": "utter-project"
         },
         {
             "id": "writer/palmyra-creative-122b",
@@ -1106,10 +770,10 @@
             "owned_by": "writer"
         },
         {
-            "id": "yentinglin/llama-3-taiwan-70b-instruct",
+            "id": "z-ai/glm-5.1",
             "object": "model",
             "created": 735790403,
-            "owned_by": "yentinglin"
+            "owned_by": "z-ai"
         },
         {
             "id": "z-ai/glm4.7",

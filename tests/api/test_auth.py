@@ -55,3 +55,19 @@ def test_anthropic_auth_token_accepts_bearer_authorization():
         assert r.json()["input_tokens"] == 2
 
     app.dependency_overrides.clear()
+
+
+def test_anthropic_auth_token_applies_to_models_endpoint():
+    client = TestClient(app)
+    settings = Settings()
+    settings.anthropic_auth_token = "models-token"
+    app.dependency_overrides[get_settings] = lambda: settings
+
+    r = client.get("/v1/models")
+    assert r.status_code == 401
+
+    r = client.get("/v1/models", headers={"X-API-Key": "models-token"})
+    assert r.status_code == 200
+    assert "data" in r.json()
+
+    app.dependency_overrides.clear()

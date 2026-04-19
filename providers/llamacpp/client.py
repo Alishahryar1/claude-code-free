@@ -56,6 +56,7 @@ class LlamaCppProvider(BaseProvider):
         """Stream response natively via Llama.cpp's Anthropic-compatible endpoint."""
         tag = self._provider_name
         req_tag = f" request_id={request_id}" if request_id else ""
+        thinking_enabled = self._is_thinking_enabled(request)
 
         # Dump the Anthropic Pydantic model directly into a dict
         body = request.model_dump(exclude_none=True)
@@ -68,7 +69,11 @@ class LlamaCppProvider(BaseProvider):
         # Translate internal ThinkingConfig to Anthropic API schema
         if "thinking" in body:
             thinking_cfg = body.pop("thinking")
-            if isinstance(thinking_cfg, dict) and thinking_cfg.get("enabled"):
+            if (
+                thinking_enabled
+                and isinstance(thinking_cfg, dict)
+                and thinking_cfg.get("enabled")
+            ):
                 # Anthropic API requires a budget_tokens value when enabled
                 body["thinking"] = {"type": "enabled"}
 
@@ -126,9 +131,15 @@ class LlamaCppProvider(BaseProvider):
             except Exception as e:
                 logger.error("{}_ERROR:{} {}: {}", tag, req_tag, type(e).__name__, e)
                 mapped_e = map_error(e)
-                error_message = get_user_facing_error_message(
-                    mapped_e, read_timeout_s=self._config.http_read_timeout
-                )
+                if getattr(mapped_e, "status_code", None) == 405:
+                    error_message = (
+                        f"Upstream provider {tag} rejected the request method "
+                        "or endpoint (HTTP 405)."
+                    )
+                else:
+                    error_message = get_user_facing_error_message(
+                        mapped_e, read_timeout_s=self._config.http_read_timeout
+                    )
                 if request_id:
                     error_message += f"\nRequest ID: {request_id}"
 
