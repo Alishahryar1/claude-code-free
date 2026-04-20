@@ -10,7 +10,6 @@ ENV_FILE="${CLAUDE_PICK_ENV_FILE:-$SCRIPT_DIR/.env}"
 PORT="${CLAUDE_PICK_PORT:-8082}"
 BASE_URL="http://localhost:$PORT"
 OPENROUTER_MODELS_URL="https://openrouter.ai/api/v1/models"
-DEFAULT_DEEPSEEK_BASE_URL="https://api.deepseek.com"
 DEFAULT_LM_STUDIO_BASE_URL="http://localhost:1234/v1"
 DEFAULT_LLAMACPP_BASE_URL="http://localhost:8080/v1"
 
@@ -98,33 +97,6 @@ get_openrouter_models() {
     parse_models_from_json <<< "$response"
 }
 
-get_deepseek_models() {
-    if ! command -v curl >/dev/null 2>&1; then
-        echo "Error: curl is required for DeepSeek model discovery." >&2
-        exit 1
-    fi
-
-    local deepseek_key
-    deepseek_key="${DEEPSEEK_API_KEY:-$(read_env_value DEEPSEEK_API_KEY)}"
-    if [[ -z "$deepseek_key" ]]; then
-        echo "Error: DEEPSEEK_API_KEY is required for DeepSeek model discovery." >&2
-        exit 1
-    fi
-
-    local deepseek_base
-    deepseek_base="${DEEPSEEK_BASE_URL:-$(read_env_value DEEPSEEK_BASE_URL)}"
-    deepseek_base="${deepseek_base:-$DEFAULT_DEEPSEEK_BASE_URL}"
-    deepseek_base="${deepseek_base%/}"
-
-    local response
-    if ! response="$(curl -fsSL -H "Authorization: Bearer $deepseek_key" "${deepseek_base}/models")"; then
-        echo "Error: Failed to fetch DeepSeek models." >&2
-        exit 1
-    fi
-
-    parse_models_from_json <<< "$response"
-}
-
 get_lmstudio_models() {
     if ! command -v curl >/dev/null 2>&1; then
         echo "Error: curl is required for LM Studio model discovery." >&2
@@ -165,10 +137,6 @@ case "$provider" in
         models="$(get_openrouter_models)"
         prompt="Select an OpenRouter model> "
         ;;
-    deepseek)
-        models="$(get_deepseek_models)"
-        prompt="Select a DeepSeek model> "
-        ;;
     lmstudio|lm_studio|lm-studio)
         models="$(get_lmstudio_models)"
         prompt="Select an LM Studio model> "
@@ -182,7 +150,7 @@ case "$provider" in
         ;;
     *)
         echo "Error: Unsupported PROVIDER_TYPE='$provider'." >&2
-        echo "Expected one of: nvidia_nim, open_router, deepseek, lmstudio, llamacpp" >&2
+        echo "Expected one of: nvidia_nim, open_router, lmstudio, llamacpp" >&2
         exit 1
         ;;
 esac

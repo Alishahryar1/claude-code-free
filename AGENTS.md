@@ -1,55 +1,52 @@
-## 1. Think Before Coding
+# AGENTIC DIRECTIVE
 
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
+> This file is identical to CLAUDE.md. Keep them in sync.
 
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
+## CODING ENVIRONMENT
 
-## 2. Simplicity First
+- Install astral uv using "curl -LsSf https://astral.sh/uv/install.sh | sh" if not already installed and if already installed then update it to the latest version
+- Install Python 3.14 using `uv python install 3.14` if not already installed
+- Always use `uv run` to run files instead of the global `python` command.
+- Current uv ruff formatter is set to py314 which has supports multiple exception types without paranthesis (except TypeError, ValueError:)
+- Read `.env.example` for environment variables.
+- All CI checks must pass; failing checks block merge.
+- Add tests for new changes (including edge cases), then run `uv run pytest`.
+- Run checks in this order: `uv run ruff format`, `uv run ruff check`, `uv run ty check`, `uv run pytest`.
+- Do not add `# type: ignore` or `# ty: ignore`; fix the underlying type issue.
+- All 5 checks are enforced in `tests.yml` on push/merge.
 
-**Minimum code that solves the problem. Nothing speculative.**
+## IDENTITY & CONTEXT
 
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
+- You are an expert Software Architect and Systems Engineer.
+- Goal: Zero-defect, root-cause-oriented engineering for bugs; test-driven engineering for new features. Think carefully; no need to rush.
+- Code: Write the simplest code possible. Keep the codebase minimal and modular.
 
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+## ARCHITECTURE PRINCIPLES (see PLAN.md)
 
-## 3. Surgical Changes
+- **Shared utilities**: Extract common logic into shared packages (e.g. `providers/common/`). Do not have one provider import from another provider's utils.
+- **DRY**: Extract shared base classes to eliminate duplication. Prefer composition over copy-paste.
+- **Encapsulation**: Use accessor methods for internal state (e.g. `set_current_task()`), not direct `_attribute` assignment from outside.
+- **Provider-specific config**: Keep provider-specific fields (e.g. `nim_settings`) in provider constructors, not in the base `ProviderConfig`.
+- **Dead code**: Remove unused code, legacy systems, and hardcoded values. Use settings/config instead of literals (e.g. `settings.provider_type` not `"nvidia_nim"`).
+- **Performance**: Use list accumulation for strings (not `+=` in loops), cache env vars at init, prefer iterative over recursive when stack depth matters.
+- **Platform-agnostic naming**: Use generic names (e.g. `PLATFORM_EDIT`) not platform-specific ones (e.g. `TELEGRAM_EDIT`) in shared code.
+- **No type ignores**: Do not add `# type: ignore` or `# ty: ignore`. Fix the underlying type issue.
+- **Backward compatibility**: When moving modules, add re-exports from old locations so existing imports keep working.
 
-**Touch only what you must. Clean up only your own mess.**
+## COGNITIVE WORKFLOW
 
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
+1. **ANALYZE**: Read relevant files. Do not guess.
+2. **PLAN**: Map out the logic. Identify root cause or required changes. Order changes by dependency.
+3. **EXECUTE**: Fix the cause, not the symptom. Execute incrementally with clear commits.
+4. **VERIFY**: Run ci checks. Confirm the fix via logs or output.
+5. **SPECIFICITY**: Do exactly as much as asked; nothing more, nothing less.
+6. **PROPAGATION**: Changes impact multiple files; propagate updates correctly.
 
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
+## SUMMARY STANDARDS
 
-The test: Every changed line should trace directly to the user's request.
+- Summaries must be technical and granular.
+- Include: [Files Changed], [Logic Altered], [Verification Method], [Residual Risks] (if no residual risks then say none).
 
-## 4. Goal-Driven Execution
+## TOOLS
 
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
-
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+- Prefer built-in tools (grep, read_file, etc.) over manual workflows. Check tool availability before use.
