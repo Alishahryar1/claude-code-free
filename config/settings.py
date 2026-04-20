@@ -113,6 +113,12 @@ class Settings(BaseSettings):
     model_sonnet: str | None = Field(default=None, validation_alias="MODEL_SONNET")
     model_haiku: str | None = Field(default=None, validation_alias="MODEL_HAIKU")
 
+    # ==================== Per-Provider Proxy ====================
+    nvidia_nim_proxy: str = Field(default="", validation_alias="NVIDIA_NIM_PROXY")
+    open_router_proxy: str = Field(default="", validation_alias="OPENROUTER_PROXY")
+    lmstudio_proxy: str = Field(default="", validation_alias="LMSTUDIO_PROXY")
+    llamacpp_proxy: str = Field(default="", validation_alias="LLAMACPP_PROXY")
+
     # ==================== Provider Rate Limiting ====================
     provider_rate_limit: int = Field(default=40, validation_alias="PROVIDER_RATE_LIMIT")
     provider_rate_window: int = Field(

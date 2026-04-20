@@ -23,6 +23,7 @@ class ProviderConfig(BaseModel):
     http_write_timeout: float = 10.0
     http_connect_timeout: float = 2.0
     enable_thinking: bool = True
+    proxy: str = ""
 
 
 class BaseProvider(ABC):
