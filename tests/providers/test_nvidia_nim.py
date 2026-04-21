@@ -105,7 +105,7 @@ async def test_build_request_body(provider_config):
     ctk = body["extra_body"]["chat_template_kwargs"]
     assert ctk["thinking"] is True
     assert ctk["enable_thinking"] is True
-    assert body["extra_body"]["reasoning_budget"] == body["max_tokens"]
+    assert "reasoning_budget" not in body["extra_body"]
 
 
 @pytest.mark.asyncio

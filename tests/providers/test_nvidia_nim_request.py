@@ -105,7 +105,7 @@ class TestBuildRequestBody:
             "thinking": True,
             "enable_thinking": True,
         }
-        assert extra["reasoning_budget"] == body["max_tokens"]
+        assert "reasoning_budget" not in extra
 
     def test_no_chat_template_kwargs_when_thinking_disabled(self):
         req = MagicMock()
