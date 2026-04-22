@@ -1,5 +1,6 @@
 """Request builder for NVIDIA NIM provider."""
 
+from copy import deepcopy
 from typing import Any
 
 from loguru import logger
@@ -19,6 +20,31 @@ def _set_extra(
     if ignore_value is not None and value == ignore_value:
         return
     extra_body[key] = value
+
+
+def clone_body_without_reasoning_budget(body: dict[str, Any]) -> dict[str, Any] | None:
+    """Clone a request body and strip only reasoning_budget fields."""
+    cloned_body = deepcopy(body)
+    extra_body = cloned_body.get("extra_body")
+    if not isinstance(extra_body, dict):
+        return None
+
+    removed = extra_body.pop("reasoning_budget", None) is not None
+
+    chat_template_kwargs = extra_body.get("chat_template_kwargs")
+    if (
+        isinstance(chat_template_kwargs, dict)
+        and chat_template_kwargs.pop("reasoning_budget", None) is not None
+    ):
+        removed = True
+
+    if not extra_body:
+        cloned_body.pop("extra_body", None)
+
+    if not removed:
+        return None
+
+    return cloned_body
 
 
 def build_request_body(
@@ -69,9 +95,11 @@ def build_request_body(
         extra_body.update(request_extra)
 
     if thinking_enabled:
-        extra_body.setdefault(
+        chat_template_kwargs = extra_body.setdefault(
             "chat_template_kwargs", {"thinking": True, "enable_thinking": True}
         )
+        if isinstance(chat_template_kwargs, dict):
+            chat_template_kwargs.setdefault("reasoning_budget", max_tokens)
 
     req_top_k = getattr(request_data, "top_k", None)
     top_k = req_top_k if req_top_k is not None else nim.top_k

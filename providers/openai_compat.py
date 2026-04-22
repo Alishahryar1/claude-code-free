@@ -72,6 +72,27 @@ class OpenAICompatibleProvider(BaseProvider):
         """Hook for provider-specific reasoning (e.g. OpenRouter reasoning_details)."""
         return iter(())
 
+    def _get_retry_request_body(self, error: Exception, body: dict) -> dict | None:
+        """Return a modified request body for one retry, or None."""
+        return None
+
+    async def _create_stream(self, body: dict) -> tuple[Any, dict]:
+        """Create a streaming chat completion, optionally retrying once."""
+        try:
+            stream = await self._global_rate_limiter.execute_with_retry(
+                self._client.chat.completions.create, **body, stream=True
+            )
+            return stream, body
+        except Exception as error:
+            retry_body = self._get_retry_request_body(error, body)
+            if retry_body is None:
+                raise
+
+            stream = await self._global_rate_limiter.execute_with_retry(
+                self._client.chat.completions.create, **retry_body, stream=True
+            )
+            return stream, retry_body
+
     def _process_tool_call(self, tc: dict, sse: SSEBuilder) -> Iterator[str]:
         """Process a single tool call delta and yield SSE events."""
         tc_index = tc.get("index", 0)
@@ -162,9 +183,7 @@ class OpenAICompatibleProvider(BaseProvider):
 
         async with self._global_rate_limiter.concurrency_slot():
             try:
-                stream = await self._global_rate_limiter.execute_with_retry(
-                    self._client.chat.completions.create, **body, stream=True
-                )
+                stream, body = await self._create_stream(body)
                 async for chunk in stream:
                     if getattr(chunk, "usage", None):
                         usage_info = chunk.usage

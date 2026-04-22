@@ -6,10 +6,7 @@ import pytest
 
 from config.nim import NimSettings
 from providers.common.utils import set_if_not_none
-from providers.nvidia_nim.request import (
-    _set_extra,
-    build_request_body,
-)
+from providers.nvidia_nim.request import _set_extra, build_request_body
 
 
 @pytest.fixture
@@ -104,6 +101,7 @@ class TestBuildRequestBody:
         assert extra["chat_template_kwargs"] == {
             "thinking": True,
             "enable_thinking": True,
+            "reasoning_budget": body["max_tokens"],
         }
         assert "reasoning_budget" not in extra
 
@@ -126,6 +124,29 @@ class TestBuildRequestBody:
         extra = body.get("extra_body", {})
         assert "chat_template_kwargs" not in extra
         assert "reasoning_budget" not in extra
+
+    def test_reasoning_budget_respects_existing_chat_template_kwargs(self):
+        req = MagicMock()
+        req.model = "test"
+        req.messages = [MagicMock(role="user", content="hi")]
+        req.max_tokens = 100
+        req.system = None
+        req.temperature = None
+        req.top_p = None
+        req.stop_sequences = None
+        req.tools = None
+        req.tool_choice = None
+        req.top_k = None
+        req.extra_body = {
+            "chat_template_kwargs": {"enable_thinking": False, "custom": "value"}
+        }
+
+        body = build_request_body(req, NimSettings(), thinking_enabled=True)
+        assert body["extra_body"]["chat_template_kwargs"] == {
+            "enable_thinking": False,
+            "custom": "value",
+            "reasoning_budget": body["max_tokens"],
+        }
 
     def test_no_reasoning_params_in_extra_body(self):
         req = MagicMock()

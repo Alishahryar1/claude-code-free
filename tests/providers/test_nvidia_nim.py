@@ -1,7 +1,9 @@
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import openai
 import pytest
+from httpx import Request, Response
 
 from providers.nvidia_nim import NvidiaNimProvider
 
@@ -105,6 +107,7 @@ async def test_build_request_body(provider_config):
     ctk = body["extra_body"]["chat_template_kwargs"]
     assert ctk["thinking"] is True
     assert ctk["enable_thinking"] is True
+    assert ctk["reasoning_budget"] == body["max_tokens"]
     assert "reasoning_budget" not in body["extra_body"]
 
 
@@ -265,6 +268,12 @@ async def test_stream_response_suppresses_thinking_when_disabled(provider_config
     assert "Answer" in event_text
 
 
+def _make_bad_request_error(message: str) -> openai.BadRequestError:
+    response = Response(status_code=400, request=Request("POST", "http://test"))
+    body = {"error": {"message": message}}
+    return openai.BadRequestError(message, response=response, body=body)
+
+
 @pytest.mark.asyncio
 async def test_tool_call_stream(nim_provider):
     """Test streaming tool calls."""
@@ -301,3 +310,61 @@ async def test_tool_call_stream(nim_provider):
         ]
         assert len(starts) == 1
         assert "search" in starts[0]
+
+
+@pytest.mark.asyncio
+async def test_stream_response_retries_without_reasoning_budget(nim_provider):
+    req = MockRequest()
+
+    mock_chunk = MagicMock()
+    mock_chunk.choices = [
+        MagicMock(
+            delta=MagicMock(content="Recovered", reasoning_content=""),
+            finish_reason="stop",
+        )
+    ]
+    mock_chunk.usage = MagicMock(completion_tokens=5)
+
+    async def mock_stream():
+        yield mock_chunk
+
+    error = _make_bad_request_error("Unsupported field: reasoning_budget")
+
+    with patch.object(
+        nim_provider._client.chat.completions, "create", new_callable=AsyncMock
+    ) as mock_create:
+        mock_create.side_effect = [error, mock_stream()]
+
+        events = [e async for e in nim_provider.stream_response(req)]
+
+    assert mock_create.await_count == 2
+    first_call = mock_create.await_args_list[0].kwargs
+    second_call = mock_create.await_args_list[1].kwargs
+    assert (
+        first_call["extra_body"]["chat_template_kwargs"]["reasoning_budget"]
+        == first_call["max_tokens"]
+    )
+    assert "reasoning_budget" not in second_call["extra_body"]
+    assert "reasoning_budget" not in second_call["extra_body"]["chat_template_kwargs"]
+    assert second_call["extra_body"]["chat_template_kwargs"]["enable_thinking"] is True
+    assert any("Recovered" in event for event in events)
+    assert any("message_stop" in event for event in events)
+
+
+@pytest.mark.asyncio
+async def test_stream_response_bad_request_without_reasoning_budget_does_not_retry(
+    nim_provider,
+):
+    req = MockRequest()
+    error = _make_bad_request_error("Unsupported field: top_k")
+
+    with patch.object(
+        nim_provider._client.chat.completions, "create", new_callable=AsyncMock
+    ) as mock_create:
+        mock_create.side_effect = error
+
+        events = [e async for e in nim_provider.stream_response(req)]
+
+    assert mock_create.await_count == 1
+    assert any("Unsupported field: top_k" in event for event in events)
+    assert any("message_stop" in event for event in events)
