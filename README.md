@@ -106,7 +106,6 @@ MODEL="open_router/stepfun/step-3.5-flash:free"     # fallback
 
 ```dotenv
 DEEPSEEK_API_KEY="your-deepseek-key-here"
-DEEPSEEK_BASE_URL="https://api.deepseek.com"        # or https://api.deepseek.com/v1
 
 MODEL_OPUS="deepseek/deepseek-reasoner"
 MODEL_SONNET="deepseek/deepseek-chat"
@@ -486,7 +485,6 @@ Configure via `WHISPER_DEVICE` (`cpu` | `cuda` | `nvidia_nim`) and `WHISPER_MODE
 | `ENABLE_THINKING`    | Global switch for provider reasoning requests and Claude thinking blocks. Set `false` to hide thinking across all providers. | `true` |
 | `OPENROUTER_API_KEY` | OpenRouter API key                                                    | required for OpenRouter                           |
 | `DEEPSEEK_API_KEY`   | DeepSeek API key                                                      | required for DeepSeek                             |
-| `DEEPSEEK_BASE_URL`  | DeepSeek API base URL (`https://api.deepseek.com` or `/v1`)           | `https://api.deepseek.com`                        |
 | `LM_STUDIO_BASE_URL` | LM Studio server URL                                                  | `http://localhost:1234/v1`                        |
 | `LLAMACPP_BASE_URL`  | llama.cpp server URL                                                  | `http://localhost:8080/v1`                        |
 

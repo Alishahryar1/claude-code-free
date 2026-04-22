@@ -7,7 +7,7 @@ from loguru import logger
 from providers.common.message_converter import build_base_request_body
 
 
-def build_request_body(request_data: Any) -> dict:
+def build_request_body(request_data: Any, *, thinking_enabled: bool) -> dict:
     """Build OpenAI-format request body from Anthropic request for DeepSeek."""
     logger.debug(
         "DEEPSEEK_REQUEST: conversion start model={} msgs={}",
@@ -24,10 +24,6 @@ def build_request_body(request_data: Any) -> dict:
     if request_extra:
         extra_body.update(request_extra)
 
-    thinking = getattr(request_data, "thinking", None)
-    thinking_enabled = (
-        thinking.enabled if thinking and hasattr(thinking, "enabled") else False
-    )
     if thinking_enabled and body.get("model") != "deepseek-reasoner":
         extra_body.setdefault("thinking", {"type": "enabled"})
 

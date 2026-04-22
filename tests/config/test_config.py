@@ -65,14 +65,6 @@ class TestSettings:
         settings = Settings()
         assert settings.lm_studio_base_url == "http://custom:5678/v1"
 
-    def test_deepseek_base_url_from_env(self, monkeypatch):
-        """DEEPSEEK_BASE_URL env var is loaded into settings."""
-        from config.settings import Settings
-
-        monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-        settings = Settings()
-        assert settings.deepseek_base_url == "https://api.deepseek.com/v1"
-
     def test_provider_rate_limit_from_env(self, monkeypatch):
         """PROVIDER_RATE_LIMIT env var is loaded into settings."""
         from config.settings import Settings

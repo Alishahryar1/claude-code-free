@@ -83,10 +83,6 @@ class Settings(BaseSettings):
 
     # ==================== DeepSeek Config ====================
     deepseek_api_key: str = Field(default="", validation_alias="DEEPSEEK_API_KEY")
-    deepseek_base_url: str = Field(
-        default="https://api.deepseek.com",
-        validation_alias="DEEPSEEK_BASE_URL",
-    )
 
     # ==================== Messaging Platform Selection ====================
     # Valid: "telegram" | "discord"

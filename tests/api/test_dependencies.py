@@ -27,12 +27,12 @@ def _make_mock_settings(**overrides):
     mock.provider_max_concurrency = 5
     mock.open_router_api_key = "test_openrouter_key"
     mock.deepseek_api_key = "test_deepseek_key"
-    mock.deepseek_base_url = "https://api.deepseek.com"
     mock.lm_studio_base_url = "http://localhost:1234/v1"
     mock.nim = NimSettings()
     mock.http_read_timeout = 300.0
     mock.http_write_timeout = 10.0
     mock.http_connect_timeout = 2.0
+    mock.enable_thinking = True
     for key, value in overrides.items():
         setattr(mock, key, value)
     return mock
@@ -134,21 +134,36 @@ async def test_get_provider_deepseek():
         assert isinstance(provider, DeepSeekProvider)
         assert provider._base_url == "https://api.deepseek.com"
         assert provider._api_key == "test_deepseek_key"
+        assert provider._config.enable_thinking is True
 
 
 @pytest.mark.asyncio
-async def test_get_provider_deepseek_uses_custom_base_url():
-    """DeepSeek provider uses deepseek_base_url from settings."""
+async def test_get_provider_deepseek_uses_fixed_base_url():
+    """DeepSeek provider always uses the fixed provider base URL."""
     with patch("api.dependencies.get_settings") as mock_settings:
         mock_settings.return_value = _make_mock_settings(
             provider_type="deepseek",
-            deepseek_base_url="https://api.deepseek.com/v1",
         )
 
         provider = get_provider()
 
         assert isinstance(provider, DeepSeekProvider)
-        assert provider._base_url == "https://api.deepseek.com/v1"
+        assert provider._base_url == "https://api.deepseek.com"
+
+
+@pytest.mark.asyncio
+async def test_get_provider_deepseek_passes_enable_thinking():
+    """DeepSeek provider receives the global thinking toggle."""
+    with patch("api.dependencies.get_settings") as mock_settings:
+        mock_settings.return_value = _make_mock_settings(
+            provider_type="deepseek",
+            enable_thinking=False,
+        )
+
+        provider = get_provider()
+
+        assert isinstance(provider, DeepSeekProvider)
+        assert provider._config.enable_thinking is False
 
 
 @pytest.mark.asyncio

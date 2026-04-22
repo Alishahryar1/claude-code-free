@@ -44,6 +44,7 @@ def deepseek_config():
         base_url=DEEPSEEK_BASE_URL,
         rate_limit=10,
         rate_window=60,
+        enable_thinking=True,
     )
 
 
@@ -85,6 +86,32 @@ def test_build_request_body_enables_thinking_for_chat_model(deepseek_provider):
     assert body["messages"][0]["role"] == "system"
 
 
+def test_build_request_body_global_disable_blocks_request_thinking():
+    """Global disable suppresses provider-side thinking even if the request enables it."""
+    provider = DeepSeekProvider(
+        ProviderConfig(
+            api_key="test_deepseek_key",
+            base_url=DEEPSEEK_BASE_URL,
+            rate_limit=10,
+            rate_window=60,
+            enable_thinking=False,
+        )
+    )
+    req = MockRequest(model="deepseek-chat")
+    body = provider._build_request_body(req)
+
+    assert "extra_body" not in body or "thinking" not in body["extra_body"]
+
+
+def test_build_request_body_request_disable_blocks_global_thinking(deepseek_provider):
+    """Request-level disable suppresses provider-side thinking when global is enabled."""
+    req = MockRequest(model="deepseek-chat")
+    req.thinking.enabled = False
+    body = deepseek_provider._build_request_body(req)
+
+    assert "extra_body" not in body or "thinking" not in body["extra_body"]
+
+
 def test_build_request_body_reasoner_skips_thinking_extra(deepseek_provider):
     """deepseek-reasoner does not need an extra thinking payload."""
     req = MockRequest(model="deepseek-reasoner")
@@ -92,6 +119,17 @@ def test_build_request_body_reasoner_skips_thinking_extra(deepseek_provider):
 
     assert body["model"] == "deepseek-reasoner"
     assert "extra_body" not in body or "thinking" not in body["extra_body"]
+
+
+def test_build_request_body_preserves_caller_thinking_override(deepseek_provider):
+    """Caller-provided thinking payload should not be overwritten."""
+    req = MockRequest(
+        model="deepseek-chat",
+        extra_body={"thinking": {"type": "manual"}},
+    )
+    body = deepseek_provider._build_request_body(req)
+
+    assert body["extra_body"]["thinking"] == {"type": "manual"}
 
 
 def test_build_request_body_preserves_reasoning_content(deepseek_provider):

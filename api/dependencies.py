@@ -69,13 +69,14 @@ def _create_provider_for_type(provider_type: str, settings: Settings) -> BasePro
             )
         config = ProviderConfig(
             api_key=settings.deepseek_api_key,
-            base_url=settings.deepseek_base_url or DEEPSEEK_BASE_URL,
+            base_url=DEEPSEEK_BASE_URL,
             rate_limit=settings.provider_rate_limit,
             rate_window=settings.provider_rate_window,
             max_concurrency=settings.provider_max_concurrency,
             http_read_timeout=settings.http_read_timeout,
             http_write_timeout=settings.http_write_timeout,
             http_connect_timeout=settings.http_connect_timeout,
+            enable_thinking=settings.enable_thinking,
         )
         return DeepSeekProvider(config)
     if provider_type == "lmstudio":
