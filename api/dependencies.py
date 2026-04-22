@@ -22,13 +22,19 @@ def get_settings() -> Settings:
     return _get_settings()
 
 
+def _get_proxy_value(settings: Settings, attr_name: str) -> str:
+    """Return a provider proxy only when configured as a string."""
+    value = getattr(settings, attr_name, "")
+    return value if isinstance(value, str) else ""
+
+
 def _create_provider_for_type(provider_type: str, settings: Settings) -> BaseProvider:
     """Construct and return a new provider instance for the given provider type."""
     _proxy_map = {
-        "nvidia_nim": settings.nvidia_nim_proxy,
-        "open_router": settings.open_router_proxy,
-        "lmstudio": settings.lmstudio_proxy,
-        "llamacpp": settings.llamacpp_proxy,
+        "nvidia_nim": _get_proxy_value(settings, "nvidia_nim_proxy"),
+        "open_router": _get_proxy_value(settings, "open_router_proxy"),
+        "lmstudio": _get_proxy_value(settings, "lmstudio_proxy"),
+        "llamacpp": _get_proxy_value(settings, "llamacpp_proxy"),
     }
     proxy = _proxy_map.get(provider_type, "")
 

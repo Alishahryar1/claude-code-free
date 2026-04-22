@@ -157,6 +157,45 @@ async def test_get_provider_passes_http_timeouts_from_settings():
 
 
 @pytest.mark.asyncio
+async def test_get_provider_passes_proxy_from_settings():
+    """Provider receives configured proxy and builds a proxied HTTP client."""
+    with (
+        patch("api.dependencies.get_settings") as mock_settings,
+        patch("providers.openai_compat.httpx.AsyncClient") as mock_http_client,
+        patch("providers.openai_compat.AsyncOpenAI") as mock_openai,
+    ):
+        mock_settings.return_value = _make_mock_settings(
+            nvidia_nim_proxy="http://proxy.example:8080"
+        )
+
+        provider = get_provider()
+
+        assert isinstance(provider, NvidiaNimProvider)
+        mock_http_client.assert_called_once()
+        assert mock_http_client.call_args.kwargs["proxy"] == "http://proxy.example:8080"
+        assert (
+            mock_openai.call_args.kwargs["http_client"] is mock_http_client.return_value
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_provider_ignores_non_string_proxy_value():
+    """Mock settings without proxy attrs should not fail provider construction."""
+    with (
+        patch("api.dependencies.get_settings") as mock_settings,
+        patch("providers.openai_compat.AsyncOpenAI") as mock_openai,
+    ):
+        mock_settings.return_value = _make_mock_settings(
+            nvidia_nim_proxy=MagicMock(name="proxy")
+        )
+
+        provider = get_provider()
+
+        assert isinstance(provider, NvidiaNimProvider)
+        assert mock_openai.call_args.kwargs["http_client"] is None
+
+
+@pytest.mark.asyncio
 async def test_get_provider_nvidia_nim_missing_api_key():
     """NVIDIA NIM with empty API key raises HTTPException 503."""
     with patch("api.dependencies.get_settings") as mock_settings:
