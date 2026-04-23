@@ -14,6 +14,7 @@ from providers.deepseek import DeepSeekProvider
 from providers.lmstudio import LMStudioProvider
 from providers.nvidia_nim import NvidiaNimProvider
 from providers.open_router import OpenRouterProvider
+from providers.relaygpu import RELAYGPU_BASE_URL, RelayGpuProvider
 
 
 def _make_mock_settings(**overrides):
@@ -27,6 +28,7 @@ def _make_mock_settings(**overrides):
     mock.provider_max_concurrency = 5
     mock.open_router_api_key = "test_openrouter_key"
     mock.deepseek_api_key = "test_deepseek_key"
+    mock.relaygpu_api_key = "test_relaygpu_key"
     mock.lm_studio_base_url = "http://localhost:1234/v1"
     mock.nim = NimSettings()
     mock.http_read_timeout = 300.0
@@ -283,6 +285,65 @@ async def test_get_provider_open_router_missing_api_key():
         assert exc_info.value.status_code == 503
         assert "OPENROUTER_API_KEY" in exc_info.value.detail
         assert "openrouter.ai" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_get_provider_relaygpu():
+    """Test that provider_type=relaygpu returns RelayGpuProvider."""
+    with patch("api.dependencies.get_settings") as mock_settings:
+        mock_settings.return_value = _make_mock_settings(provider_type="relaygpu")
+
+        provider = get_provider()
+
+        assert isinstance(provider, RelayGpuProvider)
+        assert provider._base_url == RELAYGPU_BASE_URL
+        assert provider._api_key == "test_relaygpu_key"
+        assert provider._config.enable_thinking is True
+
+
+@pytest.mark.asyncio
+async def test_get_provider_relaygpu_uses_fixed_base_url():
+    """RelayGPU provider always uses the fixed provider base URL."""
+    with patch("api.dependencies.get_settings") as mock_settings:
+        mock_settings.return_value = _make_mock_settings(provider_type="relaygpu")
+
+        provider = get_provider()
+
+        assert isinstance(provider, RelayGpuProvider)
+        assert provider._base_url == RELAYGPU_BASE_URL
+
+
+@pytest.mark.asyncio
+async def test_get_provider_relaygpu_missing_api_key():
+    """RelayGPU with empty API key raises HTTPException 503."""
+    with patch("api.dependencies.get_settings") as mock_settings:
+        mock_settings.return_value = _make_mock_settings(
+            provider_type="relaygpu",
+            relaygpu_api_key="",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            get_provider()
+
+        assert exc_info.value.status_code == 503
+        assert "RELAYGPU_API_KEY" in exc_info.value.detail
+        assert "relaygpu.com" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_get_provider_relaygpu_whitespace_only_api_key():
+    """RelayGPU with whitespace-only API key raises HTTPException 503."""
+    with patch("api.dependencies.get_settings") as mock_settings:
+        mock_settings.return_value = _make_mock_settings(
+            provider_type="relaygpu",
+            relaygpu_api_key="   ",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            get_provider()
+
+        assert exc_info.value.status_code == 503
+        assert "RELAYGPU_API_KEY" in exc_info.value.detail
 
 
 @pytest.mark.asyncio

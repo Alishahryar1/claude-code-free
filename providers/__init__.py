@@ -14,6 +14,7 @@ from .llamacpp import LlamaCppProvider
 from .lmstudio import LMStudioProvider
 from .nvidia_nim import NvidiaNimProvider
 from .open_router import OpenRouterProvider
+from .relaygpu import RelayGpuProvider
 
 __all__ = [
     "APIError",
@@ -29,4 +30,5 @@ __all__ = [
     "ProviderConfig",
     "ProviderError",
     "RateLimitError",
+    "RelayGpuProvider",
 ]

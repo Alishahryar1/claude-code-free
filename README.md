@@ -12,7 +12,7 @@
 [![Code style: Ruff](https://img.shields.io/badge/code%20formatting-ruff-f5a623.svg?style=for-the-badge)](https://github.com/astral-sh/ruff)
 [![Logging: Loguru](https://img.shields.io/badge/logging-loguru-4ecdc4.svg?style=for-the-badge)](https://github.com/Delgan/loguru)
 
-A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NIM** (40 req/min free), **OpenRouter** (hundreds of models), **DeepSeek** (direct API), **LM Studio** (fully local), or **llama.cpp** (local with Anthropic endpoints).
+A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NIM** (40 req/min free), **OpenRouter** (hundreds of models), **DeepSeek** (direct API), **RelayGPU** (OpenGPU Network gateway), **LM Studio** (fully local), or **llama.cpp** (local with Anthropic endpoints).
 
 [Quick Start](#quick-start) · [Providers](#providers) · [Discord Bot](#discord-bot) · [Configuration](#configuration) · [Development](#development) · [Contributing](#contributing)
 
@@ -31,7 +31,7 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
 | -------------------------- | ----------------------------------------------------------------------------------------------- |
 | **Zero Cost**              | 40 req/min free on NVIDIA NIM. Free models on OpenRouter. Fully local with LM Studio            |
 | **Drop-in Replacement**    | Set 2 env vars. No modifications to Claude Code CLI or VSCode extension needed                  |
-| **5 Providers**            | NVIDIA NIM, OpenRouter, DeepSeek, LM Studio (local), llama.cpp (`llama-server`)                  |
+| **6 Providers**            | NVIDIA NIM, OpenRouter, DeepSeek, RelayGPU, LM Studio (local), llama.cpp (`llama-server`)        |
 | **Per-Model Mapping**      | Route Opus / Sonnet / Haiku to different models and providers. Mix providers freely             |
 | **Thinking Token Support** | Parses `<think>` tags and `reasoning_content` into native Claude thinking blocks                |
 | **Heuristic Tool Parser**  | Models outputting tool calls as text are auto-parsed into structured tool use                   |
@@ -49,6 +49,7 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
    - **NVIDIA NIM**: [build.nvidia.com/settings/api-keys](https://build.nvidia.com/settings/api-keys)
    - **OpenRouter**: [openrouter.ai/keys](https://openrouter.ai/keys)
    - **DeepSeek**: [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys)
+   - **RelayGPU**: [relaygpu.com](https://relaygpu.com)
    - **LM Studio**: No API key needed. Run locally with [LM Studio](https://lmstudio.ai)
    - **llama.cpp**: No API key needed. Run `llama-server` locally.
 2. Install [Claude Code](https://github.com/anthropics/claude-code)
@@ -111,6 +112,20 @@ MODEL_OPUS="deepseek/deepseek-reasoner"
 MODEL_SONNET="deepseek/deepseek-chat"
 MODEL_HAIKU="deepseek/deepseek-chat"
 MODEL="deepseek/deepseek-chat"                      # fallback
+```
+
+</details>
+
+<details>
+<summary><b>RelayGPU</b> (OpenGPU Network gateway, OpenAI-compatible)</summary>
+
+```dotenv
+RELAYGPU_API_KEY="relay_sk_your-key-here"
+
+MODEL_OPUS="relaygpu/deepseek-ai/DeepSeek-V3.1"
+MODEL_SONNET="relaygpu/Qwen/Qwen3.5-397B-A17B-FP8"
+MODEL_HAIKU="relaygpu/moonshotai/kimi-k2.5"
+MODEL="relaygpu/moonshotai/kimi-k2.5"               # fallback
 ```
 
 </details>
@@ -309,6 +324,7 @@ The proxy also exposes Claude-compatible probe routes: `GET /v1/models`, `POST /
 | **NVIDIA NIM** | Free         | 40 req/min | Daily driver, generous free tier     |
 | **OpenRouter** | Free / Paid  | Varies     | Model variety, fallback options      |
 | **DeepSeek**   | Usage-based  | Varies     | Direct access to DeepSeek chat/reasoner |
+| **RelayGPU**   | Usage-based  | Varies     | Multi-provider gateway (GPT, DeepSeek, Qwen, Kimi) |
 | **LM Studio**  | Free (local) | Unlimited  | Privacy, offline use, no rate limits |
 | **llama.cpp**  | Free (local) | Unlimited  | Lightweight local inference engine   |
 
@@ -319,6 +335,7 @@ Models use a prefix format: `provider_prefix/model/name`. An invalid prefix caus
 | NVIDIA NIM | `nvidia_nim/...`  | `NVIDIA_NIM_API_KEY` | `integrate.api.nvidia.com/v1` |
 | OpenRouter | `open_router/...` | `OPENROUTER_API_KEY` | `openrouter.ai/api/v1`        |
 | DeepSeek   | `deepseek/...`    | `DEEPSEEK_API_KEY`   | `api.deepseek.com`            |
+| RelayGPU   | `relaygpu/...`    | `RELAYGPU_API_KEY`   | `relay.opengpu.network/v2/openai/v1` |
 | LM Studio  | `lmstudio/...`    | (none)               | `localhost:1234/v1`           |
 | llama.cpp  | `llamacpp/...`    | (none)               | `localhost:8080/v1`           |
 
@@ -360,6 +377,19 @@ DeepSeek currently exposes the direct API models:
 - `deepseek/deepseek-reasoner`
 
 Browse: [api-docs.deepseek.com](https://api-docs.deepseek.com)
+
+</details>
+
+<details>
+<summary><b>RelayGPU models</b></summary>
+
+RelayGPU proxies models from multiple backends through a single OpenAI-compatible endpoint:
+
+- `relaygpu/deepseek-ai/DeepSeek-V3.1`
+- `relaygpu/Qwen/Qwen3.5-397B-A17B-FP8`
+- `relaygpu/moonshotai/kimi-k2.5`
+
+Browse: [opengpu-network.gitbook.io/relay](https://opengpu-network.gitbook.io/relay)
 
 </details>
 
@@ -485,12 +515,14 @@ Configure via `WHISPER_DEVICE` (`cpu` | `cuda` | `nvidia_nim`) and `WHISPER_MODE
 | `ENABLE_THINKING`    | Global switch for provider reasoning requests and Claude thinking blocks. Set `false` to hide thinking across all providers. | `true` |
 | `OPENROUTER_API_KEY` | OpenRouter API key                                                    | required for OpenRouter                           |
 | `DEEPSEEK_API_KEY`   | DeepSeek API key                                                      | required for DeepSeek                             |
+| `RELAYGPU_API_KEY`   | RelayGPU API key                                                      | required for RelayGPU                             |
 | `LM_STUDIO_BASE_URL` | LM Studio server URL                                                  | `http://localhost:1234/v1`                        |
 | `LLAMACPP_BASE_URL`  | llama.cpp server URL                                                  | `http://localhost:8080/v1`                        |
 | `NVIDIA_NIM_PROXY`   | Optional proxy URL for NVIDIA NIM requests (`http://...` or `socks5://...`) | `""` |
 | `OPENROUTER_PROXY`   | Optional proxy URL for OpenRouter requests (`http://...` or `socks5://...`) | `""` |
 | `LMSTUDIO_PROXY`     | Optional proxy URL for LM Studio requests (`http://...` or `socks5://...`) | `""` |
 | `LLAMACPP_PROXY`     | Optional proxy URL for llama.cpp requests (`http://...` or `socks5://...`) | `""` |
+| `RELAYGPU_PROXY`     | Optional proxy URL for RelayGPU requests (`http://...` or `socks5://...`) | `""` |
 
 ### Rate Limiting & Timeouts
 
@@ -548,7 +580,7 @@ See [`.env.example`](.env.example) for all supported parameters.
 free-claude-code/
 ├── server.py              # Entry point
 ├── api/                   # FastAPI routes, request detection, optimization handlers
-├── providers/             # BaseProvider, OpenAICompatibleProvider, NIM, OpenRouter, DeepSeek, LM Studio, llamacpp
+├── providers/             # BaseProvider, OpenAICompatibleProvider, NIM, OpenRouter, DeepSeek, RelayGPU, LM Studio, llamacpp
 │   └── common/            # Shared utils (SSE builder, message converter, parsers, error mapping)
 ├── messaging/             # MessagingPlatform ABC + Discord/Telegram bots, session management
 ├── config/                # Settings, NIM config, logging
