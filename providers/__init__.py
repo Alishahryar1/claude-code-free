@@ -10,6 +10,7 @@ from .exceptions import (
     ProviderError,
     RateLimitError,
 )
+from .kilo import KiloProvider
 from .llamacpp import LlamaCppProvider
 from .lmstudio import LMStudioProvider
 from .nvidia_nim import NvidiaNimProvider
@@ -21,6 +22,7 @@ __all__ = [
     "BaseProvider",
     "DeepSeekProvider",
     "InvalidRequestError",
+    "KiloProvider",
     "LMStudioProvider",
     "LlamaCppProvider",
     "NvidiaNimProvider",

@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     # ==================== OpenRouter Config ====================
     open_router_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
 
+    # ==================== Kilo AI Gateway Config ====================
+    kilo_api_key: str = Field(default="", validation_alias="KILO_API_KEY")
+
     # ==================== DeepSeek Config ====================
     deepseek_api_key: str = Field(default="", validation_alias="DEEPSEEK_API_KEY")
 
@@ -119,6 +122,7 @@ class Settings(BaseSettings):
     # ==================== Per-Provider Proxy ====================
     nvidia_nim_proxy: str = Field(default="", validation_alias="NVIDIA_NIM_PROXY")
     open_router_proxy: str = Field(default="", validation_alias="OPENROUTER_PROXY")
+    kilo_proxy: str = Field(default="", validation_alias="KILO_PROXY")
     lmstudio_proxy: str = Field(default="", validation_alias="LMSTUDIO_PROXY")
     llamacpp_proxy: str = Field(default="", validation_alias="LLAMACPP_PROXY")
 
@@ -231,6 +235,7 @@ class Settings(BaseSettings):
         valid_providers = (
             "nvidia_nim",
             "open_router",
+            "kilo",
             "deepseek",
             "lmstudio",
             "llamacpp",
@@ -245,7 +250,7 @@ class Settings(BaseSettings):
         if provider not in valid_providers:
             raise ValueError(
                 f"Invalid provider: '{provider}'. "
-                f"Supported: 'nvidia_nim', 'open_router', 'deepseek', 'lmstudio', 'llamacpp'"
+                f"Supported: 'nvidia_nim', 'open_router', 'kilo', 'deepseek', 'lmstudio', 'llamacpp'"
             )
         return v
 
