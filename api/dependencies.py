@@ -9,6 +9,7 @@ from providers.base import BaseProvider, ProviderConfig
 from providers.common import get_user_facing_error_message
 from providers.deepseek import DEEPSEEK_BASE_URL, DeepSeekProvider
 from providers.exceptions import AuthenticationError
+from providers.kilo import KILO_BASE_URL, KiloProvider
 from providers.llamacpp import LlamaCppProvider
 from providers.lmstudio import LMStudioProvider
 from providers.nvidia_nim import NVIDIA_NIM_BASE_URL, NvidiaNimProvider
@@ -34,6 +35,7 @@ def _create_provider_for_type(provider_type: str, settings: Settings) -> BasePro
     _proxy_map = {
         "nvidia_nim": _get_proxy_value(settings, "nvidia_nim_proxy"),
         "open_router": _get_proxy_value(settings, "open_router_proxy"),
+        "kilo": _get_proxy_value(settings, "kilo_proxy"),
         "lmstudio": _get_proxy_value(settings, "lmstudio_proxy"),
         "llamacpp": _get_proxy_value(settings, "llamacpp_proxy"),
     }
@@ -77,6 +79,25 @@ def _create_provider_for_type(provider_type: str, settings: Settings) -> BasePro
             proxy=proxy,
         )
         return OpenRouterProvider(config)
+    if provider_type == "kilo":
+        if not settings.kilo_api_key or not settings.kilo_api_key.strip():
+            raise AuthenticationError(
+                "KILO_API_KEY is not set. Add it to your .env file. "
+                "Get a key at https://app.kilo.ai"
+            )
+        config = ProviderConfig(
+            api_key=settings.kilo_api_key,
+            base_url=KILO_BASE_URL,
+            rate_limit=settings.provider_rate_limit,
+            rate_window=settings.provider_rate_window,
+            max_concurrency=settings.provider_max_concurrency,
+            http_read_timeout=settings.http_read_timeout,
+            http_write_timeout=settings.http_write_timeout,
+            http_connect_timeout=settings.http_connect_timeout,
+            enable_thinking=settings.enable_thinking,
+            proxy=proxy,
+        )
+        return KiloProvider(config)
     if provider_type == "deepseek":
         if not settings.deepseek_api_key or not settings.deepseek_api_key.strip():
             raise AuthenticationError(
@@ -124,12 +145,12 @@ def _create_provider_for_type(provider_type: str, settings: Settings) -> BasePro
         )
         return LlamaCppProvider(config)
     logger.error(
-        "Unknown provider_type: '{}'. Supported: 'nvidia_nim', 'open_router', 'deepseek', 'lmstudio', 'llamacpp'",
+        "Unknown provider_type: '{}'. Supported: 'nvidia_nim', 'open_router', 'kilo', 'deepseek', 'lmstudio', 'llamacpp'",
         provider_type,
     )
     raise ValueError(
         f"Unknown provider_type: '{provider_type}'. "
-        f"Supported: 'nvidia_nim', 'open_router', 'deepseek', 'lmstudio', 'llamacpp'"
+        f"Supported: 'nvidia_nim', 'open_router', 'kilo', 'deepseek', 'lmstudio', 'llamacpp'"
     )
 
 
