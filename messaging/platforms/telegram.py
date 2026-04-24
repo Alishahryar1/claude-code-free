@@ -179,7 +179,7 @@ class TelegramPlatform(MessagingPlatform):
             target = self.allowed_user_id
             if target:
                 startup_text = (
-                    f"🚀 *{escape_md_v2('Claude Code Proxy is online!')}* "
+                    f"*{escape_md_v2('Claude Code Proxy is online!')}* "
                     f"{escape_md_v2('(Bot API)')}"
                 )
                 await self.send_message(
@@ -471,7 +471,7 @@ class TelegramPlatform(MessagingPlatform):
     ) -> None:
         """Handle /start command."""
         if update.message:
-            await update.message.reply_text("👋 Hello! I am the Claude Code Proxy Bot.")
+            await update.message.reply_text("Hello! I am the Claude Code Proxy Bot.")
         # We can also treat this as a message if we want it to trigger something
         await self._on_telegram_message(update, context)
 
@@ -506,15 +506,12 @@ class TelegramPlatform(MessagingPlatform):
             if getattr(update.message, "message_thread_id", None) is not None
             else None
         )
-        text_preview = (update.message.text or "")[:80]
-        if len(update.message.text or "") > 80:
-            text_preview += "..."
         logger.info(
-            "TELEGRAM_MSG: chat_id={} message_id={} reply_to={} text_preview={!r}",
+            "TELEGRAM_MSG: chat_id={} message_id={} reply_to={} text_len={}",
             chat_id,
             message_id,
             reply_to,
-            text_preview,
+            len(update.message.text or ""),
         )
 
         if not self._message_handler:
@@ -538,7 +535,7 @@ class TelegramPlatform(MessagingPlatform):
             with contextlib.suppress(Exception):
                 await self.send_message(
                     chat_id,
-                    f"❌ *{escape_md_v2('Error:')}* {escape_md_v2(get_user_facing_error_message(e)[:200])}",
+                    f"*{escape_md_v2('Error:')}* {escape_md_v2(get_user_facing_error_message(e)[:200])}",
                     reply_to=incoming.message_id,
                     message_thread_id=thread_id,
                     parse_mode="MarkdownV2",
@@ -580,7 +577,7 @@ class TelegramPlatform(MessagingPlatform):
         )
         status_msg_id = await self.queue_send_message(
             chat_id,
-            format_status("⏳", "Transcribing voice note..."),
+            format_status("", "Transcribing voice note..."),
             reply_to=str(update.message.message_id),
             parse_mode="MarkdownV2",
             fire_and_forget=False,
@@ -640,10 +637,10 @@ class TelegramPlatform(MessagingPlatform):
             )
 
             logger.info(
-                "TELEGRAM_VOICE: chat_id={} message_id={} transcribed={!r}",
+                "TELEGRAM_VOICE: chat_id={} message_id={} transcript_chars={}",
                 chat_id,
                 message_id,
-                (transcribed[:80] + "..." if len(transcribed) > 80 else transcribed),
+                len(transcribed),
             )
 
             await self._message_handler(incoming)
