@@ -10,3 +10,4 @@ agent_workspace
 server.log
 .coverage
 llama_cache
+.smoke-results

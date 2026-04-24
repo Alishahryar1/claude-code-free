@@ -96,6 +96,18 @@ skip-magic-trailing-comma = false
 [tool.pytest.ini_options]
 pythonpath = ["."]
 addopts = "-n auto"
+testpaths = ["tests"]
+markers = [
+    "live: opt-in local smoke tests that can touch real services",
+    "interactive: smoke tests requiring manual user interaction",
+    "provider: live provider checks",
+    "messaging: live messaging platform checks",
+    "cli: CLI integration checks",
+    "vscode: VS Code or IDE client compatibility checks",
+    "voice: voice transcription checks",
+    "contract: deterministic smoke contract checks",
+    "smoke_target(name): route a smoke test behind FCC_SMOKE_TARGETS",
+]
 
 [tool.ty.environment]
 python-version = "3.14"
