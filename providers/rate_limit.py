@@ -34,6 +34,7 @@ class GlobalRateLimiter:
         if cls._instance is not None:
             return cls._instance
         instance = super().__new__(cls)
+        cls._instance = instance
         return instance
 
     def __init__(
