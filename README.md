@@ -12,7 +12,7 @@
 [![Code style: Ruff](https://img.shields.io/badge/code%20formatting-ruff-f5a623.svg?style=for-the-badge)](https://github.com/astral-sh/ruff)
 [![Logging: Loguru](https://img.shields.io/badge/logging-loguru-4ecdc4.svg?style=for-the-badge)](https://github.com/Delgan/loguru)
 
-A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NIM** (40 req/min free), **OpenRouter** (hundreds of models), **DeepSeek** (direct API), **LM Studio** (fully local), or **llama.cpp** (local with Anthropic endpoints).
+A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NIM** (40 req/min free), **OpenRouter** (hundreds of models), **DeepSeek** (direct API), **MiniMax** (MiniMax-M2.7), **LM Studio** (fully local), or **llama.cpp** (local with Anthropic endpoints).
 
 [Quick Start](#quick-start) · [Providers](#providers) · [Discord Bot](#discord-bot) · [Configuration](#configuration) · [Development](#development) · [Contributing](#contributing)
 
@@ -31,7 +31,7 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
 | -------------------------- | ----------------------------------------------------------------------------------------------- |
 | **Zero Cost**              | 40 req/min free on NVIDIA NIM. Free models on OpenRouter. Fully local with LM Studio            |
 | **Drop-in Replacement**    | Set 2 env vars. No modifications to Claude Code CLI or VSCode extension needed                  |
-| **5 Providers**            | NVIDIA NIM, OpenRouter, DeepSeek, LM Studio (local), llama.cpp (`llama-server`)                  |
+| **6 Providers**            | NVIDIA NIM, OpenRouter, DeepSeek, MiniMax, LM Studio (local), llama.cpp (`llama-server`)         |
 | **Per-Model Mapping**      | Route Opus / Sonnet / Haiku to different models and providers. Mix providers freely             |
 | **Thinking Token Support** | Parses `<think>` tags and `reasoning_content` into native Claude thinking blocks                |
 | **Heuristic Tool Parser**  | Models outputting tool calls as text are auto-parsed into structured tool use                   |
@@ -49,6 +49,7 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
    - **NVIDIA NIM**: [build.nvidia.com/settings/api-keys](https://build.nvidia.com/settings/api-keys)
    - **OpenRouter**: [openrouter.ai/keys](https://openrouter.ai/keys)
    - **DeepSeek**: [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys)
+   - **MiniMax**: [platform.minimaxi.com](https://platform.minimaxi.com/)
    - **LM Studio**: No API key needed. Run locally with [LM Studio](https://lmstudio.ai)
    - **llama.cpp**: No API key needed. Run `llama-server` locally.
 2. Install [Claude Code](https://github.com/anthropics/claude-code)
@@ -112,6 +113,22 @@ MODEL_SONNET="deepseek/deepseek-chat"
 MODEL_HAIKU="deepseek/deepseek-chat"
 MODEL="deepseek/deepseek-chat"                      # fallback
 ```
+
+</details>
+
+<details>
+<summary><b>MiniMax</b> (MiniMax-M2.7)</summary>
+
+```dotenv
+MINIMAX_API_KEY="your-minimax-key-here"
+
+MODEL_OPUS="minimax/MiniMax-M2.7"
+MODEL_SONNET="minimax/MiniMax-M2.7"
+MODEL_HAIKU="minimax/MiniMax-M2.7-highspeed"
+MODEL="minimax/MiniMax-M2.7"                        # fallback
+```
+
+Get your API key from [platform.minimaxi.com](https://platform.minimaxi.com/).
 
 </details>
 
@@ -334,6 +351,7 @@ The proxy also exposes Claude-compatible probe routes: `GET /v1/models`, `POST /
 | **NVIDIA NIM** | Free         | 40 req/min | Daily driver, generous free tier     |
 | **OpenRouter** | Free / Paid  | Varies     | Model variety, fallback options      |
 | **DeepSeek**   | Usage-based  | Varies     | Direct access to DeepSeek chat/reasoner |
+| **MiniMax**    | Usage-based  | Varies     | MiniMax-M2.7 flagship model          |
 | **LM Studio**  | Free (local) | Unlimited  | Privacy, offline use, no rate limits |
 | **llama.cpp**  | Free (local) | Unlimited  | Lightweight local inference engine   |
 
@@ -344,6 +362,7 @@ Models use a prefix format: `provider_prefix/model/name`. An invalid prefix caus
 | NVIDIA NIM | `nvidia_nim/...`  | `NVIDIA_NIM_API_KEY` | `integrate.api.nvidia.com/v1` |
 | OpenRouter | `open_router/...` | `OPENROUTER_API_KEY` | `openrouter.ai/api/v1`        |
 | DeepSeek   | `deepseek/...`    | `DEEPSEEK_API_KEY`   | `api.deepseek.com`            |
+| MiniMax    | `minimax/...`     | `MINIMAX_API_KEY`    | `api.minimax.io/v1`           |
 | LM Studio  | `lmstudio/...`    | (none)               | `localhost:1234/v1`           |
 | llama.cpp  | `llamacpp/...`    | (none)               | `localhost:8080/v1`           |
 
@@ -385,6 +404,18 @@ DeepSeek currently exposes the direct API models:
 - `deepseek/deepseek-reasoner`
 
 Browse: [api-docs.deepseek.com](https://api-docs.deepseek.com)
+
+</details>
+
+<details>
+<summary><b>MiniMax models</b></summary>
+
+MiniMax exposes two text generation models via an OpenAI-compatible endpoint:
+
+- `minimax/MiniMax-M2.7` — best quality, complex tasks
+- `minimax/MiniMax-M2.7-highspeed` — same capability, lower latency
+
+Browse: [platform.minimaxi.com](https://platform.minimaxi.com/) · [API docs](https://platform.minimax.io/docs/api-reference/text-openai-api)
 
 </details>
 
@@ -510,12 +541,14 @@ Configure via `WHISPER_DEVICE` (`cpu` | `cuda` | `nvidia_nim`) and `WHISPER_MODE
 | `ENABLE_THINKING`    | Global switch for provider reasoning requests and Claude thinking blocks. Set `false` to hide thinking across all providers. | `true` |
 | `OPENROUTER_API_KEY` | OpenRouter API key                                                    | required for OpenRouter                           |
 | `DEEPSEEK_API_KEY`   | DeepSeek API key                                                      | required for DeepSeek                             |
+| `MINIMAX_API_KEY`    | MiniMax API key                                                       | required for MiniMax                              |
 | `LM_STUDIO_BASE_URL` | LM Studio server URL                                                  | `http://localhost:1234/v1`                        |
 | `LLAMACPP_BASE_URL`  | llama.cpp server URL                                                  | `http://localhost:8080/v1`                        |
 | `NVIDIA_NIM_PROXY`   | Optional proxy URL for NVIDIA NIM requests (`http://...` or `socks5://...`) | `""` |
 | `OPENROUTER_PROXY`   | Optional proxy URL for OpenRouter requests (`http://...` or `socks5://...`) | `""` |
 | `LMSTUDIO_PROXY`     | Optional proxy URL for LM Studio requests (`http://...` or `socks5://...`) | `""` |
 | `LLAMACPP_PROXY`     | Optional proxy URL for llama.cpp requests (`http://...` or `socks5://...`) | `""` |
+| `MINIMAX_PROXY`      | Optional proxy URL for MiniMax requests (`http://...` or `socks5://...`) | `""` |
 
 ### Rate Limiting & Timeouts
 

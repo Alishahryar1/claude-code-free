@@ -12,6 +12,7 @@ from .exceptions import (
 )
 from .llamacpp import LlamaCppProvider
 from .lmstudio import LMStudioProvider
+from .minimax import MinimaxProvider
 from .nvidia_nim import NvidiaNimProvider
 from .open_router import OpenRouterProvider
 
@@ -23,6 +24,7 @@ __all__ = [
     "InvalidRequestError",
     "LMStudioProvider",
     "LlamaCppProvider",
+    "MinimaxProvider",
     "NvidiaNimProvider",
     "OpenRouterProvider",
     "OverloadedError",
