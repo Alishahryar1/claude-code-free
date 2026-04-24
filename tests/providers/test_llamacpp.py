@@ -119,6 +119,7 @@ async def test_stream_response_omits_thinking_when_globally_disabled(llamacpp_co
 
     mock_response = MagicMock()
     mock_response.status_code = 200
+    mock_response.aclose = AsyncMock()
 
     async def empty_aiter():
         if False:
@@ -148,6 +149,7 @@ async def test_stream_response(llamacpp_provider):
 
     mock_response = MagicMock()
     mock_response.status_code = 200
+    mock_response.aclose = AsyncMock()
 
     async def mock_aiter_lines():
         yield "event: message_start"
@@ -192,6 +194,7 @@ async def test_stream_response(llamacpp_provider):
         assert len(events) == 9
         assert events[0] == "event: message_start\n"
         assert events[1] == 'data: {"type":"message_start","message":{}}\n'
+        mock_response.aclose.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -200,6 +203,7 @@ async def test_stream_response_adds_max_tokens_if_missing(llamacpp_provider):
     req = MockRequest()
     mock_response = MagicMock()
     mock_response.status_code = 200
+    mock_response.aclose = AsyncMock()
 
     async def empty_aiter():
         if False:
@@ -232,6 +236,7 @@ async def test_stream_error_status_code(llamacpp_provider):
     mock_response = MagicMock()
     mock_response.status_code = 500
     mock_response.aread = AsyncMock(return_value=b"Internal Server Error")
+    mock_response.aclose = AsyncMock()
     mock_response.raise_for_status = MagicMock(
         side_effect=httpx.HTTPStatusError(
             "Internal Server Error", request=MagicMock(), response=mock_response
@@ -294,6 +299,7 @@ async def test_stream_error_405_mentions_upstream_provider(llamacpp_provider):
     mock_response = MagicMock()
     mock_response.status_code = 405
     mock_response.aread = AsyncMock(return_value=b"Method Not Allowed")
+    mock_response.aclose = AsyncMock()
     mock_response.raise_for_status = MagicMock(
         side_effect=httpx.HTTPStatusError(
             "Method Not Allowed", request=MagicMock(), response=mock_response
