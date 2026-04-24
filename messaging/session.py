@@ -7,7 +7,9 @@ and message trees for conversation continuation.
 
 import json
 import os
+import tempfile
 import threading
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
 
@@ -105,8 +107,26 @@ class SessionStore:
 
     def _write_data(self, data: dict) -> None:
         """Write data dict to disk. Must be called WITHOUT holding self._lock."""
-        with open(self.storage_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        directory = os.path.dirname(self.storage_path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+
+        fd, temp_path = tempfile.mkstemp(
+            dir=directory or None,
+            prefix=".session-store-",
+            suffix=".tmp",
+            text=True,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, self.storage_path)
+        except Exception:
+            with suppress(OSError):
+                os.unlink(temp_path)
+            raise
 
     def _schedule_save(self) -> None:
         """Schedule a debounced save. Caller must hold self._lock."""
