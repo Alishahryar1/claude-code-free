@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🤖 Free Claude Code
+# Free Claude Code
 
 ### Use Claude Code CLI & VSCode for free. No Anthropic API key required.
 
