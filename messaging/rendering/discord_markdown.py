@@ -10,8 +10,6 @@ from markdown_it import MarkdownIt
 
 # Discord escapes: \ * _ ` ~ | >
 DISCORD_SPECIAL = set("\\*_`~|>")
-# Characters that need escaping in Discord link URLs (inside parentheses)
-DISCORD_LINK_ESCAPE = set("\\)")
 
 _MD = MarkdownIt("commonmark", {"html": False, "breaks": False})
 _MD.enable("strikethrough")
@@ -73,11 +71,6 @@ def escape_discord(text: str) -> str:
 def escape_discord_code(text: str) -> str:
     """Escape text for Discord code spans/blocks."""
     return text.replace("\\", "\\\\").replace("`", "\\`")
-
-
-def escape_discord_link_url(text: str) -> str:
-    """Escape URL for Discord link destination (inside parentheses)."""
-    return "".join(f"\\{ch}" if ch in DISCORD_LINK_ESCAPE else ch for ch in text)
 
 
 def discord_bold(text: str) -> str:
@@ -162,9 +155,7 @@ def render_markdown_to_discord(text: str) -> str:
                 for child in inner_tokens:
                     if child.type == "text" or child.type == "code_inline":
                         link_text += child.content
-                out.append(
-                    f"[{escape_discord(link_text)}]({escape_discord_link_url(href)})"
-                )
+                out.append(f"[{escape_discord(link_text)}]({href})")
             elif t == "image":
                 href = ""
                 alt = tok.content or ""
@@ -177,11 +168,9 @@ def render_markdown_to_discord(text: str) -> str:
                                 href = val
                                 break
                 if alt:
-                    out.append(
-                        f"{escape_discord(alt)} ({escape_discord_link_url(href)})"
-                    )
+                    out.append(f"{escape_discord(alt)} ({href})")
                 else:
-                    out.append(escape_discord_link_url(href))
+                    out.append(href)
             else:
                 out.append(escape_discord(tok.content or ""))
             i += 1
@@ -370,7 +359,6 @@ __all__ = [
     "discord_code_inline",
     "escape_discord",
     "escape_discord_code",
-    "escape_discord_link_url",
     "format_status",
     "format_status_discord",
     "render_markdown_to_discord",
