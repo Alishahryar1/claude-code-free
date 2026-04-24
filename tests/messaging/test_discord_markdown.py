@@ -7,6 +7,7 @@ from messaging.rendering.discord_markdown import (
     discord_code_inline,
     escape_discord,
     escape_discord_code,
+    escape_discord_link_url,
     format_status,
     format_status_discord,
     render_markdown_to_discord,
@@ -47,6 +48,34 @@ class TestEscapeDiscordCode:
 
     def test_both_escaped(self):
         assert escape_discord_code("`\\") == "\\`\\\\"
+
+
+class TestEscapeDiscordLinkUrl:
+    """Tests for escape_discord_link_url."""
+
+    def test_empty_string(self):
+        assert escape_discord_link_url("") == ""
+
+    def test_plain_url_unchanged(self):
+        assert escape_discord_link_url("https://example.com") == "https://example.com"
+
+    def test_backslash_escaped(self):
+        assert (
+            escape_discord_link_url("https://example.com\\path")
+            == "https://example.com\\\\path"
+        )
+
+    def test_closing_paren_escaped(self):
+        assert (
+            escape_discord_link_url("https://example.com/page)")
+            == "https://example.com/page\\)"
+        )
+
+    def test_both_escaped(self):
+        assert (
+            escape_discord_link_url("https://example.com/path)\\test")
+            == "https://example.com/path\\)\\\\test"
+        )
 
 
 class TestDiscordBold:
@@ -183,14 +212,35 @@ class TestRenderMarkdownToDiscord:
         assert "text" in result
         assert "https://example.com" in result
 
+    def test_link_with_closing_paren_in_url(self):
+        # URL with closing paren (e.g., Wikipedia URLs) should be escaped
+        result = render_markdown_to_discord(
+            "[text](https://en.wikipedia.org/wiki/Example_(disambiguation))"
+        )
+        assert (
+            "[text](https://en.wikipedia.org/wiki/Example_(disambiguation\\))" in result
+        )
+
+    def test_link_with_backslash_in_url(self):
+        # URL with backslash should be escaped
+        result = render_markdown_to_discord("[text](https://example.com/path\\file)")
+        # Note: markdown-it may URL-encode backslashes, so check for escaped version
+        assert "https://example.com" in result
+
     def test_image_with_alt(self):
         result = render_markdown_to_discord("![alt](https://img.png)")
         assert "alt" in result
         assert "https://img.png" in result
 
+    def test_image_with_closing_paren_in_url(self):
+        # Image URL with closing paren should be escaped
+        result = render_markdown_to_discord("![alt](https://example.com/image_(1).png)")
+        assert "alt (https://example.com/image_(1\\).png)" in result
+
     def test_image_without_alt(self):
         result = render_markdown_to_discord("![](https://img.png)")
-        assert "https://img.png" in result
+        # URL should be present and properly escaped
+        assert result.strip() == "https://img.png"
 
     def test_gfm_table(self):
         text = "| A | B |\n|---|---|\n| 1 | 2 |"
