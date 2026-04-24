@@ -1,6 +1,5 @@
 """FastAPI route handlers."""
 
-import traceback
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -70,11 +69,11 @@ def _probe_response(allow: str) -> Response:
 @router.post("/v1/messages")
 async def create_message(
     request_data: MessagesRequest,
-    raw_request: Request,
     settings: Settings = Depends(get_settings),
     _auth=Depends(require_api_key),
 ):
     """Create a message (always streaming)."""
+    request_id = f"req_{uuid.uuid4().hex[:12]}"
 
     try:
         if not request_data.messages:
@@ -91,14 +90,14 @@ async def create_message(
         )
         provider = get_provider_for_type(provider_type)
 
-        request_id = f"req_{uuid.uuid4().hex[:12]}"
         logger.info(
-            "API_REQUEST: request_id={} model={} messages={}",
+            "API_REQUEST: request_id={} model={} messages={} system={} tools={}",
             request_id,
             request_data.model,
             len(request_data.messages),
+            bool(request_data.system),
+            len(request_data.tools or []),
         )
-        logger.debug("FULL_PAYLOAD [{}]: {}", request_id, request_data.model_dump())
 
         input_tokens = get_token_count(
             request_data.messages, request_data.system, request_data.tools
@@ -120,7 +119,11 @@ async def create_message(
     except ProviderError:
         raise
     except Exception as e:
-        logger.error(f"Error: {e!s}\n{traceback.format_exc()}")
+        logger.error(
+            "API_REQUEST_FAILED: request_id={} route=/v1/messages error_type={}",
+            request_id,
+            type(e).__name__,
+        )
         raise HTTPException(
             status_code=getattr(e, "status_code", 500),
             detail=get_user_facing_error_message(e),
@@ -152,10 +155,9 @@ async def count_tokens(request_data: TokenCountRequest, _auth=Depends(require_ap
             return TokenCountResponse(input_tokens=tokens)
         except Exception as e:
             logger.error(
-                "COUNT_TOKENS_ERROR: request_id={} error={}\n{}",
+                "COUNT_TOKENS_ERROR: request_id={} error_type={}",
                 request_id,
-                get_user_facing_error_message(e),
-                traceback.format_exc(),
+                type(e).__name__,
             )
             raise HTTPException(
                 status_code=500, detail=get_user_facing_error_message(e)
