@@ -101,6 +101,7 @@ def test_build_request_body_global_disable_blocks_request_thinking():
     body = provider._build_request_body(req)
 
     assert "extra_body" not in body or "thinking" not in body["extra_body"]
+    assert "reasoning_content" not in body["messages"][1]
 
 
 def test_build_request_body_request_disable_blocks_global_thinking(deepseek_provider):
@@ -110,6 +111,7 @@ def test_build_request_body_request_disable_blocks_global_thinking(deepseek_prov
     body = deepseek_provider._build_request_body(req)
 
     assert "extra_body" not in body or "thinking" not in body["extra_body"]
+    assert "reasoning_content" not in body["messages"][1]
 
 
 def test_build_request_body_reasoner_skips_thinking_extra(deepseek_provider):
