@@ -225,3 +225,52 @@ async def stop_cli(request: Request, _auth=Depends(require_api_key)):
     count = await handler.stop_all_tasks()
     logger.info("STOP_CLI: source=handler cancelled_count={}", count)
     return {"status": "stopped", "cancelled_count": count}
+
+@router.post("/v1/chat/completions")
+async def chat_completions(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _auth=Depends(require_api_key),
+):
+    """
+    OpenAI-compatible endpoint for Claude CLI.
+    Converts → Anthropic /v1/messages
+    """
+
+    body = await request.json()
+
+    messages = body.get("messages", [])
+    model = body.get("model")
+    stream = body.get("stream", False)
+
+    if not messages:
+        raise HTTPException(status_code=400, detail="messages cannot be empty")
+
+    #  Convert OpenAI → Anthropic format
+    anthropic_messages = []
+    system_prompt = None
+
+    for msg in messages:
+        if msg["role"] == "system":
+            system_prompt = msg["content"]
+        else:
+            anthropic_messages.append({
+                "role": msg["role"],
+                "content": msg["content"]
+            })
+
+    # Build MessagesRequest manually
+    request_data = MessagesRequest(
+        model=model,
+        messages=anthropic_messages,
+        system=system_prompt,
+        max_tokens=1024,
+    )
+
+    # Reuse your EXISTING pipeline (this is the smart part)
+    return await create_message(
+        request_data=request_data,
+        raw_request=request,
+        settings=settings,
+        _auth=_auth,
+    )
