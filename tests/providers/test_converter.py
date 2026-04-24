@@ -79,6 +79,27 @@ def test_convert_tools():
     assert result[1]["function"]["description"] == ""  # Check default empty string
 
 
+@pytest.mark.parametrize(
+    "tool_choice,expected",
+    [
+        (
+            {"type": "tool", "name": "echo_smoke"},
+            {"type": "function", "function": {"name": "echo_smoke"}},
+        ),
+        ({"type": "any"}, "required"),
+        ({"type": "auto"}, "auto"),
+        ({"type": "none"}, "none"),
+        (
+            {"type": "function", "function": {"name": "already_openai"}},
+            {"type": "function", "function": {"name": "already_openai"}},
+        ),
+    ],
+)
+def test_convert_tool_choice(tool_choice, expected):
+    result = AnthropicToOpenAIConverter.convert_tool_choice(tool_choice)
+    assert result == expected
+
+
 # --- Message Conversion Tests: User ---
 
 
