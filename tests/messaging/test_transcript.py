@@ -67,7 +67,7 @@ def test_transcript_subagent_suppresses_thinking_and_text_inside():
     assert "visible?" not in out
     # Only the current tool call should be shown (not the full history).
     assert out.count("Tool call:") == 1
-    assert "\n  🛠" in out or out.startswith("  🛠") or "  🛠" in out
+    assert "\n  *Tool call:*" in out or out.startswith("  *Tool call:*")
     assert "Tools used:" in out
     assert "Tool calls:" in out
     assert "after" in out
@@ -104,7 +104,7 @@ def test_transcript_subagent_closes_on_whitespace_tool_ids():
     out = t.render(_ctx(), limit_chars=3900, status=None)
     assert out.count("Subagent:") == 2
     # If nesting is incorrect, the second subagent line will be indented under the first.
-    assert "\n  🤖 *Subagent:* `Next`" not in out
+    assert "\n  *Subagent:* `Next`" not in out
 
 
 def test_transcript_subagent_closes_on_task_result_id_suffix_match():
@@ -129,7 +129,7 @@ def test_transcript_subagent_closes_on_task_result_id_suffix_match():
 
     out = t.render(_ctx(), limit_chars=3900, status=None)
     assert out.count("Subagent:") == 2
-    assert "\n  🤖 *Subagent:* `Next`" not in out
+    assert "\n  *Subagent:* `Next`" not in out
 
 
 def test_transcript_unmatched_non_task_tool_result_does_not_pop_subagent():
@@ -177,8 +177,8 @@ def test_transcript_sequential_tasks_mismatched_results_no_depth_drift():
     )
 
     out = t.render(_ctx(), limit_chars=3900, status=None)
-    assert "🤖 *Subagent:* `A`\n  🤖 *Subagent:* `B`" not in out
-    assert "\n  🤖 *Subagent:* `C`" not in out
+    assert "*Subagent:* `A`\n  *Subagent:* `B`" not in out
+    assert "\n  *Subagent:* `C`" not in out
     assert t._subagent_stack == ["task_3"]
 
 
@@ -206,7 +206,7 @@ def test_transcript_synthetic_task_start_closes_on_functions_task_result_id():
 
     out = t.render(_ctx(), limit_chars=3900, status=None)
     assert out.count("Subagent:") == 2
-    assert "\n  🤖 *Subagent:* `Next`" not in out
+    assert "\n  *Subagent:* `Next`" not in out
 
 
 def test_transcript_synthetic_task_not_closed_by_unknown_non_task_result_id():
@@ -247,10 +247,10 @@ def test_transcript_overlapping_tasks_are_flat_not_nested():
     t.apply({"type": "tool_result", "tool_use_id": "task_a", "content": "done"})
 
     out = t.render(_ctx(), limit_chars=3900, status=None)
-    assert "🤖 *Subagent:* `A`" in out
-    assert "🤖 *Subagent:* `B`" in out
-    assert out.find("🤖 *Subagent:* `A`") < out.find("🤖 *Subagent:* `B`")
-    assert "\n  🤖 *Subagent:* `B`" not in out
+    assert "*Subagent:* `A`" in out
+    assert "*Subagent:* `B`" in out
+    assert out.find("*Subagent:* `A`") < out.find("*Subagent:* `B`")
+    assert "\n  *Subagent:* `B`" not in out
 
 
 def test_transcript_truncates_by_dropping_oldest_segments():
@@ -336,8 +336,8 @@ def test_transcript_truncation_preserves_last_segment_tail():
         {"type": "text_chunk", "text": "The actual output content here" + "x" * 500}
     )
 
-    msg = t.render(_ctx(), limit_chars=100, status="✅ *Complete*")
-    # Must include actual content (tail of last segment), not only "... (truncated)\n✅ *Complete*"
+    msg = t.render(_ctx(), limit_chars=100, status="*Complete*")
+    # Must include actual content (tail of last segment), not only "... (truncated)\n*Complete*"
     assert escape_md_v2("... (truncated)") in msg
-    assert "✅ *Complete*" in msg
+    assert "*Complete*" in msg
     assert "actual output" in msg or "content" in msg or "x" in msg
