@@ -104,6 +104,12 @@ class Settings(BaseSettings):
     # ==================== NVIDIA NIM Config ====================
     nvidia_nim_api_key: str = ""
 
+    # ==================== Cloudflare Workers AI Config ====================
+    cloudflare_api_key: str = Field(default="", validation_alias="CLOUDFLARE_API_KEY")
+    cloudflare_account_id: str = Field(
+        default="", validation_alias="CLOUDFLARE_ACCOUNT_ID"
+    )
+
     # ==================== LM Studio Config ====================
     lm_studio_base_url: str = Field(
         default="http://localhost:1234/v1",
@@ -132,6 +138,7 @@ class Settings(BaseSettings):
     open_router_proxy: str = Field(default="", validation_alias="OPENROUTER_PROXY")
     lmstudio_proxy: str = Field(default="", validation_alias="LMSTUDIO_PROXY")
     llamacpp_proxy: str = Field(default="", validation_alias="LLAMACPP_PROXY")
+    cloudflare_proxy: str = Field(default="", validation_alias="CLOUDFLARE_PROXY")
 
     # ==================== Provider Rate Limiting ====================
     provider_rate_limit: int = Field(default=40, validation_alias="PROVIDER_RATE_LIMIT")
@@ -245,6 +252,7 @@ class Settings(BaseSettings):
             "deepseek",
             "lmstudio",
             "llamacpp",
+            "cloudflare",
         )
         if "/" not in v:
             raise ValueError(
@@ -256,7 +264,7 @@ class Settings(BaseSettings):
         if provider not in valid_providers:
             raise ValueError(
                 f"Invalid provider: '{provider}'. "
-                f"Supported: 'nvidia_nim', 'open_router', 'deepseek', 'lmstudio', 'llamacpp'"
+                f"Supported: {', '.join(repr(p) for p in valid_providers)}"
             )
         return v
 
