@@ -137,6 +137,23 @@ class TestProviderRateLimiter:
         assert limiter1 is limiter2
 
     @pytest.mark.asyncio
+    async def test_direct_instantiation_returns_singleton(self):
+        """
+        Direct calls to GlobalRateLimiter(...) must return the singleton.
+
+        Without the __new__ fix, each direct call creates a separate instance.
+        """
+        GlobalRateLimiter.reset_instance()
+        limiter1 = GlobalRateLimiter(rate_limit=10, rate_window=1)
+        limiter2 = GlobalRateLimiter(rate_limit=20, rate_window=2)
+        assert limiter1 is limiter2, (
+            "Direct instantiation returned separate objects instead of the singleton"
+        )
+        # Second call should return the stored instance (idempotent __init__ guard)
+        limiter3 = GlobalRateLimiter(rate_limit=99, rate_window=99)
+        assert limiter3 is limiter1
+
+    @pytest.mark.asyncio
     async def test_reset_instance(self):
         """reset_instance should allow creating a new instance."""
         limiter1 = GlobalRateLimiter.get_instance(rate_limit=10, rate_window=1)
