@@ -6,6 +6,7 @@ from loguru import logger
 from config.settings import Settings
 from config.settings import get_settings as _get_settings
 from providers.base import BaseProvider, ProviderConfig
+from providers.cloudflare import CLOUDFLARE_BASE_URL_TEMPLATE, CloudflareProvider
 from providers.common import get_user_facing_error_message
 from providers.deepseek import DEEPSEEK_BASE_URL, DeepSeekProvider
 from providers.exceptions import AuthenticationError
@@ -36,6 +37,7 @@ def _create_provider_for_type(provider_type: str, settings: Settings) -> BasePro
         "open_router": _get_proxy_value(settings, "open_router_proxy"),
         "lmstudio": _get_proxy_value(settings, "lmstudio_proxy"),
         "llamacpp": _get_proxy_value(settings, "llamacpp_proxy"),
+        "cloudflare": _get_proxy_value(settings, "cloudflare_proxy"),
     }
     proxy = _proxy_map.get(provider_type, "")
 
@@ -123,13 +125,41 @@ def _create_provider_for_type(provider_type: str, settings: Settings) -> BasePro
             proxy=proxy,
         )
         return LlamaCppProvider(config)
-    logger.error(
-        "Unknown provider_type: '{}'. Supported: 'nvidia_nim', 'open_router', 'deepseek', 'lmstudio', 'llamacpp'",
-        provider_type,
+    if provider_type == "cloudflare":
+        if not settings.cloudflare_api_key or not settings.cloudflare_api_key.strip():
+            raise AuthenticationError(
+                "CLOUDFLARE_API_KEY is not set. Add it to your .env file. "
+                "Get a key at https://dash.cloudflare.com/profile/api-tokens"
+            )
+        if (
+            not settings.cloudflare_account_id
+            or not settings.cloudflare_account_id.strip()
+        ):
+            raise AuthenticationError(
+                "CLOUDFLARE_ACCOUNT_ID is not set. Add it to your .env file. "
+                "Find it at https://dash.cloudflare.com/ (right sidebar on any zone)"
+            )
+        config = ProviderConfig(
+            api_key=settings.cloudflare_api_key,
+            base_url=CLOUDFLARE_BASE_URL_TEMPLATE.format(
+                account_id=settings.cloudflare_account_id
+            ),
+            rate_limit=settings.provider_rate_limit,
+            rate_window=settings.provider_rate_window,
+            max_concurrency=settings.provider_max_concurrency,
+            http_read_timeout=settings.http_read_timeout,
+            http_write_timeout=settings.http_write_timeout,
+            http_connect_timeout=settings.http_connect_timeout,
+            enable_thinking=settings.enable_thinking,
+            proxy=proxy,
+        )
+        return CloudflareProvider(config)
+    supported = (
+        "'nvidia_nim', 'open_router', 'deepseek', 'lmstudio', 'llamacpp', 'cloudflare'"
     )
+    logger.error("Unknown provider_type: '{}'. Supported: {}", provider_type, supported)
     raise ValueError(
-        f"Unknown provider_type: '{provider_type}'. "
-        f"Supported: 'nvidia_nim', 'open_router', 'deepseek', 'lmstudio', 'llamacpp'"
+        f"Unknown provider_type: '{provider_type}'. Supported: {supported}"
     )
 
 
