@@ -86,10 +86,10 @@ class TestFormatStatus:
     """Tests for format_status."""
 
     def test_label_only(self):
-        assert format_status("🔄", "Running") == "🔄 **Running**"
+        assert format_status("", "Running") == "**Running**"
 
     def test_label_with_suffix(self):
-        assert format_status("⏳", "Waiting", "5/10") == "⏳ **Waiting** 5/10"
+        assert format_status("", "Waiting", "5/10") == "**Waiting** 5/10"
 
 
 class TestIsGfmTableHeaderLine:
