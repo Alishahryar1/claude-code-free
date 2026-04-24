@@ -555,3 +555,134 @@ class TestPerModelMapping:
         assert Settings.parse_model_name("deepseek/deepseek-chat") == "deepseek-chat"
         assert Settings.parse_model_name("lmstudio/qwen") == "qwen"
         assert Settings.parse_model_name("llamacpp/model") == "model"
+
+
+class TestFallbackSettings:
+    """Test fallback model fields and resolve_fallback()."""
+
+    def test_fallback_fields_default_none(self):
+        """Fallback fields default to None."""
+        from config.settings import Settings
+
+        s = Settings()
+        assert s.fallback_opus is None
+        assert s.fallback_sonnet is None
+        assert s.fallback_haiku is None
+        assert s.fallback is None
+
+    def test_fallback_from_env(self, monkeypatch):
+        """FALLBACK env var is loaded."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("FALLBACK", "open_router/fallback-model")
+        s = Settings()
+        assert s.fallback == "open_router/fallback-model"
+
+    def test_fallback_opus_from_env(self, monkeypatch):
+        """FALLBACK_OPUS env var is loaded."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("FALLBACK_OPUS", "open_router/opus-fallback")
+        s = Settings()
+        assert s.fallback_opus == "open_router/opus-fallback"
+
+    def test_fallback_empty_string_to_none(self, monkeypatch):
+        """Empty FALLBACK env var is converted to None."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("FALLBACK", "")
+        s = Settings()
+        assert s.fallback is None
+
+    def test_fallback_invalid_provider_raises(self, monkeypatch):
+        """FALLBACK with invalid provider prefix raises ValidationError."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("FALLBACK", "bad_provider/model")
+        with pytest.raises(ValidationError, match="Invalid provider"):
+            Settings()
+
+    def test_fallback_no_slash_raises(self, monkeypatch):
+        """FALLBACK without provider prefix raises ValidationError."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("FALLBACK", "noprefix")
+        with pytest.raises(ValidationError, match="provider type"):
+            Settings()
+
+    def test_resolve_fallback_opus(self):
+        """resolve_fallback returns fallback_opus for opus models."""
+        from config.settings import Settings
+
+        s = Settings()
+        s.fallback_opus = "open_router/opus-fallback"
+        assert (
+            s.resolve_fallback("claude-opus-4-20250514") == "open_router/opus-fallback"
+        )
+
+    def test_resolve_fallback_sonnet(self):
+        """resolve_fallback returns fallback_sonnet for sonnet models."""
+        from config.settings import Settings
+
+        s = Settings()
+        s.fallback_sonnet = "nvidia_nim/sonnet-fallback"
+        assert (
+            s.resolve_fallback("claude-sonnet-4-20250514")
+            == "nvidia_nim/sonnet-fallback"
+        )
+
+    def test_resolve_fallback_haiku(self):
+        """resolve_fallback returns fallback_haiku for haiku models."""
+        from config.settings import Settings
+
+        s = Settings()
+        s.fallback_haiku = "deepseek/haiku-fallback"
+        assert (
+            s.resolve_fallback("claude-3-haiku-20240307") == "deepseek/haiku-fallback"
+        )
+
+    def test_resolve_fallback_global(self):
+        """resolve_fallback returns global fallback when tier-specific not set."""
+        from config.settings import Settings
+
+        s = Settings()
+        s.fallback = "open_router/global-fallback"
+        assert (
+            s.resolve_fallback("claude-opus-4-20250514")
+            == "open_router/global-fallback"
+        )
+        assert (
+            s.resolve_fallback("claude-sonnet-4-20250514")
+            == "open_router/global-fallback"
+        )
+
+    def test_resolve_fallback_tier_overrides_global(self):
+        """Tier-specific fallback takes precedence over global."""
+        from config.settings import Settings
+
+        s = Settings()
+        s.fallback = "open_router/global-fallback"
+        s.fallback_opus = "nvidia_nim/opus-specific"
+        assert (
+            s.resolve_fallback("claude-opus-4-20250514") == "nvidia_nim/opus-specific"
+        )
+        assert (
+            s.resolve_fallback("claude-sonnet-4-20250514")
+            == "open_router/global-fallback"
+        )
+
+    def test_resolve_fallback_none_when_unconfigured(self):
+        """resolve_fallback returns None when nothing configured."""
+        from config.settings import Settings
+
+        s = Settings()
+        assert s.resolve_fallback("claude-opus-4-20250514") is None
+        assert s.resolve_fallback("claude-sonnet-4-20250514") is None
+
+    def test_resolve_fallback_case_insensitive(self):
+        """Fallback classification is case-insensitive."""
+        from config.settings import Settings
+
+        s = Settings()
+        s.fallback_opus = "open_router/opus-fallback"
+        assert s.resolve_fallback("Claude-OPUS-4") == "open_router/opus-fallback"

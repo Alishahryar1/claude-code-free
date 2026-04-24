@@ -12,6 +12,7 @@ from providers.common import get_user_facing_error_message
 from providers.exceptions import InvalidRequestError, ProviderError
 
 from .dependencies import get_provider_for_type, get_settings, require_api_key
+from .fallback import stream_with_fallback
 from .models.anthropic import MessagesRequest, TokenCountRequest
 from .models.responses import ModelResponse, ModelsListResponse, TokenCountResponse
 from .optimization_handlers import try_optimizations
@@ -91,12 +92,18 @@ async def create_message(
         )
         provider = get_provider_for_type(provider_type)
 
+        # Resolve fallback model (None if not configured)
+        fallback_model = settings.resolve_fallback(
+            request_data.original_model or request_data.model
+        )
+
         request_id = f"req_{uuid.uuid4().hex[:12]}"
         logger.info(
-            "API_REQUEST: request_id={} model={} messages={}",
+            "API_REQUEST: request_id={} model={} messages={} fallback={}",
             request_id,
             request_data.model,
             len(request_data.messages),
+            fallback_model or "none",
         )
         logger.debug("FULL_PAYLOAD [{}]: {}", request_id, request_data.model_dump())
 
@@ -104,10 +111,12 @@ async def create_message(
             request_data.messages, request_data.system, request_data.tools
         )
         return StreamingResponse(
-            provider.stream_response(
-                request_data,
+            stream_with_fallback(
+                primary_provider=provider,
+                request=request_data,
                 input_tokens=input_tokens,
                 request_id=request_id,
+                fallback_model=fallback_model,
             ),
             media_type="text/event-stream",
             headers={

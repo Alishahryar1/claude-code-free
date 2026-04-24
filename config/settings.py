@@ -127,6 +127,16 @@ class Settings(BaseSettings):
     model_sonnet: str | None = Field(default=None, validation_alias="MODEL_SONNET")
     model_haiku: str | None = Field(default=None, validation_alias="MODEL_HAIKU")
 
+    # ==================== Provider Fallback ====================
+    # Optional fallback models tried when primary provider fails
+    # (server errors, rate limits, timeouts). Same provider/model format.
+    fallback_opus: str | None = Field(default=None, validation_alias="FALLBACK_OPUS")
+    fallback_sonnet: str | None = Field(
+        default=None, validation_alias="FALLBACK_SONNET"
+    )
+    fallback_haiku: str | None = Field(default=None, validation_alias="FALLBACK_HAIKU")
+    fallback: str | None = Field(default=None, validation_alias="FALLBACK")
+
     # ==================== Per-Provider Proxy ====================
     nvidia_nim_proxy: str = Field(default="", validation_alias="NVIDIA_NIM_PROXY")
     open_router_proxy: str = Field(default="", validation_alias="OPENROUTER_PROXY")
@@ -217,6 +227,10 @@ class Settings(BaseSettings):
         "allowed_telegram_user_id",
         "discord_bot_token",
         "allowed_discord_channels",
+        "fallback_opus",
+        "fallback_sonnet",
+        "fallback_haiku",
+        "fallback",
         mode="before",
     )
     @classmethod
@@ -234,7 +248,16 @@ class Settings(BaseSettings):
             )
         return v
 
-    @field_validator("model", "model_opus", "model_sonnet", "model_haiku")
+    @field_validator(
+        "model",
+        "model_opus",
+        "model_sonnet",
+        "model_haiku",
+        "fallback",
+        "fallback_opus",
+        "fallback_sonnet",
+        "fallback_haiku",
+    )
     @classmethod
     def validate_model_format(cls, v: str | None) -> str | None:
         if v is None:
@@ -311,6 +334,20 @@ class Settings(BaseSettings):
         if "sonnet" in name_lower and self.model_sonnet is not None:
             return self.model_sonnet
         return self.model
+
+    def resolve_fallback(self, claude_model_name: str) -> str | None:
+        """Resolve a Claude model name to the configured fallback provider/model.
+
+        Returns None if no fallback is configured for this model tier.
+        """
+        name_lower = claude_model_name.lower()
+        if "opus" in name_lower and self.fallback_opus is not None:
+            return self.fallback_opus
+        if "haiku" in name_lower and self.fallback_haiku is not None:
+            return self.fallback_haiku
+        if "sonnet" in name_lower and self.fallback_sonnet is not None:
+            return self.fallback_sonnet
+        return self.fallback
 
     @staticmethod
     def parse_provider_type(model_string: str) -> str:
