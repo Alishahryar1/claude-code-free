@@ -21,6 +21,7 @@ dependencies = [
     "pydantic-settings>=2.12.0",
     "openai>=2.16.0",
     "loguru>=0.7.0",
+    "aiohttp>=3.13.4",
 ]
 
 [project.scripts]
