@@ -127,13 +127,23 @@ class TestBuildRequestBody:
 
         assert cloned is not None
         assert "chat_template" not in cloned["extra_body"]
-        assert cloned["extra_body"]["chat_template_kwargs"] == {
-            "thinking": True,
-            "enable_thinking": True,
-            "reasoning_budget": 100,
-        }
+        assert "chat_template_kwargs" not in cloned["extra_body"]
         assert cloned["extra_body"]["ignore_eos"] is False
         assert body["extra_body"]["chat_template"] == "custom_template"
+
+    def test_clone_body_without_chat_template_strips_kwargs_only(self):
+        body = {
+            "model": "test",
+            "extra_body": {
+                "chat_template_kwargs": {
+                    "thinking": True,
+                    "enable_thinking": True,
+                },
+            },
+        }
+        cloned = clone_body_without_chat_template(body)
+        assert cloned is not None
+        assert "extra_body" not in cloned
 
     def test_no_chat_template_kwargs_when_thinking_disabled(self):
         req = MagicMock()

@@ -47,13 +47,25 @@ def clone_body_without_reasoning_budget(body: dict[str, Any]) -> dict[str, Any] 
 
 
 def clone_body_without_chat_template(body: dict[str, Any]) -> dict[str, Any] | None:
-    """Clone a request body and strip only chat_template."""
+    """Clone a request body and strip chat_template-related extra_body fields.
+
+    NIM may reject Mistral models when *any* of these are present. With
+    ``ENABLE_THINKING=true`` we often send only ``chat_template_kwargs`` (no
+    ``chat_template`` key from NimSettings); a 400 still mentions chat_template
+    and must be retried after removing kwargs too.
+    """
     cloned_body = deepcopy(body)
     extra_body = cloned_body.get("extra_body")
     if not isinstance(extra_body, dict):
         return None
 
-    if extra_body.pop("chat_template", None) is None:
+    removed = False
+    if extra_body.pop("chat_template", None) is not None:
+        removed = True
+    if extra_body.pop("chat_template_kwargs", None) is not None:
+        removed = True
+
+    if not removed:
         return None
 
     if not extra_body:
