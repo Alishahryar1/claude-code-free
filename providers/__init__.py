@@ -5,6 +5,9 @@ from ``providers.nvidia_nim`` etc. to avoid loading every adapter when the
 ``providers`` package is imported.
 """
 
+# Apply compatibility patches as early as possible
+import core.compatibility  # noqa: F401
+
 from .base import BaseProvider, ProviderConfig
 from .exceptions import (
     APIError,

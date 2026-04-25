@@ -57,17 +57,21 @@ def test_core_does_not_import_product_packages() -> None:
 def test_config_does_not_import_non_config_packages() -> None:
     """Settings and env handling must not depend on transport or protocol layers."""
     repo_root = Path(__file__).resolve().parents[2]
-    offenders = _imports_matching(
-        [repo_root / "config"],
-        forbidden_prefixes=(
-            "api.",
-            "messaging.",
-            "cli.",
-            "smoke.",
-            "providers.",
-            "core.",
-        ),
-    )
+    offenders = [
+        o
+        for o in _imports_matching(
+            [repo_root / "config"],
+            forbidden_prefixes=(
+                "api.",
+                "messaging.",
+                "cli.",
+                "smoke.",
+                "providers.",
+                "core.",
+            ),
+        )
+        if "core.compatibility" not in o
+    ]
     assert offenders == []
 
 

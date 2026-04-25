@@ -10,8 +10,8 @@ import pytest
 from config.settings import Settings
 
 # Set mock environment BEFORE any imports that use Settings
-os.environ.setdefault("NVIDIA_NIM_API_KEY", "test_key")
-os.environ.setdefault("MODEL", "nvidia_nim/test-model")
+os.environ["NVIDIA_NIM_API_KEY"] = "test_key"
+os.environ["MODEL"] = "nvidia_nim/test-model"
 os.environ["PTB_TIMEDELTA"] = "1"
 # Ensure tests don't pick up a server API key from the repo .env
 # (tests expect endpoints to be unauthenticated by default)
