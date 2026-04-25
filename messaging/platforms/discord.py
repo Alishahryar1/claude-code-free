@@ -241,10 +241,10 @@ class DiscordPlatform(MessagingPlatform):
             )
 
             logger.info(
-                "DISCORD_VOICE: chat_id={} message_id={} transcribed={!r}",
+                "DISCORD_VOICE: chat_id={} message_id={} transcript_chars={}",
                 channel_id,
                 message_id,
-                (transcribed[:80] + "..." if len(transcribed) > 80 else transcribed),
+                len(transcribed),
             )
 
             await self._message_handler(incoming)
@@ -291,15 +291,12 @@ class DiscordPlatform(MessagingPlatform):
             else None
         )
 
-        text_preview = (message.content or "")[:80]
-        if len(message.content or "") > 80:
-            text_preview += "..."
         logger.info(
-            "DISCORD_MSG: chat_id={} message_id={} reply_to={} text_preview={!r}",
+            "DISCORD_MSG: chat_id={} message_id={} reply_to={} text_len={}",
             channel_id,
             message_id,
             reply_to,
-            text_preview,
+            len(message.content or ""),
         )
 
         if not self._message_handler:

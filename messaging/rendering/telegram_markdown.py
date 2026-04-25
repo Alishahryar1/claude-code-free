@@ -94,9 +94,9 @@ def mdv2_code_inline(text: str) -> str:
     return f"`{escape_md_v2_code(text)}`"
 
 
-def format_status(emoji: str, label: str, suffix: str | None = None) -> str:
-    """Format a status message with emoji and optional suffix."""
-    base = f"{emoji} {mdv2_bold(label)}"
+def format_status(_icon: str, label: str, suffix: str | None = None) -> str:
+    """Format a status message with a bold label and optional suffix."""
+    base = mdv2_bold(label)
     if suffix:
         return f"{base} {escape_md_v2(suffix)}"
     return base

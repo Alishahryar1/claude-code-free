@@ -116,13 +116,11 @@ class ContentBlockManager:
                     args_json["run_in_background"] = False
                 out = json.dumps(args_json)
             except Exception as e:
-                prefix = state.task_arg_buffer[:120]
                 logger.warning(
-                    "Task args invalid JSON (id={} len={} prefix={!r}): {}",
+                    "Task args invalid JSON (id={} len={}): {}",
                     state.tool_id or "unknown",
                     len(state.task_arg_buffer),
-                    prefix,
-                    e,
+                    type(e).__name__,
                 )
 
             state.task_args_emitted = True
@@ -145,7 +143,7 @@ class SSEBuilder:
     def _format_event(self, event_type: str, data: dict[str, Any]) -> str:
         """Format as SSE string."""
         event_str = f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
-        logger.debug("SSE_EVENT: {} - {}", event_type, event_str.strip())
+        logger.debug("SSE_EVENT: {}", event_type)
         return event_str
 
     # Message lifecycle events

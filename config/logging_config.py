@@ -74,10 +74,10 @@ def configure_logging(log_file: str, *, force: bool = False) -> None:
     # Truncate log file on fresh start for clean debugging
     Path(log_file).write_text("")
 
-    # Add file sink: JSON lines, DEBUG level, context vars at top level
+    # Add file sink: JSON lines, INFO level, context vars at top level
     logger.add(
         log_file,
-        level="DEBUG",
+        level="INFO",
         format=_serialize_with_context,
         encoding="utf-8",
         mode="a",
@@ -87,4 +87,4 @@ def configure_logging(log_file: str, *, force: bool = False) -> None:
     # Intercept stdlib logging: route all root logger output to loguru
     intercept = InterceptHandler()
     logging.root.handlers = [intercept]
-    logging.root.setLevel(logging.DEBUG)
+    logging.root.setLevel(logging.INFO)

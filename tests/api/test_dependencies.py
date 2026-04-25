@@ -251,8 +251,10 @@ async def test_get_provider_nvidia_nim_missing_api_key():
             get_provider()
 
         assert exc_info.value.status_code == 503
-        assert "NVIDIA_NIM_API_KEY" in exc_info.value.detail
-        assert "build.nvidia.com" in exc_info.value.detail
+        assert exc_info.value.detail == (
+            "NVIDIA_NIM_API_KEY is not set. Add it to your .env file. "
+            "Get a key at https://build.nvidia.com/settings/api-keys"
+        )
 
 
 @pytest.mark.asyncio
@@ -281,8 +283,10 @@ async def test_get_provider_open_router_missing_api_key():
             get_provider()
 
         assert exc_info.value.status_code == 503
-        assert "OPENROUTER_API_KEY" in exc_info.value.detail
-        assert "openrouter.ai" in exc_info.value.detail
+        assert exc_info.value.detail == (
+            "OPENROUTER_API_KEY is not set. Add it to your .env file. "
+            "Get a key at https://openrouter.ai/keys"
+        )
 
 
 @pytest.mark.asyncio
@@ -298,8 +302,10 @@ async def test_get_provider_deepseek_missing_api_key():
             get_provider()
 
         assert exc_info.value.status_code == 503
-        assert "DEEPSEEK_API_KEY" in exc_info.value.detail
-        assert "platform.deepseek.com" in exc_info.value.detail
+        assert exc_info.value.detail == (
+            "DEEPSEEK_API_KEY is not set. Add it to your .env file. "
+            "Get a key at https://platform.deepseek.com/api_keys"
+        )
 
 
 @pytest.mark.asyncio

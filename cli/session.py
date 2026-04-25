@@ -170,7 +170,10 @@ class CLISession:
                         stderr_text = stderr_output.decode(
                             "utf-8", errors="replace"
                         ).strip()
-                        logger.error(f"Claude CLI Stderr: {stderr_text}")
+                        logger.error(
+                            "Claude CLI stderr captured (chars={})",
+                            len(stderr_text),
+                        )
                         # Yield stderr as error event so it shows in UI
                         if stderr_text:
                             logger.info("CLI_SESSION: Yielding error event from stderr")
@@ -209,7 +212,7 @@ class CLISession:
 
             yield event
         except json.JSONDecodeError:
-            logger.debug(f"Non-JSON output: {line_str}")
+            logger.debug("Non-JSON output from Claude CLI (chars={})", len(line_str))
             yield {"type": "raw", "content": line_str}
 
     def _extract_session_id(self, event: Any) -> str | None:

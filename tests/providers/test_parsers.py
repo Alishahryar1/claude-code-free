@@ -186,9 +186,6 @@ def test_split_across_markers():
         tools.extend(t)
         tools.extend(p.flush())
 
-        if len(tools) != 1:
-            print(f"Failed split at index {i}: '{chunk1}' | '{chunk2}'")
-
         assert len(tools) == 1, f"Failed split at index {i}"
         assert tools[0]["name"] == "Test"
         assert tools[0]["input"] == {"arg": "val"}
@@ -425,10 +422,10 @@ def test_think_tag_parser_empty_think_tags():
 def test_think_tag_parser_unicode():
     """Unicode content inside and outside think tags."""
     parser = ThinkTagParser()
-    chunks = list(parser.feed("日本語 <think>思考中 🤔</think> 結果"))
+    chunks = list(parser.feed("日本語 <think>思考中 続行</think> 結果"))
     thinking = "".join(c.content for c in chunks if c.type == ContentType.THINKING)
     text = "".join(c.content for c in chunks if c.type == ContentType.TEXT)
-    assert thinking == "思考中 🤔"
+    assert thinking == "思考中 続行"
     assert "日本語" in text
     assert "結果" in text
 

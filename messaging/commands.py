@@ -29,7 +29,7 @@ async def handle_stop_command(
             msg_id = await handler.platform.queue_send_message(
                 incoming.chat_id,
                 handler.format_status(
-                    "⏹", "Stopped.", "Nothing to stop for that message."
+                    "", "Stopped.", "Nothing to stop for that message."
                 ),
                 fire_and_forget=False,
                 message_thread_id=incoming.message_thread_id,
@@ -43,7 +43,7 @@ async def handle_stop_command(
         noun = "request" if count == 1 else "requests"
         msg_id = await handler.platform.queue_send_message(
             incoming.chat_id,
-            handler.format_status("⏹", "Stopped.", f"Cancelled {count} {noun}."),
+            handler.format_status("", "Stopped.", f"Cancelled {count} {noun}."),
             fire_and_forget=False,
             message_thread_id=incoming.message_thread_id,
         )
@@ -57,7 +57,7 @@ async def handle_stop_command(
     msg_id = await handler.platform.queue_send_message(
         incoming.chat_id,
         handler.format_status(
-            "⏹", "Stopped.", f"Cancelled {count} pending or active requests."
+            "", "Stopped.", f"Cancelled {count} pending or active requests."
         ),
         fire_and_forget=False,
         message_thread_id=incoming.message_thread_id,
@@ -76,8 +76,7 @@ async def handle_stats_command(
     ctx = handler.get_render_ctx()
     msg_id = await handler.platform.queue_send_message(
         incoming.chat_id,
-        "📊 "
-        + ctx.bold("Stats")
+        ctx.bold("Stats")
         + "\n"
         + ctx.escape_text(f"• Active CLI: {stats['active_sessions']}")
         + "\n"
@@ -214,7 +213,7 @@ async def handle_clear_command(
                     await _delete_message_ids(handler, incoming.chat_id, msg_ids_to_del)
                     msg_id = await handler.platform.queue_send_message(
                         incoming.chat_id,
-                        handler.format_status("🗑", "Cleared.", "Voice note cancelled."),
+                        handler.format_status("", "Cleared.", "Voice note cancelled."),
                         fire_and_forget=False,
                         message_thread_id=incoming.message_thread_id,
                     )
@@ -225,7 +224,7 @@ async def handle_clear_command(
             msg_id = await handler.platform.queue_send_message(
                 incoming.chat_id,
                 handler.format_status(
-                    "🗑", "Cleared.", "Nothing to clear for that message."
+                    "", "Cleared.", "Nothing to clear for that message."
                 ),
                 fire_and_forget=False,
                 message_thread_id=incoming.message_thread_id,

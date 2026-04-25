@@ -133,6 +133,6 @@ def test_render_output_never_exceeds_4096():
     t.apply({"type": "thinking_chunk", "text": "x" * 500})
     t.apply({"type": "text_chunk", "text": "y" * 3500})
 
-    for status in [None, "Done", "✅ *Complete*", "A" * 100]:
+    for status in [None, "Done", "*Complete*", "A" * 100]:
         msg = t.render(ctx, limit_chars=3900, status=status)
         assert len(msg) <= 4096, f"status={status!r} produced len={len(msg)}"

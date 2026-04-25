@@ -1,13 +1,48 @@
-__pycache__
-.claude
-.cursor
-.pytest_cache
-.ruff_cache
-.serena
-.venv
-agent_workspace
+__pycache__/
+.claude/
+.cursor/
+.pytest_cache/
+.ruff_cache/
+.serena/
+.venv/
+agent_workspace/
+llama_cache/
+.smoke-results/
+
+# Environment and secret files
 .env
-server.log
+.env.*
+!.env.example
+*.pem
+*.key
+*credentials*.json
+*adminsdk*.json
+
+# Generated build artifacts
+node_modules/
+dist/
+build/
+.next/
+target/
+
+# Cache and coverage artifacts
+.cache/
+coverage/
+.nyc_output/
 .coverage
-llama_cache
-.smoke-results
+*.log
+*.tmp
+*.pid
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/settings.json
+
+# Backup and swap files
+*.bak
+*.orig
+*_old.*
+*_copy.*
+*.swp

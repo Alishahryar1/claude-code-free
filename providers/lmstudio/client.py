@@ -58,6 +58,7 @@ class LMStudioProvider(BaseProvider):
         tag = self._provider_name
         req_tag = f" request_id={request_id}" if request_id else ""
         thinking_enabled = self._is_thinking_enabled(request)
+        response: httpx.Response | None = None
 
         # Dump the Anthropic Pydantic model directly into a dict
         body = request.model_dump(exclude_none=True)
@@ -113,13 +114,11 @@ class LMStudioProvider(BaseProvider):
                     try:
                         response.raise_for_status()
                     except httpx.HTTPStatusError as e:
-                        text = await response.aread()
                         logger.error(
-                            "{}_ERROR:{} HTTP {}: {}",
+                            "{}_ERROR:{} HTTP {}",
                             tag,
                             req_tag,
                             response.status_code,
-                            text.decode("utf-8", errors="replace"),
                         )
                         raise e
 
@@ -130,7 +129,7 @@ class LMStudioProvider(BaseProvider):
                         yield "\n"
 
             except Exception as e:
-                logger.error("{}_ERROR:{} {}: {}", tag, req_tag, type(e).__name__, e)
+                logger.error("{}_ERROR:{} {}", tag, req_tag, type(e).__name__)
                 mapped_e = map_error(e)
                 if getattr(mapped_e, "status_code", None) == 405:
                     error_message = (
@@ -157,3 +156,6 @@ class LMStudioProvider(BaseProvider):
                     "error": {"type": "api_error", "message": error_message},
                 }
                 yield f"event: error\ndata: {json.dumps(error_event)}\n\n"
+            finally:
+                if response is not None:
+                    await response.aclose()

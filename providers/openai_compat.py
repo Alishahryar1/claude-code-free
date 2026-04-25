@@ -285,7 +285,7 @@ class OpenAICompatibleProvider(BaseProvider):
                                 yield event
 
             except Exception as e:
-                logger.error("{}_ERROR:{} {}: {}", tag, req_tag, type(e).__name__, e)
+                logger.error("{}_ERROR:{} {}", tag, req_tag, type(e).__name__)
                 mapped_e = map_error(e)
                 error_occurred = True
                 if getattr(mapped_e, "status_code", None) == 405:

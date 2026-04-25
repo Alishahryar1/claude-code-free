@@ -124,8 +124,25 @@ get_lmstudio_models() {
     parse_models_from_json <<< "$response"
 }
 
-provider="${CLAUDE_PICK_PROVIDER:-$(read_env_value PROVIDER_TYPE)}"
-provider="${provider:-nvidia_nim}"
+get_provider() {
+    local explicit
+    explicit="${CLAUDE_PICK_PROVIDER:-$(read_env_value PROVIDER_TYPE)}"
+    if [[ -n "$explicit" ]]; then
+        echo "$explicit"
+        return
+    fi
+
+    local configured_model
+    configured_model="${MODEL:-$(read_env_value MODEL)}"
+    if [[ "$configured_model" == */* ]]; then
+        echo "${configured_model%%/*}"
+        return
+    fi
+
+    echo "nvidia_nim"
+}
+
+provider="$(get_provider)"
 
 prompt="Select a model> "
 case "$provider" in

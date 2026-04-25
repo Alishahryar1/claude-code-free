@@ -86,10 +86,10 @@ class TestFormatStatus:
     """Tests for format_status."""
 
     def test_label_only(self):
-        assert format_status("🔄", "Running") == "🔄 **Running**"
+        assert format_status("", "Running") == "**Running**"
 
     def test_label_with_suffix(self):
-        assert format_status("⏳", "Waiting", "5/10") == "⏳ **Waiting** 5/10"
+        assert format_status("", "Waiting", "5/10") == "**Waiting** 5/10"
 
 
 class TestIsGfmTableHeaderLine:
@@ -180,17 +180,15 @@ class TestRenderMarkdownToDiscord:
 
     def test_link(self):
         result = render_markdown_to_discord("[text](https://example.com)")
-        assert "text" in result
-        assert "https://example.com" in result
+        assert result == "[text](https://example.com)"
 
     def test_image_with_alt(self):
         result = render_markdown_to_discord("![alt](https://img.png)")
-        assert "alt" in result
-        assert "https://img.png" in result
+        assert result == "alt (https://img.png)"
 
     def test_image_without_alt(self):
         result = render_markdown_to_discord("![](https://img.png)")
-        assert "https://img.png" in result
+        assert result == "https://img.png"
 
     def test_gfm_table(self):
         text = "| A | B |\n|---|---|\n| 1 | 2 |"

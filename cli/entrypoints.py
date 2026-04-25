@@ -16,7 +16,7 @@ def serve() -> None:
             "api.app:app",
             host=settings.host,
             port=settings.port,
-            log_level="debug",
+            log_level="info",
             timeout_graceful_shutdown=5,
         )
     finally:

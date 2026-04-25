@@ -91,9 +91,9 @@ def format_status_discord(label: str, suffix: str | None = None) -> str:
     return base
 
 
-def format_status(emoji: str, label: str, suffix: str | None = None) -> str:
-    """Format a status message with emoji for Discord (matches Telegram API)."""
-    base = f"{emoji} {discord_bold(label)}"
+def format_status(_icon: str, label: str, suffix: str | None = None) -> str:
+    """Format a status message with a bold label (Telegram-compatible signature)."""
+    base = discord_bold(label)
     if suffix:
         return f"{base} {escape_discord(suffix)}"
     return base

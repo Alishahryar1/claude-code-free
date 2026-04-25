@@ -34,8 +34,12 @@ async def _best_effort(
         await asyncio.wait_for(awaitable, timeout=timeout_s)
     except TimeoutError:
         logger.warning(f"Shutdown step timed out: {name} ({timeout_s}s)")
-    except Exception as e:
-        logger.warning(f"Shutdown step failed: {name}: {type(e).__name__}: {e}")
+    except Exception as error:
+        logger.warning(
+            "Shutdown step failed: {} error_type={}",
+            name,
+            type(error).__name__,
+        )
 
 
 def _warn_if_process_auth_token(settings) -> None:
@@ -152,10 +156,10 @@ async def lifespan(app: FastAPI):
     except ImportError as e:
         logger.warning(f"Messaging module import error: {e}")
     except Exception as e:
-        logger.error(f"Failed to start messaging platform: {e}")
-        import traceback
-
-        logger.error(traceback.format_exc())
+        logger.error(
+            "Failed to start messaging platform: error_type={}",
+            type(e).__name__,
+        )
 
     # Store in app state for access in routes
     app.state.messaging_platform = messaging_platform
@@ -168,8 +172,11 @@ async def lifespan(app: FastAPI):
     if message_handler and hasattr(message_handler, "session_store"):
         try:
             message_handler.session_store.flush_pending_save()
-        except Exception as e:
-            logger.warning(f"Session store flush on shutdown: {e}")
+        except Exception as error:
+            logger.warning(
+                "Session store flush on shutdown failed: error_type={}",
+                type(error).__name__,
+            )
     logger.info("Shutdown requested, cleaning up...")
     if messaging_platform:
         await _best_effort("messaging_platform.stop", messaging_platform.stop())
@@ -208,7 +215,12 @@ def create_app() -> FastAPI:
     @app.exception_handler(ProviderError)
     async def provider_error_handler(request: Request, exc: ProviderError):
         """Handle provider-specific errors and return Anthropic format."""
-        logger.error(f"Provider Error: {exc.error_type} - {exc.message}")
+        logger.error(
+            "Provider Error: path={} error_type={} status_code={}",
+            request.url.path,
+            exc.error_type,
+            exc.status_code,
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content=exc.to_anthropic_format(),
@@ -217,10 +229,11 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def general_error_handler(request: Request, exc: Exception):
         """Handle general errors and return Anthropic format."""
-        logger.error(f"General Error: {exc!s}")
-        import traceback
-
-        logger.error(traceback.format_exc())
+        logger.error(
+            "General Error: path={} error_type={}",
+            request.url.path,
+            type(exc).__name__,
+        )
         return JSONResponse(
             status_code=500,
             content={

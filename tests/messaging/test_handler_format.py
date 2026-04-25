@@ -33,7 +33,7 @@ def _ctx() -> RenderCtx:
 
 def test_transcript_structure_and_order(handler):
     """Verify ordered transcript rendering (thinking/tool/subagent/text/error/status)."""
-    status = "✅ *Complete*"
+    status = "*Complete*"
     t = TranscriptBuffer()
 
     # Apply in a deliberate sequence.
@@ -61,8 +61,6 @@ def test_transcript_structure_and_order(handler):
 
     msg = t.render(_ctx(), limit_chars=3900, status=status)
 
-    print(f"Generated Message:\n{msg}")
-
     # Check existence
     assert "Thinking process..." in msg
     assert "list_files" in msg
@@ -70,21 +68,21 @@ def test_transcript_structure_and_order(handler):
     assert "Searching codebase..." in msg
     assert escape_md_v2("Here is the file content.") in msg
     assert "Some error happened" in msg
-    assert "✅ *Complete*" in msg
+    assert "*Complete*" in msg
 
     # Check headers/markers used in the transcript.
-    assert "💭 *Thinking*" in msg
-    assert "🛠 *Tool call:*" in msg
-    assert "🤖 *Subagent:*" in msg
-    assert "⚠️ *Error:*" in msg
+    assert "*Thinking*" in msg
+    assert "*Tool call:*" in msg
+    assert "*Subagent:*" in msg
+    assert "*Error:*" in msg
 
     # Check Order: Thinking -> Tool call -> Subagent -> Content -> Errors -> Status
     p_thinking = msg.find("Thinking process...")
-    p_tool_call = msg.find("🛠 *Tool call:*")
-    p_subagent = msg.find("🤖 *Subagent:*")
+    p_tool_call = msg.find("*Tool call:*")
+    p_subagent = msg.find("*Subagent:*")
     p_content = msg.find(escape_md_v2("Here is the file content."))
-    p_errors = msg.find("⚠️ *Error:*")
-    p_status = msg.find("✅ *Complete*")
+    p_errors = msg.find("*Error:*")
+    p_status = msg.find("*Complete*")
 
     assert p_thinking < p_tool_call, "Thinking should come before tool calls"
     assert p_tool_call < p_subagent, "Tool calls should come before subagent marker"
@@ -101,8 +99,8 @@ def test_transcript_simple(handler):
 
     assert escape_md_v2("Simple message.") in msg
     assert "Ready" in msg
-    assert "💭" not in msg
-    assert "🛠" not in msg
+    assert "*Thinking*" not in msg
+    assert "*Tool call:*" not in msg
 
 
 def test_subagents_formatting(handler):
@@ -128,5 +126,5 @@ def test_subagents_formatting(handler):
 
     msg = t.render(_ctx(), limit_chars=3900, status=None)
 
-    assert "🤖 *Subagent:* `Task 1`" in msg
-    assert "🤖 *Subagent:* `Task 2`" in msg
+    assert "*Subagent:* `Task 1`" in msg
+    assert "*Subagent:* `Task 2`" in msg

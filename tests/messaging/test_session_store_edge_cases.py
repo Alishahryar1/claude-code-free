@@ -84,7 +84,7 @@ class TestSessionStoreSaveEdgeCases:
         """Write failure in _write_data() raises (callers handle the error)."""
         tmp_store.save_tree("r1", {"root_id": "r1", "nodes": {"r1": {}}})
         with (
-            patch("builtins.open", side_effect=OSError("disk full")),
+            patch("messaging.session.os.replace", side_effect=OSError("disk full")),
             pytest.raises(OSError),
         ):
             tmp_store._write_data(tmp_store._snapshot())

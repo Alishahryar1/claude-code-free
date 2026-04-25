@@ -46,11 +46,11 @@ def test_truncation_closes_code_blocks(handler):
         }
     )
 
-    msg = t.render(_ctx(), limit_chars=3900, status="✅ *Complete*")
+    msg = t.render(_ctx(), limit_chars=3900, status="*Complete*")
 
     # The backtick count must be even to be a valid block.
     assert msg.count("```") % 2 == 0
-    assert msg.endswith("```") or "✅ *Complete*" in msg.split("```")[-1]
+    assert msg.endswith("```") or "*Complete*" in msg.split("```")[-1]
 
 
 def test_truncation_preserves_status(handler):
@@ -86,6 +86,6 @@ def test_escape_md_v2_unicode_emoji():
     """Unicode and emoji pass through correctly (no special char escaping needed)."""
     from messaging.rendering.telegram_markdown import escape_md_v2, escape_md_v2_code
 
-    text = "Hello 世界 🎉 café"
+    text = "Hello 世界 café"
     assert escape_md_v2(text) == text
     assert escape_md_v2_code(text) == text

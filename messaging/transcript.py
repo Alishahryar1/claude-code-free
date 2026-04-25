@@ -53,7 +53,7 @@ class ThinkingSegment(Segment):
         if ctx.thinking_tail_max is not None and len(raw) > ctx.thinking_tail_max:
             raw = "..." + raw[-(ctx.thinking_tail_max - 3) :]
         inner = ctx.escape_code(raw)
-        return f"💭 {ctx.bold('Thinking')}\n```\n{inner}\n```"
+        return f"{ctx.bold('Thinking')}\n```\n{inner}\n```"
 
 
 @dataclass
@@ -94,7 +94,7 @@ class ToolCallSegment(Segment):
         name = ctx.code_inline(self.name)
         # Per UX requirement: do not display tool args/results, only the tool call.
         prefix = "  " * self.indent_level
-        return f"{prefix}🛠 {ctx.bold('Tool call:')} {name}"
+        return f"{prefix}{ctx.bold('Tool call:')} {name}"
 
 
 @dataclass
@@ -128,7 +128,7 @@ class ToolResultSegment(Segment):
         inner = ctx.escape_code(raw)
         label = "Tool error:" if self.is_error else "Tool result:"
         maybe_name = f" {ctx.code_inline(self.name)}" if self.name else ""
-        return f"📤 {ctx.bold(label)}{maybe_name}\n```\n{inner}\n```"
+        return f"{ctx.bold(label)}{maybe_name}\n```\n{inner}\n```"
 
 
 @dataclass
@@ -157,7 +157,7 @@ class SubagentSegment(Segment):
         inner_prefix = "  "
 
         lines: list[str] = [
-            f"🤖 {ctx.bold('Subagent:')} {ctx.code_inline(self.description)}"
+            f"{ctx.bold('Subagent:')} {ctx.code_inline(self.description)}"
         ]
 
         if self.current_tool is not None:
@@ -190,7 +190,7 @@ class ErrorSegment(Segment):
         self.message = str(message or "Unknown error")
 
     def render(self, ctx: RenderCtx) -> str:
-        return f"⚠️ {ctx.bold('Error:')} {ctx.code_inline(self.message)}"
+        return f"{ctx.bold('Error:')} {ctx.code_inline(self.message)}"
 
 
 @dataclass
