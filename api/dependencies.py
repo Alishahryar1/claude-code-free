@@ -32,6 +32,7 @@ def _get_proxy_value(settings: Settings, attr_name: str) -> str:
 def _create_provider_for_type(provider_type: str, settings: Settings) -> BaseProvider:
     """Construct and return a new provider instance for the given provider type."""
     _proxy_map = {
+        "agent_router": _get_proxy_value(settings, "agent_router_proxy"),
         "nvidia_nim": _get_proxy_value(settings, "nvidia_nim_proxy"),
         "open_router": _get_proxy_value(settings, "open_router_proxy"),
         "lmstudio": _get_proxy_value(settings, "lmstudio_proxy"),
@@ -124,12 +125,12 @@ def _create_provider_for_type(provider_type: str, settings: Settings) -> BasePro
         )
         return LlamaCppProvider(config)
     logger.error(
-        "Unknown provider_type: '{}'. Supported: 'nvidia_nim', 'open_router', 'deepseek', 'lmstudio', 'llamacpp'",
+        "Unknown provider_type: '{}'. Supported: 'nvidia_nim', 'open_router', 'deepseek', 'lmstudio', 'llamacpp', 'agent_router'",
         provider_type,
     )
     raise ValueError(
         f"Unknown provider_type: '{provider_type}'. "
-        f"Supported: 'nvidia_nim', 'open_router', 'deepseek', 'lmstudio', 'llamacpp'"
+        f"Supported: 'nvidia_nim', 'open_router', 'deepseek', 'lmstudio', 'llamacpp', 'agent_router'"
     )
 
 
