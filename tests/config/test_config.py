@@ -568,3 +568,46 @@ class TestPerModelMapping:
         assert Settings.parse_model_name("deepseek/deepseek-chat") == "deepseek-chat"
         assert Settings.parse_model_name("lmstudio/qwen") == "qwen"
         assert Settings.parse_model_name("llamacpp/model") == "model"
+
+
+def test_codex_cli_model_prefix_validates(monkeypatch):
+    """MODEL=codex_cli/<model> is accepted as a local CLI provider prefix."""
+    from config.settings import Settings
+
+    monkeypatch.setitem(Settings.model_config, "env_file", ())
+    monkeypatch.setenv("MODEL", "codex_cli/default")
+
+    settings = Settings()
+
+    assert settings.model == "codex_cli/default"
+    assert settings.provider_type == "codex_cli"
+    assert settings.model_name == "default"
+
+
+def test_codex_cli_settings_from_env(monkeypatch):
+    """CODEX_* env vars are loaded into settings."""
+    from config.settings import Settings
+
+    monkeypatch.setitem(Settings.model_config, "env_file", ())
+    monkeypatch.setenv("CODEX_CLI_BIN", "/opt/bin/codex")
+    monkeypatch.setenv("CODEX_WORKSPACE", "/tmp/codex-work")
+    monkeypatch.setenv("CODEX_TIMEOUT", "12.5")
+    monkeypatch.setenv("CODEX_MODEL", "gpt-5.2-codex")
+
+    settings = Settings()
+
+    assert settings.codex_cli_bin == "/opt/bin/codex"
+    assert settings.codex_workspace == "/tmp/codex-work"
+    assert settings.codex_timeout == 12.5
+    assert settings.codex_model == "gpt-5.2-codex"
+
+
+def test_unsupported_model_provider_prefix_still_fails(monkeypatch):
+    """Unsupported provider prefixes still fail validation."""
+    from config.settings import Settings
+
+    monkeypatch.setitem(Settings.model_config, "env_file", ())
+    monkeypatch.setenv("MODEL", "unsupported/gpt-5.2-codex")
+
+    with pytest.raises(ValidationError, match="Invalid provider"):
+        Settings()

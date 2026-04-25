@@ -18,7 +18,7 @@ from providers.defaults import (
 )
 from providers.exceptions import AuthenticationError, UnknownProviderTypeError
 
-TransportType = Literal["openai_chat", "anthropic_messages"]
+TransportType = Literal["openai_chat", "anthropic_messages", "local_cli"]
 ProviderFactory = Callable[[ProviderConfig, Settings], BaseProvider]
 
 
@@ -88,6 +88,12 @@ PROVIDER_DESCRIPTORS: dict[str, ProviderDescriptor] = {
         proxy_attr="llamacpp_proxy",
         capabilities=("chat", "streaming", "tools", "native_anthropic", "local"),
     ),
+    "codex_cli": ProviderDescriptor(
+        provider_id="codex_cli",
+        transport_type="local_cli",
+        static_credential="codex-cli",
+        capabilities=("chat", "streaming", "local", "text_only"),
+    ),
 }
 
 
@@ -121,12 +127,25 @@ def _create_llamacpp(config: ProviderConfig, settings: Settings) -> BaseProvider
     return LlamaCppProvider(config)
 
 
+def _create_codex_cli(config: ProviderConfig, settings: Settings) -> BaseProvider:
+    from providers.codex_cli import CodexCliProvider
+
+    return CodexCliProvider(
+        config,
+        codex_bin=settings.codex_cli_bin,
+        workspace=settings.codex_workspace,
+        timeout=settings.codex_timeout,
+        codex_model=settings.codex_model,
+    )
+
+
 PROVIDER_FACTORIES: dict[str, ProviderFactory] = {
     "nvidia_nim": _create_nvidia_nim,
     "open_router": _create_open_router,
     "deepseek": _create_deepseek,
     "lmstudio": _create_lmstudio,
     "llamacpp": _create_llamacpp,
+    "codex_cli": _create_codex_cli,
 }
 
 if set(PROVIDER_DESCRIPTORS) != set(SUPPORTED_PROVIDER_IDS) or set(

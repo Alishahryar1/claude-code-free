@@ -96,3 +96,20 @@ def test_model_router_logs_mapping(settings):
     assert "MODEL MAPPING" in args[0]
     assert args[1] == "claude-2.1"
     assert args[2] == "fallback-model"
+
+
+def test_model_router_maps_claude_model_to_codex_cli_provider_model(settings):
+    settings.model = "codex_cli/default"
+
+    routed = ModelRouter(settings).resolve_messages_request(
+        MessagesRequest(
+            model="claude-sonnet-4-20250514",
+            max_tokens=100,
+            messages=[Message(role="user", content="hello")],
+        )
+    )
+
+    assert routed.request.model == "default"
+    assert routed.resolved.provider_id == "codex_cli"
+    assert routed.resolved.provider_model == "default"
+    assert routed.resolved.provider_model_ref == "codex_cli/default"

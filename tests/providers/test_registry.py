@@ -6,6 +6,7 @@ import pytest
 
 from config.nim import NimSettings
 from config.provider_ids import SUPPORTED_PROVIDER_IDS
+from providers.codex_cli import CodexCliProvider
 from providers.deepseek import DeepSeekProvider
 from providers.exceptions import UnknownProviderTypeError
 from providers.llamacpp import LlamaCppProvider
@@ -28,6 +29,10 @@ def _make_settings(**overrides):
     mock.deepseek_api_key = "test_deepseek_key"
     mock.lm_studio_base_url = "http://localhost:1234/v1"
     mock.llamacpp_base_url = "http://localhost:8080/v1"
+    mock.codex_cli_bin = "codex"
+    mock.codex_workspace = ""
+    mock.codex_timeout = 300.0
+    mock.codex_model = ""
     mock.nvidia_nim_proxy = ""
     mock.open_router_proxy = ""
     mock.lmstudio_proxy = ""
@@ -65,7 +70,11 @@ def test_descriptors_cover_advertised_provider_ids():
     assert set(PROVIDER_DESCRIPTORS) == set(SUPPORTED_PROVIDER_IDS)
     for descriptor in PROVIDER_DESCRIPTORS.values():
         assert descriptor.provider_id
-        assert descriptor.transport_type in {"openai_chat", "anthropic_messages"}
+        assert descriptor.transport_type in {
+            "openai_chat",
+            "anthropic_messages",
+            "local_cli",
+        }
         assert descriptor.capabilities
 
 
@@ -83,6 +92,7 @@ def test_create_provider_instantiates_each_builtin():
         "deepseek": DeepSeekProvider,
         "lmstudio": LMStudioProvider,
         "llamacpp": LlamaCppProvider,
+        "codex_cli": CodexCliProvider,
     }
 
     with (

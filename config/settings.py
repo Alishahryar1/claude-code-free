@@ -117,6 +117,12 @@ class Settings(BaseSettings):
         validation_alias="LLAMACPP_BASE_URL",
     )
 
+    # ==================== Codex CLI Config ====================
+    codex_cli_bin: str = Field(default="codex", validation_alias="CODEX_CLI_BIN")
+    codex_workspace: str = Field(default="", validation_alias="CODEX_WORKSPACE")
+    codex_timeout: float = Field(default=300.0, validation_alias="CODEX_TIMEOUT")
+    codex_model: str = Field(default="", validation_alias="CODEX_MODEL")
+
     # ==================== Model ====================
     # All Claude model requests are mapped to this single model (fallback)
     # Format: provider_type/model/name
