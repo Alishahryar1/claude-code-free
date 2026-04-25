@@ -110,6 +110,10 @@ class Settings(BaseSettings):
         validation_alias="LM_STUDIO_BASE_URL",
     )
 
+    # ==================== Agent Router Config ====================
+    agent_router_api_key: str = Field(default="", validation_alias="AGENT_ROUTER_API_KEY")
+    agent_router_base_url: str = Field(default="", validation_alias="AGENT_ROUTER_BASE_URL")
+
     # ==================== Llama.cpp Config ====================
     llamacpp_base_url: str = Field(
         default="http://localhost:8080/v1",
@@ -128,6 +132,7 @@ class Settings(BaseSettings):
     model_haiku: str | None = Field(default=None, validation_alias="MODEL_HAIKU")
 
     # ==================== Per-Provider Proxy ====================
+    agent_router_proxy: str = Field(default="", validation_alias="AGENT_ROUTER_PROXY")
     nvidia_nim_proxy: str = Field(default="", validation_alias="NVIDIA_NIM_PROXY")
     open_router_proxy: str = Field(default="", validation_alias="OPENROUTER_PROXY")
     lmstudio_proxy: str = Field(default="", validation_alias="LMSTUDIO_PROXY")
@@ -245,6 +250,7 @@ class Settings(BaseSettings):
             "deepseek",
             "lmstudio",
             "llamacpp",
+            "agent_router",
         )
         if "/" not in v:
             raise ValueError(
@@ -256,7 +262,7 @@ class Settings(BaseSettings):
         if provider not in valid_providers:
             raise ValueError(
                 f"Invalid provider: '{provider}'. "
-                f"Supported: 'nvidia_nim', 'open_router', 'deepseek', 'lmstudio', 'llamacpp'"
+                f"Supported: 'nvidia_nim', 'open_router', 'deepseek', 'lmstudio', 'llamacpp', 'agent_router'"
             )
         return v
 

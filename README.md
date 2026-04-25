@@ -142,6 +142,21 @@ MODEL="llamacpp/local-model"
 </details>
 
 <details>
+<summary><b>Agent Router</b> (custom OpenAI-compatible router)</summary>
+
+```dotenv
+AGENT_ROUTER_API_KEY="your-custom-key"
+AGENT_ROUTER_BASE_URL="http://localhost:8000/v1"
+
+MODEL_OPUS="agent_router/glm-5.1"
+MODEL_SONNET="agent_router/glm-5.1"
+MODEL_HAIKU="agent_router/glm-5.1"
+MODEL="agent_router/glm-5.1"
+```
+
+</details>
+
+<details>
 <summary><b>Mix providers</b></summary>
 
 Each `MODEL_*` variable can use a different provider. `MODEL` is the fallback for unrecognized Claude models.
@@ -210,6 +225,22 @@ $env:ANTHROPIC_AUTH_TOKEN="freecc"; $env:ANTHROPIC_BASE_URL="http://localhost:80
 #### Bash
 ```bash
 ANTHROPIC_AUTH_TOKEN="freecc" ANTHROPIC_BASE_URL="http://localhost:8082" claude
+```
+
+#### Global `settings.json` (Claude Code)
+To permanently configure Claude Code to use this proxy (e.g. for the custom `agent_router` or `glm-5.1` model), you can update your Claude Code `settings.json` (usually located at `~/.claude.json` or `~/.config/claude/settings.json`) like this:
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://0.0.0.0:8082/",
+    "ANTHROPIC_AUTH_TOKEN": "freecc",
+    "ANTHROPIC_API_KEY": "",
+    "ANTHROPIC_MODEL": "glm-5.1",
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "model": "opus[1m]"
+}
 ```
 
 That's it! Claude Code now uses your configured provider for free.
