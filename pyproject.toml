@@ -1,27 +1,28 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"
 
 [project]
 name = "free-claude-code"
-version = "2.0.0"
+version = "2.1.0"
 description = "Middleware between Claude Code CLI (Anthropic API) and NVIDIA NIM"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.10,<3.13"
+
 dependencies = [
-    "fastapi[standard]>=0.136.1",
-    "uvicorn>=0.46.0",
-    "httpx[socks]>=0.28.1",
-    "markdown-it-py>=3.0.0",
-    "pydantic>=2.13.3",
-    "python-dotenv>=1.2.2",
-    "tiktoken>=0.7.0",
-    "python-telegram-bot>=22.7",
-    "discord.py>=2.7.1",
-    "pydantic-settings>=2.14.0",
-    "openai>=2.32.0",
-    "loguru>=0.7.0",
-    "aiohttp>=3.13.4",
+    "fastapi>=0.110,<0.112",
+    "uvicorn[standard]>=0.29,<0.31",
+    "httpx[socks]>=0.27,<0.29",
+    "aiohttp>=3.9,<4.0",
+    "pydantic>=2.7,<3.0",
+    "pydantic-settings>=2.2,<3.0",
+    "python-dotenv>=1.0,<2.0",
+    "tiktoken>=0.7,<1.0",
+    "openai>=1.30,<2.0",
+    "loguru>=0.7,<1.0",
+    "markdown-it-py>=3.0,<4.0",
+    "python-telegram-bot>=21,<23",
+    "discord.py>=2.3,<3.0",
 ]
 
 [project.scripts]
@@ -30,90 +31,54 @@ fcc-init = "cli.entrypoints:init"
 
 [project.optional-dependencies]
 voice = [
-    "grpcio>=1.80.0",
-    "grpcio-tools>=1.80.0",
-    "nvidia-riva-client>=2.25.1",
+    "grpcio>=1.60,<2.0",
+    "grpcio-tools>=1.60,<2.0",
+    "nvidia-riva-client>=2.25,<3.0",
 ]
 voice_local = [
-    "torch>=2.11.0",
-    "transformers>=5.6.2",
-    "accelerate>=1.13.0",
-    "librosa>=0.10.0",
+    "torch>=2.1,<3.0",
+    "transformers>=4.40,<5.0",
+    "accelerate>=0.30,<1.0",
+    "librosa>=0.10,<1.0",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["api", "cli", "config", "core", "messaging", "providers"]
 
-[tool.uv.sources]
-torch = { index = "pytorch-cu130" }
-
-[[tool.uv.index]]
-name = "pytorch-cu130"
-url = "https://download.pytorch.org/whl/cu130"
-explicit = true
-
-[dependency-groups]
-dev = [
-    "pytest>=9.0.3",
-    "pytest-asyncio>=1.3.0",
-    "pytest-cov>=7.1.0",
-    "ty>=0.0.32",
-    "ruff>=0.15.12",
-    "pytest-xdist>=3.8.0",
-]
+[tool.uv]
+resolution = "highest"
 
 [tool.ruff]
-target-version = "py314"
-line-length = 88
+target-version = "py311"
+line-length = 100
 
 [tool.ruff.lint]
-select = [
-    "E",    # pycodestyle errors
-    "W",    # pycodestyle warnings
-    "F",    # Pyflakes (undefined names, unused imports)
-    "I",    # isort (import ordering)
-    "UP",   # pyupgrade (modernise syntax for target Python version)
-    "B",    # flake8-bugbear (common bugs and anti-patterns)
-    "C4",   # flake8-comprehensions (idiomatic comprehensions)
-    "SIM",  # flake8-simplify (simplifiable code patterns)
-    "PERF", # Perflint (performance anti-patterns)
-    "RUF",  # Ruff-specific rules
-]
-ignore = [
-    "E501",  # line too long — enforced by the formatter instead
-    "B008",  # FastAPI Depends() in argument defaults is intentional
-    "RUF006",  # fire-and-forget tasks intentionally not awaited
-]
+select = ["E","W","F","I","UP","B","C4","SIM","PERF","RUF"]
+ignore = ["E501","B008","RUF006"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["api", "cli", "config", "core", "messaging", "providers", "smoke"]
+known-first-party = ["api", "cli", "config", "core", "messaging", "providers"]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-line-ending = "auto"
-skip-magic-trailing-comma = false
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 addopts = "-n auto"
 testpaths = ["tests"]
-markers = [
-    "live: opt-in local smoke tests that can touch real services",
-    "interactive: smoke tests requiring manual user interaction",
-    "provider: live provider checks",
-    "messaging: live messaging platform checks",
-    "cli: CLI integration checks",
-    "clients: client compatibility checks",
-    "voice: voice transcription checks",
-    "contract: deterministic feature contract checks",
-    "smoke_target(name): route a smoke test behind FCC_SMOKE_TARGETS",
-]
 
 [tool.ty.environment]
-python-version = "3.14"
+python-version = "3.11"
 
 [tool.ty.analysis]
-# Optional voice_local extra: torch, transformers, librosa for local whisper transcription
-# Optional voice extra: nvidia-riva-client for nvidia_nim transcription provider
 allowed-unresolved-imports = ["torch", "transformers", "librosa", "riva.client"]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4,<9.0",
+    "pytest-asyncio>=0.23,<2.0",
+    "pytest-cov>=4.0,<8.0",
+    "pytest-xdist>=3.5,<4.0",
+    "ruff>=0.4,<1.0",
+]
