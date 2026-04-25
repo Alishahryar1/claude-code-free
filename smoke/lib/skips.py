@@ -57,9 +57,8 @@ def skip_if_upstream_unavailable_events(events: list[SSEEvent]) -> None:
         message = ""
         if isinstance(data, dict):
             error = data.get("error")
-            if isinstance(error, dict):
-                message = str(error.get("message", ""))
-            else:
-                message = str(data)
+            message = (
+                str(error.get("message", "")) if isinstance(error, dict) else str(data)
+            )
         if is_upstream_unavailable_text(message):
             skip_upstream_unavailable(message[:500])

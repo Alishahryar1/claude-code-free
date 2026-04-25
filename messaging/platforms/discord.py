@@ -4,6 +4,8 @@ Discord Platform Adapter
 Implements MessagingPlatform for Discord using discord.py.
 """
 
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import os
@@ -364,7 +366,7 @@ class DiscordPlatform(MessagingPlatform):
         if self._start_task and not self._start_task.done():
             try:
                 await asyncio.wait_for(self._start_task, timeout=5.0)
-            except TimeoutError, asyncio.CancelledError:
+            except (TimeoutError, asyncio.CancelledError):
                 self._start_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await self._start_task
@@ -437,7 +439,7 @@ class DiscordPlatform(MessagingPlatform):
         try:
             msg = await channel.fetch_message(int(message_id))
             await msg.delete()
-        except discord.NotFound, discord.Forbidden:
+        except (discord.NotFound, discord.Forbidden):
             pass
 
     async def delete_messages(self, chat_id: str, message_ids: list[str]) -> None:
@@ -537,10 +539,11 @@ class DiscordPlatform(MessagingPlatform):
 
     def fire_and_forget(self, task: Awaitable[Any]) -> None:
         """Execute a coroutine without awaiting it."""
-        if asyncio.iscoroutine(task):
-            _ = asyncio.create_task(task)
-        else:
-            _ = asyncio.ensure_future(task)
+        _ = (
+            asyncio.create_task(task)
+            if asyncio.iscoroutine(task)
+            else asyncio.ensure_future(task)
+        )
 
     def on_message(
         self,

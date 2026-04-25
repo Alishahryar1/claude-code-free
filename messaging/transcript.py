@@ -559,15 +559,16 @@ class TranscriptBuffer:
 
         # Nothing fits - preserve tail of last segment instead of only marker+status.
         if dropped and last_part:
-            budget = limit_chars - len(prefix_marker) - len(status_text)
-            if budget > 20:
-                if len(last_part) > budget:
-                    tail = "..." + last_part[-(budget - 3) :]
-                else:
-                    tail = last_part
-                candidate = prefix_marker + tail + status_text
-                if len(candidate) <= limit_chars:
-                    return candidate
+                budget = limit_chars - len(prefix_marker) - len(status_text)
+                if budget > 20:
+                    tail = (
+                        "..." + last_part[-(budget - 3) :]
+                        if len(last_part) > budget
+                        else last_part
+                    )
+                    candidate = prefix_marker + tail + status_text
+                    if len(candidate) <= limit_chars:
+                        return candidate
 
         # Fallback: marker + status only.
         if dropped:

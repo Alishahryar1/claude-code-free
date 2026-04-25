@@ -449,10 +449,11 @@ class TelegramPlatform(MessagingPlatform):
 
     def fire_and_forget(self, task: Awaitable[Any]) -> None:
         """Execute a coroutine without awaiting it."""
-        if asyncio.iscoroutine(task):
-            _ = asyncio.create_task(task)
-        else:
-            _ = asyncio.ensure_future(task)
+        _ = (
+            asyncio.create_task(task)
+            if asyncio.iscoroutine(task)
+            else asyncio.ensure_future(task)
+        )
 
     def on_message(
         self,

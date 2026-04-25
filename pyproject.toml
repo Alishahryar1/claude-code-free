@@ -57,7 +57,7 @@ select = ["E","W","F","I","UP","B","C4","SIM","PERF","RUF"]
 ignore = ["E501","B008","RUF006"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["api", "cli", "config", "core", "messaging", "providers"]
+known-first-party = ["api", "cli", "config", "core", "messaging", "providers", "smoke"]
 
 [tool.ruff.format]
 quote-style = "double"
