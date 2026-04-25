@@ -14,4 +14,5 @@ SUPPORTED_PROVIDER_IDS: tuple[str, ...] = (
     "deepseek",
     "lmstudio",
     "llamacpp",
+    "codex_cli",
 )

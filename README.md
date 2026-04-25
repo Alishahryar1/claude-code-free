@@ -336,6 +336,7 @@ The proxy also exposes Claude-compatible probe routes: `GET /v1/models`, `POST /
 | **DeepSeek**   | Usage-based  | Varies     | Direct access to DeepSeek chat/reasoner |
 | **LM Studio**  | Free (local) | Unlimited  | Privacy, offline use, no rate limits |
 | **llama.cpp**  | Free (local) | Unlimited  | Lightweight local inference engine   |
+| **Codex CLI**  | Free/Paid via local login | Local CLI | Local/dev text-only Codex CLI bridge |
 
 Models use a prefix format: `provider_prefix/model/name`. An invalid prefix causes an error.
 
@@ -346,6 +347,7 @@ Models use a prefix format: `provider_prefix/model/name`. An invalid prefix caus
 | DeepSeek   | `deepseek/...`    | `DEEPSEEK_API_KEY`   | `api.deepseek.com`            |
 | LM Studio  | `lmstudio/...`    | (none)               | `localhost:1234/v1`           |
 | llama.cpp  | `llamacpp/...`    | (none)               | `localhost:8080/v1`           |
+| Codex CLI  | `codex_cli/...`   | (none)               | local `codex exec` binary     |
 
 <details>
 <summary><b>NVIDIA NIM models</b></summary>
@@ -411,6 +413,24 @@ Run models locally using `llama-server`. Ensure you have a tool-capable GGUF. Se
 
 See the Unsloth docs for detailed instructions and capable models:
 [https://unsloth.ai/docs/models/qwen3.5#qwen3.5-small-0.8b-2b-4b-9b](https://unsloth.ai/docs/models/qwen3.5#qwen3.5-small-0.8b-2b-4b-9b)
+
+</details>
+
+<details>
+<summary><b>Codex CLI provider</b></summary>
+
+Use an already-authenticated local Codex CLI as a local/dev backend:
+
+```dotenv
+MODEL="codex_cli/default"
+CODEX_CLI_BIN="codex"
+CODEX_WORKSPACE="/home/jnibarger"
+CODEX_TIMEOUT="300"
+# Optional: pass a Codex model with `codex exec -m ...`
+CODEX_MODEL=""
+```
+
+This provider invokes `codex exec --json` only. It does not use `OPENAI_API_KEY`, does not register an OpenAI API provider, and does not read or export hidden Codex auth tokens. MVP scope is text responses only. Claude tool-use blocks, image input, and structured tool calls are not bridged through this adapter.
 
 </details>
 
