@@ -66,6 +66,19 @@ uv self update
 uv python install 3.14
 ```
 
+PowerShell (Windows):
+
+```powershell
+# Recommended installer (avoids relying on system pip)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Keep uv current if it is already installed
+uv self update
+
+# This project requires Python 3.14
+uv python install 3.14
+```
+
 `pip install uv` can fail on Homebrew-managed Python with `externally-managed-environment` (PEP 668), so prefer the official installer above.
 
 ### Clone & Configure
