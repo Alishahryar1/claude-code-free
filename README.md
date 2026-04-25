@@ -54,11 +54,19 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
 2. Install [Claude Code](https://github.com/anthropics/claude-code)
 
 ### Install `uv`
+
 ```bash
-# Install uv (required to run the project)
-pip install uv
+# Recommended installer (works on macOS/Linux without relying on system pip)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Keep uv current if it is already installed
+uv self update
+
+# This project requires Python 3.14
+uv python install 3.14
 ```
-If uv is already installed, run uv self update to get the latest version.
+
+`pip install uv` can fail on Homebrew-managed Python with `externally-managed-environment` (PEP 668), so prefer the official installer above.
 
 ### Clone & Configure
 
