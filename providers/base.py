@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from config.constants import HTTP_CONNECT_TIMEOUT_DEFAULT
+
 
 class ProviderConfig(BaseModel):
     """Configuration for a provider.
@@ -21,9 +23,11 @@ class ProviderConfig(BaseModel):
     max_concurrency: int = 5
     http_read_timeout: float = 300.0
     http_write_timeout: float = 10.0
-    http_connect_timeout: float = 2.0
+    http_connect_timeout: float = HTTP_CONNECT_TIMEOUT_DEFAULT
     enable_thinking: bool = True
     proxy: str = ""
+    log_raw_sse_events: bool = False
+    log_api_error_tracebacks: bool = False
 
 
 class BaseProvider(ABC):
@@ -61,6 +65,42 @@ class BaseProvider(ABC):
                 request_enabled = bool(enabled)
         return config_enabled and request_enabled
 
+    def preflight_stream(
+        self, request: Any, *, thinking_enabled: bool | None = None
+    ) -> None:
+        """Eagerly validate/build the upstream request before opening an SSE stream.
+
+        Subclasses with ``_build_request_body`` (OpenAI and native) raise
+        :class:`providers.exceptions.InvalidRequestError` on conversion failures.
+        """
+        build = getattr(self, "_build_request_body", None)
+        if build is None:
+            return
+        build(request, thinking_enabled=thinking_enabled)
+
+    def _log_stream_transport_error(
+        self, tag: str, req_tag: str, error: Exception
+    ) -> None:
+        """Log streaming transport failures (metadata-only unless verbose is enabled)."""
+        from loguru import logger
+
+        if self._config.log_api_error_tracebacks:
+            logger.error(
+                "{}_ERROR:{} {}: {}", tag, req_tag, type(error).__name__, error
+            )
+            return
+        response = getattr(error, "response", None)
+        status_code = (
+            getattr(response, "status_code", None) if response is not None else None
+        )
+        logger.error(
+            "{}_ERROR:{} exc_type={} http_status={}",
+            tag,
+            req_tag,
+            type(error).__name__,
+            status_code,
+        )
+
     @abstractmethod
     async def cleanup(self) -> None:
         """Release any resources held by this provider."""
@@ -75,5 +115,7 @@ class BaseProvider(ABC):
         thinking_enabled: bool | None = None,
     ) -> AsyncIterator[str]:
         """Stream response in Anthropic SSE format."""
+        # Typing: abstract async generators need a yield for AsyncIterator[str]
+        # inference; this branch is never executed.
         if False:
-            yield ""  # Required for ty/mypy to accept abstract async generator
+            yield ""

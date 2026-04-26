@@ -81,13 +81,38 @@ class TestSessionStoreSaveEdgeCases:
     """Tests for save failure handling."""
 
     def test_save_io_error_handled(self, tmp_store):
-        """Write failure in _write_data() raises (callers handle the error)."""
+        """Write failure during atomic replace is surfaced to callers."""
         tmp_store.save_tree("r1", {"root_id": "r1", "nodes": {"r1": {}}})
         with (
-            patch("builtins.open", side_effect=OSError("disk full")),
+            patch("messaging.session.os.replace", side_effect=OSError("disk full")),
             pytest.raises(OSError),
         ):
             tmp_store._write_data(tmp_store._snapshot())
+
+
+class TestSessionStoreAtomicWrites:
+    """Atomic persistence: failed replace must not truncate the prior file."""
+
+    def test_failed_replace_keeps_prior_bytes_and_marks_dirty(self, tmp_path):
+        path = str(tmp_path / "sessions.json")
+        store = SessionStore(storage_path=path)
+        store.save_tree("r1", {"root_id": "r1", "nodes": {"r1": {}}})
+        store.flush_pending_save()
+        with open(path, encoding="utf-8") as f:
+            disk_after_first = f.read()
+
+        store.save_tree("r2", {"root_id": "r2", "nodes": {"r2": {}}})
+
+        with patch(
+            "messaging.session.os.replace", side_effect=OSError("replace failed")
+        ):
+            store.flush_pending_save()
+
+        with open(path, encoding="utf-8") as f:
+            disk_after_failed = f.read()
+        assert disk_after_failed == disk_after_first
+        assert store._dirty is True
+        assert store.get_tree("r2") is not None
 
 
 class TestSessionStoreClearAll:

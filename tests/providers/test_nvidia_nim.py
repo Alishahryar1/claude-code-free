@@ -5,6 +5,8 @@ import openai
 import pytest
 from httpx import Request, Response
 
+from config.nim import NimSettings
+from providers.defaults import NVIDIA_NIM_DEFAULT_BASE
 from providers.nvidia_nim import NvidiaNimProvider
 
 
@@ -42,7 +44,7 @@ class MockRequest:
 def _make_bad_request_error(message: str) -> openai.BadRequestError:
     response = Response(
         status_code=400,
-        request=Request("POST", "https://integrate.api.nvidia.com/v1/chat/completions"),
+        request=Request("POST", f"{NVIDIA_NIM_DEFAULT_BASE}/chat/completions"),
     )
     body = {"error": {"message": message, "type": "BadRequestError", "code": 400}}
     return openai.BadRequestError(message, response=response, body=body)
@@ -67,8 +69,6 @@ def mock_rate_limiter():
 async def test_init(provider_config):
     """Test provider initialization."""
     with patch("providers.openai_compat.AsyncOpenAI") as mock_openai:
-        from config.nim import NimSettings
-
         provider = NvidiaNimProvider(provider_config, nim_settings=NimSettings())
         assert provider._api_key == "test_key"
         assert provider._base_url == "https://test.api.nvidia.com/v1"
@@ -78,7 +78,6 @@ async def test_init(provider_config):
 @pytest.mark.asyncio
 async def test_init_uses_configurable_timeouts():
     """Test that provider passes configurable read/write/connect timeouts to client."""
-    from config.nim import NimSettings
     from providers.base import ProviderConfig
 
     config = ProviderConfig(
@@ -100,8 +99,6 @@ async def test_init_uses_configurable_timeouts():
 @pytest.mark.asyncio
 async def test_build_request_body(provider_config):
     """Test request body construction."""
-    from config.nim import NimSettings
-
     provider = NvidiaNimProvider(provider_config, nim_settings=NimSettings())
     req = MockRequest()
     body = provider._build_request_body(req)
@@ -124,8 +121,6 @@ async def test_build_request_body(provider_config):
 async def test_build_request_body_omits_reasoning_when_globally_disabled(
     provider_config,
 ):
-    from config.nim import NimSettings
-
     provider = NvidiaNimProvider(
         provider_config.model_copy(update={"enable_thinking": False}),
         nim_settings=NimSettings(),
@@ -142,8 +137,6 @@ async def test_build_request_body_omits_reasoning_when_globally_disabled(
 async def test_build_request_body_omits_reasoning_when_request_disables_thinking(
     provider_config,
 ):
-    from config.nim import NimSettings
-
     provider = NvidiaNimProvider(provider_config, nim_settings=NimSettings())
     req = MockRequest()
     req.thinking.enabled = False
@@ -241,8 +234,6 @@ async def test_stream_response_thinking_reasoning_content(nim_provider):
 
 @pytest.mark.asyncio
 async def test_stream_response_suppresses_thinking_when_disabled(provider_config):
-    from config.nim import NimSettings
-
     provider = NvidiaNimProvider(
         provider_config.model_copy(update={"enable_thinking": False}),
         nim_settings=NimSettings(),
@@ -285,8 +276,6 @@ def _make_bad_request_error(message: str) -> openai.BadRequestError:
 
 @pytest.mark.asyncio
 async def test_stream_response_retries_without_chat_template(provider_config):
-    from config.nim import NimSettings
-
     provider = NvidiaNimProvider(
         provider_config,
         nim_settings=NimSettings(chat_template="custom_template"),
@@ -344,8 +333,6 @@ async def test_stream_response_retries_without_chat_template(provider_config):
 
 @pytest.mark.asyncio
 async def test_stream_response_does_not_retry_unrelated_bad_request(provider_config):
-    from config.nim import NimSettings
-
     provider = NvidiaNimProvider(
         provider_config,
         nim_settings=NimSettings(chat_template="custom_template"),
@@ -361,7 +348,7 @@ async def test_stream_response_does_not_retry_unrelated_bad_request(provider_con
 
     assert mock_create.await_count == 1
     event_text = "".join(events)
-    assert "unrelated bad request" in event_text
+    assert "Invalid request sent to provider" in event_text
     assert "event: message_stop" in event_text
 
 
@@ -457,5 +444,5 @@ async def test_stream_response_bad_request_without_reasoning_budget_does_not_ret
         events = [e async for e in nim_provider.stream_response(req)]
 
     assert mock_create.await_count == 1
-    assert any("Unsupported field: top_k" in event for event in events)
+    assert any("Invalid request sent to provider" in event for event in events)
     assert any("message_stop" in event for event in events)

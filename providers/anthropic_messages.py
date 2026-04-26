@@ -2,19 +2,32 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncIterator, Iterator
 from typing import Any, Literal
 
 import httpx
 from loguru import logger
 
-from core.anthropic import get_user_facing_error_message
+from config.constants import (
+    ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS,
+    NATIVE_MESSAGES_ERROR_BODY_LOG_CAP_BYTES,
+)
+from core.anthropic import iter_provider_stream_error_sse_events
+from core.anthropic.emitted_sse_tracker import EmittedNativeSseTracker
+from core.anthropic.native_messages_request import (
+    build_base_native_anthropic_request_body,
+)
+from core.anthropic.native_sse_block_policy import (
+    NativeSseBlockPolicyState,
+    transform_native_sse_block_event,
+)
 from providers.base import BaseProvider, ProviderConfig
-from providers.error_mapping import map_error
+from providers.error_mapping import (
+    map_error,
+    user_visible_message_for_mapped_provider_error,
+)
 from providers.rate_limit import GlobalRateLimiter
 
-ANTHROPIC_DEFAULT_MAX_TOKENS = 81920
 StreamChunkMode = Literal["line", "event"]
 
 
@@ -64,25 +77,11 @@ class AnthropicMessagesTransport(BaseProvider):
     ) -> dict:
         """Build a native Anthropic request body."""
         thinking_enabled = self._is_thinking_enabled(request, thinking_enabled)
-        body = request.model_dump(exclude_none=True)
-
-        body.pop("extra_body", None)
-        body.pop("original_model", None)
-        body.pop("resolved_provider_model", None)
-
-        if "thinking" in body:
-            thinking_cfg = body.pop("thinking")
-            if thinking_enabled and isinstance(thinking_cfg, dict):
-                thinking_payload = {"type": "enabled"}
-                budget_tokens = thinking_cfg.get("budget_tokens")
-                if isinstance(budget_tokens, int):
-                    thinking_payload["budget_tokens"] = budget_tokens
-                body["thinking"] = thinking_payload
-
-        if "max_tokens" not in body:
-            body["max_tokens"] = ANTHROPIC_DEFAULT_MAX_TOKENS
-
-        return body
+        return build_base_native_anthropic_request_body(
+            request,
+            default_max_tokens=ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS,
+            thinking_enabled=thinking_enabled,
+        )
 
     async def _send_stream_request(self, body: dict) -> httpx.Response:
         """Create a streaming messages response."""
@@ -97,30 +96,68 @@ class AnthropicMessagesTransport(BaseProvider):
     async def _raise_for_status(
         self, response: httpx.Response, *, req_tag: str
     ) -> None:
-        """Raise for non-200 responses after logging the upstream body."""
+        """Raise for non-200 responses after logging safe metadata (or capped body if opted in)."""
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as error:
-            response_text = await self._read_error_body(response)
-            if response_text:
+            if self._config.log_api_error_tracebacks:
+                preview, truncated = await self._read_error_body_preview(
+                    response, NATIVE_MESSAGES_ERROR_BODY_LOG_CAP_BYTES
+                )
+                if preview:
+                    text = preview.decode("utf-8", errors="replace")
+                    logger.error(
+                        "{}_ERROR:{} HTTP {} body_preview_bytes={} truncated={}: {}",
+                        self._provider_name,
+                        req_tag,
+                        response.status_code,
+                        len(preview),
+                        truncated,
+                        text,
+                    )
+                else:
+                    logger.error(
+                        "{}_ERROR:{} HTTP {} (empty error body)",
+                        self._provider_name,
+                        req_tag,
+                        response.status_code,
+                    )
+            else:
+                cl = response.headers.get("content-length", "").strip()
+                extra = f" content_length_declared={cl}" if cl.isdigit() else ""
                 logger.error(
-                    "{}_ERROR:{} HTTP {}: {}",
+                    "{}_ERROR:{} HTTP {}{}",
                     self._provider_name,
                     req_tag,
                     response.status_code,
-                    response_text,
+                    extra,
                 )
             raise error
 
-    async def _read_error_body(self, response: httpx.Response) -> str:
-        """Read a response body for diagnostics."""
-        aread = getattr(response, "aread", None)
-        if aread is None:
-            return ""
-        body = await aread()
-        if isinstance(body, bytes):
-            return body.decode("utf-8", errors="replace")
-        return str(body)
+    async def _read_error_body_preview(
+        self, response: httpx.Response, max_bytes: int
+    ) -> tuple[bytes, bool]:
+        """Read at most ``max_bytes`` from the error body for logging. Returns (preview, truncated)."""
+        if max_bytes <= 0:
+            return b"", False
+        received = 0
+        parts: list[bytes] = []
+        truncated = False
+        async for chunk in response.aiter_bytes(chunk_size=65_536):
+            if received >= max_bytes:
+                truncated = True
+                break
+            remaining = max_bytes - received
+            take = chunk if len(chunk) <= remaining else chunk[:remaining]
+            if take:
+                parts.append(take)
+            received += len(take)
+            if len(chunk) > len(take):
+                truncated = True
+                break
+            if received >= max_bytes:
+                break
+        return (b"".join(parts), truncated)
 
     async def _iter_sse_lines(self, response: httpx.Response) -> AsyncIterator[str]:
         """Yield raw SSE line chunks preserving local provider behavior."""
@@ -145,6 +182,8 @@ class AnthropicMessagesTransport(BaseProvider):
 
     def _new_stream_state(self, request: Any, *, thinking_enabled: bool) -> Any:
         """Return per-stream provider state for event transformation."""
+        if self.stream_chunk_mode == "line":
+            return NativeSseBlockPolicyState()
         return None
 
     def _transform_stream_event(
@@ -155,6 +194,10 @@ class AnthropicMessagesTransport(BaseProvider):
         thinking_enabled: bool,
     ) -> str | None:
         """Transform or drop a grouped SSE event before yielding it downstream."""
+        if isinstance(state, NativeSseBlockPolicyState):
+            return transform_native_sse_block_event(
+                event, state, thinking_enabled=thinking_enabled
+            )
         return event
 
     def _format_error_message(self, base_message: str, request_id: str | None) -> str:
@@ -166,15 +209,11 @@ class AnthropicMessagesTransport(BaseProvider):
     def _get_error_message(self, error: Exception, request_id: str | None) -> str:
         """Map an exception into a user-facing provider error message."""
         mapped_error = map_error(error, rate_limiter=self._global_rate_limiter)
-        if getattr(mapped_error, "status_code", None) == 405:
-            base_message = (
-                f"Upstream provider {self._provider_name} rejected the request method "
-                "or endpoint (HTTP 405)."
-            )
-        else:
-            base_message = get_user_facing_error_message(
-                mapped_error, read_timeout_s=self._config.http_read_timeout
-            )
+        base_message = user_visible_message_for_mapped_provider_error(
+            mapped_error,
+            provider_name=self._provider_name,
+            read_timeout_s=self._config.http_read_timeout,
+        )
         return self._format_error_message(base_message, request_id)
 
     def _emit_error_events(
@@ -185,12 +224,14 @@ class AnthropicMessagesTransport(BaseProvider):
         error_message: str,
         sent_any_event: bool,
     ) -> Iterator[str]:
-        """Emit a native Anthropic error event."""
-        error_event = {
-            "type": "error",
-            "error": {"type": "api_error", "message": error_message},
-        }
-        yield f"event: error\ndata: {json.dumps(error_event)}\n\n"
+        """Emit the same Anthropic message lifecycle used by OpenAI-compat providers."""
+        yield from iter_provider_stream_error_sse_events(
+            request=request,
+            input_tokens=input_tokens,
+            error_message=error_message,
+            sent_any_event=sent_any_event,
+            log_raw_sse_events=self._config.log_raw_sse_events,
+        )
 
     async def _iter_stream_chunks(
         self,
@@ -200,6 +241,21 @@ class AnthropicMessagesTransport(BaseProvider):
         thinking_enabled: bool,
     ) -> AsyncIterator[str]:
         """Yield stream chunks according to the provider's observable chunk shape."""
+        if self.stream_chunk_mode == "line" and isinstance(
+            state, NativeSseBlockPolicyState
+        ):
+            async for event in self._iter_sse_events(response):
+                output_event = self._transform_stream_event(
+                    event,
+                    state,
+                    thinking_enabled=thinking_enabled,
+                )
+                if output_event is None:
+                    continue
+                for line in output_event.splitlines(keepends=True):
+                    yield line
+            return
+
         if self.stream_chunk_mode == "line":
             async for chunk in self._iter_sse_lines(response):
                 yield chunk
@@ -240,15 +296,28 @@ class AnthropicMessagesTransport(BaseProvider):
         response: httpx.Response | None = None
         sent_any_event = False
         state = self._new_stream_state(request, thinking_enabled=thinking_enabled)
+        emitted_tracker = EmittedNativeSseTracker()
 
         async with self._global_rate_limiter.concurrency_slot():
             try:
-                response = await self._global_rate_limiter.execute_with_retry(
-                    self._send_stream_request, body
-                )
 
-                if response.status_code != 200:
-                    await self._raise_for_status(response, req_tag=req_tag)
+                async def _validated_stream_send() -> httpx.Response:
+                    """Send request; raise inside retry loop on 429 so rate limiter can backoff."""
+                    send_response = await self._send_stream_request(body)
+                    if send_response.status_code == 429:
+                        await send_response.aclose()
+                        send_response.raise_for_status()
+                    if send_response.status_code != 200:
+                        try:
+                            await self._raise_for_status(send_response, req_tag=req_tag)
+                        finally:
+                            if not send_response.is_closed:
+                                await send_response.aclose()
+                    return send_response
+
+                response = await self._global_rate_limiter.execute_with_retry(
+                    _validated_stream_send
+                )
 
                 async for chunk in self._iter_stream_chunks(
                     response,
@@ -256,12 +325,12 @@ class AnthropicMessagesTransport(BaseProvider):
                     thinking_enabled=thinking_enabled,
                 ):
                     sent_any_event = True
+                    emitted_tracker.feed(chunk)
                     yield chunk
 
             except Exception as error:
-                logger.error(
-                    "{}_ERROR:{} {}: {}", tag, req_tag, type(error).__name__, error
-                )
+                if not isinstance(error, httpx.HTTPStatusError):
+                    self._log_stream_transport_error(tag, req_tag, error)
                 error_message = self._get_error_message(error, request_id)
 
                 if response is not None and not response.is_closed:
@@ -273,13 +342,24 @@ class AnthropicMessagesTransport(BaseProvider):
                     type(error).__name__,
                     req_tag,
                 )
-                for event in self._emit_error_events(
-                    request=request,
-                    input_tokens=input_tokens,
-                    error_message=error_message,
-                    sent_any_event=sent_any_event,
-                ):
-                    yield event
+                if sent_any_event:
+                    for event in emitted_tracker.iter_close_unclosed_blocks():
+                        yield event
+                    for event in emitted_tracker.iter_midstream_error_tail(
+                        error_message,
+                        request=request,
+                        input_tokens=input_tokens,
+                        log_raw_sse_events=self._config.log_raw_sse_events,
+                    ):
+                        yield event
+                else:
+                    for event in self._emit_error_events(
+                        request=request,
+                        input_tokens=input_tokens,
+                        error_message=error_message,
+                        sent_any_event=False,
+                    ):
+                        yield event
                 return
             finally:
                 if response is not None and not response.is_closed:

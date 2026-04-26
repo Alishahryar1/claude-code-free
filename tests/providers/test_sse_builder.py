@@ -1,19 +1,20 @@
 """Tests for core.anthropic.sse."""
 
-import json
 from unittest.mock import patch
 
 import pytest
 
 from core.anthropic import ContentBlockManager, SSEBuilder, map_stop_reason
+from core.anthropic.sse import ToolCallState
+from core.anthropic.stream_contracts import parse_sse_text
 
 
 def _parse_sse(sse_str: str) -> dict:
     """Parse an SSE event string into its data payload."""
-    for line in sse_str.strip().split("\n"):
-        if line.startswith("data: "):
-            return json.loads(line[len("data: ") :])
-    raise ValueError(f"No data line found in SSE: {sse_str}")
+    events = parse_sse_text(sse_str)
+    if len(events) != 1:
+        raise ValueError(f"expected 1 SSE event, got {len(events)} in {sse_str!r}")
+    return events[0].data
 
 
 class TestMapStopReason:
@@ -60,6 +61,24 @@ class TestContentBlockManager:
         assert mgr.thinking_started is False
         assert mgr.text_started is False
         assert mgr.tool_states == {}
+
+    def test_flush_task_arg_buffers_logs_digest_not_secret(self, caplog):
+        """Invalid Task JSON warnings must not echo argument prefixes (secrets)."""
+        mgr = ContentBlockManager()
+        mgr.tool_states[0] = ToolCallState(
+            block_index=0, tool_id="call_x", name="Task", started=True
+        )
+        mgr.tool_states[
+            0
+        ].task_arg_buffer = (
+            '{"api_key": "sk-live-super-secret-do-not-log"}not_valid_json'
+        )
+        with caplog.at_level("WARNING"):
+            out = mgr.flush_task_arg_buffers()
+        assert out == [(0, "{}")]
+        text = " | ".join(r.message for r in caplog.records)
+        assert "sk-live-super-secret" not in text
+        assert "buffer_sha256_prefix=" in text
 
 
 class TestSSEBuilderMessageLifecycle:

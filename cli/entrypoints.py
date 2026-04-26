@@ -30,7 +30,8 @@ def serve() -> None:
     settings = get_settings()
     try:
         uvicorn.run(
-            "api.app:app",
+            "api.app:create_app",
+            factory=True,
             host=settings.host,
             port=settings.port,
             log_level="debug",

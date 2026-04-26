@@ -6,65 +6,16 @@ using a strict sliding window algorithm and a task queue.
 """
 
 import asyncio
-import os
-import time
 from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from loguru import logger
 
+from config.settings import get_settings
+from core.rate_limit import StrictSlidingWindowLimiter as SlidingWindowLimiter
 
-class SlidingWindowLimiter:
-    """Strict sliding window limiter.
-
-    Guarantees: at most `rate_limit` acquisitions in any interval of length
-    `rate_window` (seconds).
-
-    Implemented as an async context manager so call sites can do:
-        async with limiter:
-            ...
-    """
-
-    def __init__(self, rate_limit: int, rate_window: float) -> None:
-        if rate_limit <= 0:
-            raise ValueError("rate_limit must be > 0")
-        if rate_window <= 0:
-            raise ValueError("rate_window must be > 0")
-
-        self._rate_limit = int(rate_limit)
-        self._rate_window = float(rate_window)
-        self._times: deque[float] = deque()
-        self._lock = asyncio.Lock()
-
-    async def acquire(self) -> None:
-        while True:
-            wait_time = 0.0
-            async with self._lock:
-                now = time.monotonic()
-                cutoff = now - self._rate_window
-
-                while self._times and self._times[0] <= cutoff:
-                    self._times.popleft()
-
-                if len(self._times) < self._rate_limit:
-                    self._times.append(now)
-                    return
-
-                oldest = self._times[0]
-                wait_time = max(0.0, (oldest + self._rate_window) - now)
-
-            if wait_time > 0:
-                await asyncio.sleep(wait_time)
-            else:
-                await asyncio.sleep(0)
-
-    async def __aenter__(self) -> SlidingWindowLimiter:
-        await self.acquire()
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb) -> bool:
-        return False
+from .safe_diagnostics import format_exception_for_log
 
 
 class MessagingRateLimiter:
@@ -82,22 +33,28 @@ class MessagingRateLimiter:
         return super().__new__(cls)
 
     @classmethod
-    async def get_instance(cls) -> MessagingRateLimiter:
-        """Get the singleton instance of the limiter."""
+    async def get_instance(
+        cls,
+        *,
+        rate_limit: int = 1,
+        rate_window: float = 1.0,
+    ) -> MessagingRateLimiter:
+        """Get the singleton instance of the limiter.
+
+        ``rate_limit`` and ``rate_window`` apply only when the singleton is first
+        created. Call :meth:`shutdown_instance` before changing parameters.
+        """
         async with cls._lock:
             if cls._instance is None:
-                cls._instance = cls()
+                cls._instance = cls(rate_limit=rate_limit, rate_window=rate_window)
                 # Start the background worker (tracked for graceful shutdown).
                 cls._instance._start_worker()
         return cls._instance
 
-    def __init__(self):
+    def __init__(self, *, rate_limit: int, rate_window: float) -> None:
         # Prevent double initialization in singleton
         if hasattr(self, "_initialized"):
             return
-
-        rate_limit = int(os.getenv("MESSAGING_RATE_LIMIT", "1"))
-        rate_window = float(os.getenv("MESSAGING_RATE_WINDOW", "2.0"))
 
         self.limiter = SlidingWindowLimiter(rate_limit, rate_window)
         # Custom queue state - using deque for O(1) popleft
@@ -189,15 +146,27 @@ class MessagingRateLimiter:
                                 asyncio.get_event_loop().time() + wait_secs
                             )
                         else:
+                            d = get_settings().log_messaging_error_details
                             logger.error(
-                                f"Error in limiter worker for key {dedup_key}: {type(e).__name__}: {e}"
+                                "Error in limiter worker for key {}: {}",
+                                dedup_key,
+                                format_exception_for_log(e, log_full_message=d),
                             )
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(
-                    f"MessagingRateLimiter worker critical error: {e}", exc_info=True
-                )
+                d = get_settings().log_messaging_error_details
+                if d:
+                    logger.error(
+                        "MessagingRateLimiter worker critical error: {}",
+                        e,
+                        exc_info=True,
+                    )
+                else:
+                    logger.error(
+                        "MessagingRateLimiter worker critical error: exc_type={}",
+                        type(e).__name__,
+                    )
                 await asyncio.sleep(1)
 
     async def shutdown(self, timeout: float = 2.0) -> None:
@@ -223,7 +192,11 @@ class MessagingRateLimiter:
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.debug(f"MessagingRateLimiter worker shutdown error: {e}")
+            d = get_settings().log_messaging_error_details
+            logger.debug(
+                "MessagingRateLimiter worker shutdown error: {}",
+                format_exception_for_log(e, log_full_message=d),
+            )
         finally:
             self._worker_task = None
 
@@ -296,14 +269,29 @@ class MessagingRateLimiter:
                         x in error_msg for x in ["connect", "timeout", "broken"]
                     ):
                         wait = 2**attempt
-                        logger.warning(
-                            f"Limiter fire_and_forget transient error (attempt {attempt + 1}): {e}. Retrying in {wait}s..."
-                        )
+                        d = get_settings().log_messaging_error_details
+                        if d:
+                            logger.warning(
+                                "Limiter fire_and_forget transient error (attempt {}): {}. Retrying in {}s...",
+                                attempt + 1,
+                                e,
+                                wait,
+                            )
+                        else:
+                            logger.warning(
+                                "Limiter fire_and_forget transient error (attempt {}): exc_type={}. Retrying in {}s...",
+                                attempt + 1,
+                                type(e).__name__,
+                                wait,
+                            )
                         await asyncio.sleep(wait)
                         continue
 
+                    d = get_settings().log_messaging_error_details
                     logger.error(
-                        f"Final error in fire_and_forget for key {dedup_key}: {type(e).__name__}: {e}"
+                        "Final error in fire_and_forget for key {}: {}",
+                        dedup_key,
+                        format_exception_for_log(e, log_full_message=d),
                     )
                     if not future.done():
                         future.set_exception(e)

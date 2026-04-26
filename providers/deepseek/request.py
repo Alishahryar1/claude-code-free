@@ -5,6 +5,8 @@ from typing import Any
 from loguru import logger
 
 from core.anthropic import build_base_request_body
+from core.anthropic.conversion import OpenAIConversionError
+from providers.exceptions import InvalidRequestError
 
 
 def build_request_body(request_data: Any, *, thinking_enabled: bool) -> dict:
@@ -14,10 +16,14 @@ def build_request_body(request_data: Any, *, thinking_enabled: bool) -> dict:
         getattr(request_data, "model", "?"),
         len(getattr(request_data, "messages", [])),
     )
-    body = build_base_request_body(
-        request_data,
-        include_reasoning_content=True,
-    )
+    try:
+        body = build_base_request_body(
+            request_data,
+            include_thinking=thinking_enabled,
+            include_reasoning_content=thinking_enabled,
+        )
+    except OpenAIConversionError as exc:
+        raise InvalidRequestError(str(exc)) from exc
 
     extra_body: dict[str, Any] = {}
     request_extra = getattr(request_data, "extra_body", None)

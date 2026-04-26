@@ -17,6 +17,15 @@ _RUNTIME_EXTRAS = {
     "nvidia_nim_api_key": "",
     "claude_cli_bin": "claude",
     "uses_process_anthropic_auth_token": lambda: False,
+    "messaging_rate_limit": 1,
+    "messaging_rate_window": 1.0,
+    "max_message_log_entries_per_chat": None,
+    "debug_platform_edits": False,
+    "debug_subagent_stack": False,
+    "log_api_error_tracebacks": False,
+    "log_raw_messaging_content": False,
+    "log_raw_cli_diagnostics": False,
+    "log_messaging_error_details": False,
 }
 
 
@@ -81,9 +90,50 @@ def test_create_app_provider_error_handler_returns_anthropic_format():
         with TestClient(app) as client:
             resp = client.get("/raise_provider")
         assert resp.status_code == 401
-        body = resp.json()
-        assert body["type"] == "error"
-        assert body["error"]["type"] == "authentication_error"
+    body = resp.json()
+    assert body["type"] == "error"
+    assert body["error"]["type"] == "authentication_error"
+
+
+def test_create_app_provider_error_default_logs_exclude_provider_message():
+    """Provider errors must not log exc.message by default."""
+    from api.app import create_app
+    from providers.exceptions import AuthenticationError
+
+    app = create_app()
+    secret = "provider-upstream-secret-detail"
+
+    @app.get("/raise_provider_secret")
+    async def _raise():
+        raise AuthenticationError(secret)
+
+    api_app_mod = importlib.import_module("api.app")
+    settings = _app_settings(
+        messaging_platform="telegram",
+        telegram_bot_token=None,
+        allowed_telegram_user_id=None,
+        discord_bot_token=None,
+        allowed_discord_channels=None,
+        allowed_dir="",
+        claude_workspace="./agent_workspace",
+        host="127.0.0.1",
+        port=8082,
+        log_file="server.log",
+        log_api_error_tracebacks=False,
+    )
+    with (
+        patch.object(api_app_mod, "get_settings", return_value=settings),
+        patch.object(ProviderRegistry, "cleanup", new=AsyncMock()),
+        patch.object(api_app_mod.logger, "error") as log_err,
+    ):
+        with TestClient(app) as client:
+            resp = client.get("/raise_provider_secret")
+        assert resp.status_code == 401
+
+    blob = " ".join(str(a) for c in log_err.call_args_list for a in c.args)
+    blob += repr([c.kwargs for c in log_err.call_args_list])
+    assert secret not in blob
+    assert "authentication_error" in blob
 
 
 def test_create_app_general_exception_handler_returns_500():
@@ -118,6 +168,50 @@ def test_create_app_general_exception_handler_returns_500():
         body = resp.json()
         assert body["type"] == "error"
         assert body["error"]["type"] == "api_error"
+
+
+def test_create_app_general_exception_default_logs_exclude_exception_message():
+    """Unhandled errors must not log exception text by default (may echo user content)."""
+    from api.app import create_app
+
+    app = create_app()
+
+    secret = "user-provided-secret-token-xyzzy"
+
+    @app.get("/raise_secret")
+    async def _raise_secret():
+        raise ValueError(secret)
+
+    api_app_mod = importlib.import_module("api.app")
+    settings = _app_settings(
+        messaging_platform="telegram",
+        telegram_bot_token=None,
+        allowed_telegram_user_id=None,
+        discord_bot_token=None,
+        allowed_discord_channels=None,
+        allowed_dir="",
+        claude_workspace="./agent_workspace",
+        host="127.0.0.1",
+        port=8082,
+        log_file="server.log",
+        log_api_error_tracebacks=False,
+    )
+    with (
+        patch.object(api_app_mod, "get_settings", return_value=settings),
+        patch.object(ProviderRegistry, "cleanup", new=AsyncMock()),
+        patch.object(api_app_mod.logger, "error") as log_err,
+    ):
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.get("/raise_secret")
+        assert resp.status_code == 500
+
+    flattened: list[str] = []
+    for call in log_err.call_args_list:
+        flattened.extend(str(arg) for arg in call.args)
+        flattened.append(repr(call.kwargs))
+    blob = " ".join(flattened)
+    assert secret not in blob
+    assert "ValueError" in blob
 
 
 @pytest.mark.parametrize(

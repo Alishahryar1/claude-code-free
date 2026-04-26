@@ -1,5 +1,7 @@
 """Ollama provider package."""
 
-from .client import OLLAMA_BASE_URL, OllamaProvider
+from providers.defaults import OLLAMA_DEFAULT_BASE
 
-__all__ = ["OLLAMA_BASE_URL", "OllamaProvider"]
+from .client import OllamaProvider
+
+__all__ = ["OLLAMA_DEFAULT_BASE", "OllamaProvider"]

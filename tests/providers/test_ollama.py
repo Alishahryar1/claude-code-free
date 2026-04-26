@@ -6,7 +6,8 @@ import httpx
 import pytest
 
 from providers.base import ProviderConfig
-from providers.ollama import OLLAMA_BASE_URL, OllamaProvider
+from providers.ollama import OLLAMA_DEFAULT_BASE, OllamaProvider
+from tests.stream_contract import assert_canonical_stream_error_envelope
 
 
 class MockMessage:
@@ -92,7 +93,7 @@ def test_init_uses_default_base_url():
     config = ProviderConfig(api_key="ollama", base_url=None)
     with patch("httpx.AsyncClient"):
         provider = OllamaProvider(config)
-        assert provider._base_url == OLLAMA_BASE_URL
+        assert provider._base_url == OLLAMA_DEFAULT_BASE
 
 
 def test_init_uses_configurable_timeouts():
@@ -199,6 +200,30 @@ async def test_build_request_body_omits_thinking_when_disabled(ollama_config):
     assert body["model"] == "llama3.1:8b"
 
 
+def test_build_request_body_disabled_thinking_strips_assistant_thinking_blocks(
+    ollama_config,
+):
+    """Prior assistant thinking/redacted blocks are removed when policy is off."""
+    provider = OllamaProvider(
+        ollama_config.model_copy(update={"enable_thinking": False})
+    )
+    req = MockRequest(
+        system=None,
+        messages=[
+            MockMessage("user", "hi"),
+            MockMessage(
+                "assistant",
+                [
+                    {"type": "thinking", "thinking": "t"},
+                    {"type": "redacted_thinking", "data": "opaque"},
+                ],
+            ),
+        ],
+    )
+    body = provider._build_request_body(req, thinking_enabled=False)
+    assert body["messages"][1]["content"] == ""
+
+
 @pytest.mark.asyncio
 async def test_stream_error_status_code(ollama_provider):
     """Non-200 status code is yielded as an SSE API error."""
@@ -228,10 +253,10 @@ async def test_stream_error_status_code(ollama_provider):
             async for event in ollama_provider.stream_response(req, request_id="REQ")
         ]
 
-    assert len(events) == 1
-    assert events[0].startswith("event: error\ndata: {")
-    assert "Internal Server Error" in events[0]
-    assert "REQ" in events[0]
+    assert_canonical_stream_error_envelope(
+        events, user_message_substr="Provider API request failed"
+    )
+    assert "REQ" in "".join(events)
 
 
 @pytest.mark.asyncio

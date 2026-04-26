@@ -1,5 +1,7 @@
 """NVIDIA NIM provider package."""
 
-from .client import NVIDIA_NIM_BASE_URL, NvidiaNimProvider
+from providers.defaults import NVIDIA_NIM_DEFAULT_BASE
 
-__all__ = ["NVIDIA_NIM_BASE_URL", "NvidiaNimProvider"]
+from .client import NvidiaNimProvider
+
+__all__ = ["NVIDIA_NIM_DEFAULT_BASE", "NvidiaNimProvider"]

@@ -3,108 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Callable, MutableMapping
-from dataclasses import dataclass
-from typing import Literal
 
-from config.provider_ids import SUPPORTED_PROVIDER_IDS
+from config.provider_catalog import (
+    PROVIDER_CATALOG,
+    SUPPORTED_PROVIDER_IDS,
+    ProviderDescriptor,
+)
 from config.settings import Settings
 from providers.base import BaseProvider, ProviderConfig
-from providers.defaults import (
-    DEEPSEEK_DEFAULT_BASE,
-    LLAMACPP_DEFAULT_BASE,
-    LMSTUDIO_DEFAULT_BASE,
-    NVIDIA_NIM_DEFAULT_BASE,
-    OLLAMA_DEFAULT_BASE,
-    OPENROUTER_DEFAULT_BASE,
-)
 from providers.exceptions import AuthenticationError, UnknownProviderTypeError
 
-TransportType = Literal["openai_chat", "anthropic_messages"]
 ProviderFactory = Callable[[ProviderConfig, Settings], BaseProvider]
 
-
-@dataclass(frozen=True, slots=True)
-class ProviderDescriptor:
-    """Metadata for building :class:`ProviderConfig` and factory wiring."""
-
-    provider_id: str
-    transport_type: TransportType
-    capabilities: tuple[str, ...]
-    credential_env: str | None = None
-    credential_url: str | None = None
-    # If set, read API key from this attribute on ``Settings`` (e.g. nvidia_nim_api_key).
-    credential_attr: str | None = None
-    # If set, use this fixed key for local adapters (e.g. lm-studio, llamacpp).
-    static_credential: str | None = None
-    default_base_url: str | None = None
-    base_url_attr: str | None = None
-    proxy_attr: str | None = None
-
-
-PROVIDER_DESCRIPTORS: dict[str, ProviderDescriptor] = {
-    "nvidia_nim": ProviderDescriptor(
-        provider_id="nvidia_nim",
-        transport_type="openai_chat",
-        credential_env="NVIDIA_NIM_API_KEY",
-        credential_url="https://build.nvidia.com/settings/api-keys",
-        credential_attr="nvidia_nim_api_key",
-        default_base_url=NVIDIA_NIM_DEFAULT_BASE,
-        proxy_attr="nvidia_nim_proxy",
-        capabilities=("chat", "streaming", "tools", "thinking", "rate_limit"),
-    ),
-    "open_router": ProviderDescriptor(
-        provider_id="open_router",
-        transport_type="anthropic_messages",
-        credential_env="OPENROUTER_API_KEY",
-        credential_url="https://openrouter.ai/keys",
-        credential_attr="open_router_api_key",
-        default_base_url=OPENROUTER_DEFAULT_BASE,
-        proxy_attr="open_router_proxy",
-        capabilities=("chat", "streaming", "tools", "thinking", "native_anthropic"),
-    ),
-    "deepseek": ProviderDescriptor(
-        provider_id="deepseek",
-        transport_type="openai_chat",
-        credential_env="DEEPSEEK_API_KEY",
-        credential_url="https://platform.deepseek.com/api_keys",
-        credential_attr="deepseek_api_key",
-        default_base_url=DEEPSEEK_DEFAULT_BASE,
-        capabilities=("chat", "streaming", "thinking"),
-    ),
-    "lmstudio": ProviderDescriptor(
-        provider_id="lmstudio",
-        transport_type="anthropic_messages",
-        static_credential="lm-studio",
-        default_base_url=LMSTUDIO_DEFAULT_BASE,
-        base_url_attr="lm_studio_base_url",
-        proxy_attr="lmstudio_proxy",
-        capabilities=("chat", "streaming", "tools", "native_anthropic", "local"),
-    ),
-    "llamacpp": ProviderDescriptor(
-        provider_id="llamacpp",
-        transport_type="anthropic_messages",
-        static_credential="llamacpp",
-        default_base_url=LLAMACPP_DEFAULT_BASE,
-        base_url_attr="llamacpp_base_url",
-        proxy_attr="llamacpp_proxy",
-        capabilities=("chat", "streaming", "tools", "native_anthropic", "local"),
-    ),
-    "ollama": ProviderDescriptor(
-        provider_id="ollama",
-        transport_type="anthropic_messages",
-        static_credential="ollama",
-        default_base_url=OLLAMA_DEFAULT_BASE,
-        base_url_attr="ollama_base_url",
-        capabilities=(
-            "chat",
-            "streaming",
-            "tools",
-            "thinking",
-            "native_anthropic",
-            "local",
-        ),
-    ),
-}
+# Backwards-compatible name for the catalog (single source: ``config.provider_catalog``).
+PROVIDER_DESCRIPTORS: dict[str, ProviderDescriptor] = PROVIDER_CATALOG
 
 
 def _create_nvidia_nim(config: ProviderConfig, settings: Settings) -> BaseProvider:
@@ -119,25 +31,25 @@ def _create_open_router(config: ProviderConfig, _settings: Settings) -> BaseProv
     return OpenRouterProvider(config)
 
 
-def _create_deepseek(config: ProviderConfig, settings: Settings) -> BaseProvider:
+def _create_deepseek(config: ProviderConfig, _settings: Settings) -> BaseProvider:
     from providers.deepseek import DeepSeekProvider
 
     return DeepSeekProvider(config)
 
 
-def _create_lmstudio(config: ProviderConfig, settings: Settings) -> BaseProvider:
+def _create_lmstudio(config: ProviderConfig, _settings: Settings) -> BaseProvider:
     from providers.lmstudio import LMStudioProvider
 
     return LMStudioProvider(config)
 
 
-def _create_llamacpp(config: ProviderConfig, settings: Settings) -> BaseProvider:
+def _create_llamacpp(config: ProviderConfig, _settings: Settings) -> BaseProvider:
     from providers.llamacpp import LlamaCppProvider
 
     return LlamaCppProvider(config)
 
 
-def _create_ollama(config: ProviderConfig, settings: Settings) -> BaseProvider:
+def _create_ollama(config: ProviderConfig, _settings: Settings) -> BaseProvider:
     from providers.ollama import OllamaProvider
 
     return OllamaProvider(config)
@@ -208,6 +120,8 @@ def build_provider_config(
         http_connect_timeout=settings.http_connect_timeout,
         enable_thinking=settings.enable_model_thinking,
         proxy=proxy,
+        log_raw_sse_events=settings.log_raw_sse_events,
+        log_api_error_tracebacks=settings.log_api_error_tracebacks,
     )
 
 

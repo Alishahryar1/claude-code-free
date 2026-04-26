@@ -6,8 +6,6 @@ from providers.anthropic_messages import AnthropicMessagesTransport
 from providers.base import ProviderConfig
 from providers.defaults import OLLAMA_DEFAULT_BASE
 
-OLLAMA_BASE_URL = OLLAMA_DEFAULT_BASE
-
 
 class OllamaProvider(AnthropicMessagesTransport):
     """Ollama provider using native Anthropic Messages API."""
@@ -16,7 +14,7 @@ class OllamaProvider(AnthropicMessagesTransport):
         super().__init__(
             config,
             provider_name="OLLAMA",
-            default_base_url=OLLAMA_BASE_URL,
+            default_base_url=OLLAMA_DEFAULT_BASE,
         )
         self._api_key = config.api_key or "ollama"
 

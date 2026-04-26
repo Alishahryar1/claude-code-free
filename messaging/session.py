@@ -5,8 +5,10 @@ Provides persistent storage for mapping platform messages to Claude CLI session 
 and message trees for conversation continuation.
 """
 
+import contextlib
 import json
 import os
+import tempfile
 import threading
 from datetime import UTC, datetime
 from typing import Any
@@ -22,7 +24,12 @@ class SessionStore:
     Platform-agnostic: works with any messaging platform.
     """
 
-    def __init__(self, storage_path: str = "sessions.json"):
+    def __init__(
+        self,
+        storage_path: str = "sessions.json",
+        *,
+        message_log_cap: int | None = None,
+    ):
         self.storage_path = storage_path
         self._lock = threading.Lock()
         self._trees: dict[str, dict] = {}  # root_id -> tree data
@@ -34,11 +41,7 @@ class SessionStore:
         self._dirty = False
         self._save_timer: threading.Timer | None = None
         self._save_debounce_secs = 0.5
-        cap_raw = os.getenv("MAX_MESSAGE_LOG_ENTRIES_PER_CHAT", "").strip()
-        try:
-            self._message_log_cap: int | None = int(cap_raw) if cap_raw else None
-        except ValueError:
-            self._message_log_cap = None
+        self._message_log_cap: int | None = message_log_cap
         self._load()
 
     def _make_chat_key(self, platform: str, chat_id: str) -> str:
@@ -104,9 +107,22 @@ class SessionStore:
         }
 
     def _write_data(self, data: dict) -> None:
-        """Write data dict to disk. Must be called WITHOUT holding self._lock."""
-        with open(self.storage_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        """Atomically write data dict to disk. Must be called WITHOUT holding self._lock."""
+        abs_target = os.path.abspath(self.storage_path)
+        dir_name = os.path.dirname(abs_target) or "."
+        fd, tmp_path = tempfile.mkstemp(
+            dir=dir_name, prefix=".sessions.", suffix=".tmp.json"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, abs_target)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            raise
 
     def _schedule_save(self) -> None:
         """Schedule a debounced save. Caller must hold self._lock."""

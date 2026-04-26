@@ -13,6 +13,25 @@ def test_architecture_plan_exists() -> None:
     text = plan.read_text(encoding="utf-8")
     assert "Intended Dependency Direction" in text
     assert "Smoke Coverage Policy" in text
+    assert "providers.nvidia_nim.voice" in text
+    assert "no dedicated smoke SSE shim" in text
+
+
+def test_smoke_lib_has_no_sse_shim_module() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    assert not (repo_root / "smoke" / "lib" / "sse.py").exists()
+
+
+def test_api_package_exports_match_plan() -> None:
+    import api
+
+    assert set(api.__all__) == {
+        "MessagesRequest",
+        "MessagesResponse",
+        "TokenCountRequest",
+        "TokenCountResponse",
+        "create_app",
+    }
 
 
 def test_root_env_example_is_the_single_template_source() -> None:

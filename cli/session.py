@@ -11,6 +11,9 @@ from loguru import logger
 
 from .process_registry import register_pid, unregister_pid
 
+# Cap stderr capture so a runaway child cannot exhaust memory; pipe is still drained.
+_MAX_STDERR_CAPTURE_BYTES = 256 * 1024
+
 
 @dataclass(frozen=True, slots=True)
 class ClaudeCliConfig:
@@ -33,6 +36,8 @@ class CLISession:
         allowed_dirs: list[str] | None = None,
         plans_directory: str | None = None,
         claude_bin: str = "claude",
+        *,
+        log_raw_cli_diagnostics: bool = False,
     ):
         self.config = ClaudeCliConfig(
             workspace_path=os.path.normpath(os.path.abspath(workspace_path)),
@@ -46,10 +51,39 @@ class CLISession:
         self.allowed_dirs = self.config.allowed_dirs
         self.plans_directory = self.config.plans_directory
         self.claude_bin = self.config.claude_bin
+        self._log_raw_cli_diagnostics = log_raw_cli_diagnostics
         self.process: asyncio.subprocess.Process | None = None
         self.current_session_id: str | None = None
         self._is_busy = False
         self._cli_lock = asyncio.Lock()
+
+    @staticmethod
+    async def _drain_stderr_bounded(
+        process: asyncio.subprocess.Process,
+        *,
+        max_bytes: int = _MAX_STDERR_CAPTURE_BYTES,
+    ) -> bytes:
+        """Read stderr concurrently with stdout to avoid subprocess pipe deadlocks.
+
+        Retains at most ``max_bytes`` for logging; any excess is discarded, but
+        the pipe is read until EOF so a noisy child cannot fill the buffer and
+        block forever.
+        """
+        if not process.stderr:
+            return b""
+        parts: list[bytes] = []
+        received = 0
+        while True:
+            chunk = await process.stderr.read(65_536)
+            if not chunk:
+                break
+            if received < max_bytes:
+                take = min(len(chunk), max_bytes - received)
+                if take:
+                    parts.append(chunk[:take])
+                    received += take
+            # If already at cap, keep reading and discarding until EOF.
+        return b"".join(parts)
 
     @property
     def is_busy(self) -> bool:
@@ -140,6 +174,11 @@ class CLISession:
 
                 session_id_extracted = False
                 buffer = bytearray()
+                stderr_task: asyncio.Task[bytes] | None = None
+                if self.process.stderr:
+                    stderr_task = asyncio.create_task(
+                        self._drain_stderr_bounded(self.process)
+                    )
 
                 try:
                     while True:
@@ -179,23 +218,27 @@ class CLISession:
                 except asyncio.CancelledError:
                     # Cancelling the handler task should not leave a Claude CLI
                     # subprocess running in the background.
-                    try:
-                        await asyncio.shield(self.stop())
-                    finally:
-                        raise
+                    await asyncio.shield(self.stop())
+                    raise
+                finally:
+                    stderr_bytes = b""
+                    if stderr_task is not None:
+                        stderr_bytes = await stderr_task
 
                 stderr_text = None
-                if self.process.stderr:
-                    stderr_output = await self.process.stderr.read()
-                    if stderr_output:
-                        stderr_text = stderr_output.decode(
-                            "utf-8", errors="replace"
-                        ).strip()
-                        logger.error(f"Claude CLI Stderr: {stderr_text}")
-                        # Yield stderr as error event so it shows in UI
-                        if stderr_text:
-                            logger.info("CLI_SESSION: Yielding error event from stderr")
-                            yield {"type": "error", "error": {"message": stderr_text}}
+                if stderr_bytes:
+                    stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
+                    if stderr_text:
+                        if self._log_raw_cli_diagnostics:
+                            logger.error("Claude CLI stderr: {}", stderr_text)
+                        else:
+                            logger.error(
+                                "Claude CLI stderr: bytes={} text_chars={}",
+                                len(stderr_bytes),
+                                len(stderr_text),
+                            )
+                        logger.info("CLI_SESSION: Yielding error event from stderr")
+                        yield {"type": "error", "error": {"message": stderr_text}}
 
                 return_code = await self.process.wait()
                 logger.info(
@@ -230,7 +273,10 @@ class CLISession:
 
             yield event
         except json.JSONDecodeError:
-            logger.debug(f"Non-JSON output: {line_str}")
+            if self._log_raw_cli_diagnostics:
+                logger.debug("Non-JSON output: {}", line_str)
+            else:
+                logger.debug("Non-JSON CLI line: char_len={}", len(line_str))
             yield {"type": "raw", "content": line_str}
 
     def _extract_session_id(self, event: Any) -> str | None:
@@ -273,6 +319,16 @@ class CLISession:
                     unregister_pid(self.process.pid)
                 return True
             except Exception as e:
-                logger.error(f"Error stopping process: {e}")
+                if self._log_raw_cli_diagnostics:
+                    logger.error(
+                        "Error stopping process: {}: {}",
+                        type(e).__name__,
+                        e,
+                    )
+                else:
+                    logger.error(
+                        "Error stopping process: exc_type={}",
+                        type(e).__name__,
+                    )
                 return False
         return False

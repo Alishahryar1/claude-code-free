@@ -1,18 +1,7 @@
-"""Canonical list of model provider type prefixes (provider_id values).
-
-`providers.registry.PROVIDER_DESCRIPTORS` is the full metadata source; this
-module holds the id set for config validation and must stay in sync
-(registries assert in `providers.registry`).
-"""
+"""Canonical provider id tuple (re-exported from the provider catalog)."""
 
 from __future__ import annotations
 
-# Order matches docs / historical error text; must match PROVIDER_DESCRIPTORS keys.
-SUPPORTED_PROVIDER_IDS: tuple[str, ...] = (
-    "nvidia_nim",
-    "open_router",
-    "deepseek",
-    "lmstudio",
-    "llamacpp",
-    "ollama",
-)
+from .provider_catalog import SUPPORTED_PROVIDER_IDS
+
+__all__ = ("SUPPORTED_PROVIDER_IDS",)

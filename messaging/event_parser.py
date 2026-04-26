@@ -9,12 +9,14 @@ from typing import Any
 from loguru import logger
 
 
-def parse_cli_event(event: Any) -> list[dict]:
+def parse_cli_event(event: Any, *, log_raw_cli: bool = False) -> list[dict]:
     """
     Parse a CLI event and return a structured result.
 
     Args:
         event: Raw event dictionary from CLI
+        log_raw_cli: When True, log full error text from the CLI. Default is
+            metadata-only (lengths / exit codes) to avoid leaking user content.
 
     Returns:
         List of parsed event dicts. Empty list if not recognized.
@@ -140,7 +142,11 @@ def parse_cli_event(event: Any) -> list[dict]:
     if etype == "error":
         err = event.get("error")
         msg = err.get("message") if isinstance(err, dict) else str(err)
-        logger.info(f"CLI_PARSER: Parsed error event: {msg}")
+        if log_raw_cli:
+            logger.info("CLI_PARSER: Parsed error event: {}", msg)
+        else:
+            mlen = len(msg) if isinstance(msg, str) else 0
+            logger.info("CLI_PARSER: Parsed error event: message_chars={}", mlen)
         return [{"type": "error", "message": msg}]
     elif etype == "exit":
         code = event.get("code", 0)
@@ -151,7 +157,19 @@ def parse_cli_event(event: Any) -> list[dict]:
         else:
             # Non-zero exit is an error
             error_msg = stderr if stderr else f"Process exited with code {code}"
-            logger.warning(f"CLI_PARSER: Error exit (code={code}): {error_msg}")
+            if log_raw_cli:
+                logger.warning(
+                    "CLI_PARSER: Error exit (code={}): {}",
+                    code,
+                    error_msg,
+                )
+            else:
+                em = error_msg if isinstance(error_msg, str) else str(error_msg)
+                logger.warning(
+                    "CLI_PARSER: Error exit (code={}): message_chars={}",
+                    code,
+                    len(em),
+                )
             return [
                 {"type": "error", "message": error_msg},
                 {"type": "complete", "status": "failed"},

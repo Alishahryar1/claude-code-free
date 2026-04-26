@@ -4,6 +4,8 @@ import json
 import logging
 from pathlib import Path
 
+from loguru import logger
+
 from config.logging_config import configure_logging
 
 
@@ -57,3 +59,38 @@ def test_configure_logging_skips_when_already_configured(tmp_path):
     assert "Still goes to first file" in (tmp_path / "test.log").read_text(
         encoding="utf-8"
     )
+
+
+def test_telegram_bot_token_redacted_in_message_field(tmp_path) -> None:
+    log_file = str(tmp_path / "redact.log")
+    configure_logging(log_file, force=True, verbose_third_party=False)
+    token = "123456:ABCDEF-ghij-klm"
+    logger.info("Calling {}", f"https://api.telegram.org/bot{token}/getMe")
+    logger.complete()
+    text = Path(log_file).read_text(encoding="utf-8")
+    assert token not in text
+    assert "bot<redacted>/" in text or "redacted" in text
+
+
+def test_bearer_substring_redacted_in_log_file(tmp_path) -> None:
+    log_file = str(tmp_path / "bearer.log")
+    configure_logging(log_file, force=True, verbose_third_party=False)
+    secret = "ya29.secret-token-abc"
+    logger.info("Request headers: Authorization: Bearer {}", secret)
+    logger.complete()
+    text = Path(log_file).read_text(encoding="utf-8")
+    assert secret not in text
+    assert "Bearer" in text
+
+
+def test_httpx_logger_quieted_when_not_verbose_third_party(tmp_path) -> None:
+    log_file = str(tmp_path / "quiet.log")
+    configure_logging(log_file, force=True, verbose_third_party=False)
+    assert logging.getLogger("httpx").level >= logging.WARNING
+    assert logging.getLogger("httpcore").level >= logging.WARNING
+
+
+def test_httpx_resets_to_notset_when_verbose_third_party(tmp_path) -> None:
+    log_file = str(tmp_path / "verbose.log")
+    configure_logging(log_file, force=True, verbose_third_party=True)
+    assert logging.getLogger("httpx").level == logging.NOTSET

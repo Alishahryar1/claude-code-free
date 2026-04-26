@@ -98,7 +98,7 @@ CAPABILITY_CONTRACTS: tuple[CapabilityContract, ...] = (
         "providers.registry.ProviderRegistry",
         "provider id and Settings",
         "configured BaseProvider instance",
-        "503 for missing credentials; ValueError for unknown provider",
+        "503 for missing credentials; invalid_request_error for unknown provider",
         ("tests/api/test_dependencies.py", "tests/providers/test_registry.py"),
         ("test_configured_provider_models_stream_successfully",),
     ),

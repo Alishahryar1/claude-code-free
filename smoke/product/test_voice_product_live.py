@@ -55,6 +55,7 @@ def test_voice_nim_backend_e2e(smoke_config: SmokeConfig, tmp_path: Path) -> Non
         "audio/wav",
         whisper_model=smoke_config.settings.whisper_model,
         whisper_device="nvidia_nim",
+        nvidia_nim_api_key=smoke_config.settings.nvidia_nim_api_key,
     )
 
     assert isinstance(text, str)

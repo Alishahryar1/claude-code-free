@@ -135,5 +135,5 @@ def extract_filepaths_from_command(command: str, output: str) -> str:
 
         return "<filepaths>\n</filepaths>"
 
-    except Exception:
+    except ValueError:
         return "<filepaths>\n</filepaths>"

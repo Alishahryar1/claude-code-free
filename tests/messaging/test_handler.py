@@ -13,6 +13,49 @@ def handler(mock_platform, mock_cli_manager, mock_session_store):
     return ClaudeMessageHandler(mock_platform, mock_cli_manager, mock_session_store)
 
 
+@pytest.mark.asyncio
+async def test_handle_message_default_logs_text_len_not_content(
+    mock_platform, mock_cli_manager, mock_session_store, incoming_message_factory
+):
+    secret = "user-secret-content-never-log-default"
+    handler = ClaudeMessageHandler(
+        mock_platform,
+        mock_cli_manager,
+        mock_session_store,
+        log_raw_messaging_content=False,
+    )
+    incoming = incoming_message_factory(text=secret)
+    with (
+        patch.object(handler, "_handle_message_impl", new_callable=AsyncMock),
+        patch("messaging.handler.logger.info") as log_info,
+    ):
+        await handler.handle_message(incoming)
+    blob = " ".join(str(c) for c in log_info.call_args_list)
+    assert secret not in blob
+    assert "text_len=" in blob
+
+
+@pytest.mark.asyncio
+async def test_handle_message_raw_content_logging_includes_preview(
+    mock_platform, mock_cli_manager, mock_session_store, incoming_message_factory
+):
+    secret = "visible-preview-xyz"
+    handler = ClaudeMessageHandler(
+        mock_platform,
+        mock_cli_manager,
+        mock_session_store,
+        log_raw_messaging_content=True,
+    )
+    incoming = incoming_message_factory(text=secret)
+    with (
+        patch.object(handler, "_handle_message_impl", new_callable=AsyncMock),
+        patch("messaging.handler.logger.info") as log_info,
+    ):
+        await handler.handle_message(incoming)
+    blob = " ".join(str(c) for c in log_info.call_args_list)
+    assert secret in blob
+
+
 def test_get_initial_status_new_conversation(handler):
     """New conversation always returns launching message."""
     result = handler._get_initial_status(None, None)

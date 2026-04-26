@@ -1,5 +1,6 @@
 """SSE event builder for Anthropic-format streaming responses."""
 
+import hashlib
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -13,6 +14,13 @@ try:
 except Exception:
     ENCODER = None
 
+
+# Standard headers for Anthropic-style ``text/event-stream`` responses from this proxy.
+ANTHROPIC_SSE_RESPONSE_HEADERS: dict[str, str] = {
+    "X-Accel-Buffering": "no",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+}
 
 STOP_REASON_MAP = {
     "stop": "end_turn",
@@ -29,6 +37,11 @@ def map_stop_reason(openai_reason: str | None) -> str:
     )
 
 
+def format_sse_event(event_type: str, data: dict) -> str:
+    """Format one Anthropic-style SSE event (no logging)."""
+    return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+
+
 @dataclass
 class ToolCallState:
     """State for a single streaming tool call."""
@@ -40,6 +53,7 @@ class ToolCallState:
     started: bool = False
     task_arg_buffer: str = ""
     task_args_emitted: bool = False
+    pre_start_args: str = ""
 
 
 @dataclass
@@ -58,7 +72,25 @@ class ContentBlockManager:
         self.next_index += 1
         return idx
 
+    def ensure_tool_state(self, index: int) -> ToolCallState:
+        """Create tool stream state for ``index`` when the first tool delta arrives."""
+        if index not in self.tool_states:
+            self.tool_states[index] = ToolCallState(block_index=-1, tool_id="", name="")
+        return self.tool_states[index]
+
+    def set_stream_tool_id(self, index: int, tool_id: str | None) -> None:
+        """Record OpenAI tool call id before ``content_block_start`` (split-stream providers)."""
+        if not tool_id:
+            return
+        state = self.ensure_tool_state(index)
+        state.tool_id = str(tool_id)
+
     def register_tool_name(self, index: int, name: str) -> None:
+        """Record tool name fragments as they arrive from chunked OpenAI streams.
+
+        Names may be split across deltas; later chunks can extend (``ab`` + ``c``)
+        or repeat prefixes, so we merge conservatively.
+        """
         if index not in self.tool_states:
             self.tool_states[index] = ToolCallState(
                 block_index=-1, tool_id="", name=name
@@ -82,8 +114,7 @@ class ContentBlockManager:
         except Exception:
             return None
 
-        if args_json.get("run_in_background") is not False:
-            args_json["run_in_background"] = False
+        _normalize_task_run_in_background(args_json)
 
         state.task_args_emitted = True
         state.task_arg_buffer = ""
@@ -98,16 +129,17 @@ class ContentBlockManager:
             out = "{}"
             try:
                 args_json = json.loads(state.task_arg_buffer)
-                if args_json.get("run_in_background") is not False:
-                    args_json["run_in_background"] = False
+                _normalize_task_run_in_background(args_json)
                 out = json.dumps(args_json)
-            except Exception as e:
-                prefix = state.task_arg_buffer[:120]
+            except (json.JSONDecodeError, TypeError, ValueError) as e:
+                digest = hashlib.sha256(
+                    state.task_arg_buffer.encode("utf-8", errors="replace")
+                ).hexdigest()[:16]
                 logger.warning(
-                    "Task args invalid JSON (id={} len={} prefix={!r}): {}",
+                    "Task args invalid JSON (id={} len={} buffer_sha256_prefix={}): {}",
                     state.tool_id or "unknown",
                     len(state.task_arg_buffer),
-                    prefix,
+                    digest,
                     e,
                 )
 
@@ -117,20 +149,41 @@ class ContentBlockManager:
         return results
 
 
+def _normalize_task_run_in_background(args_json: dict) -> None:
+    """Force Claude Code Task subagents to run in foreground (single shared rule)."""
+    if args_json.get("run_in_background") is not False:
+        args_json["run_in_background"] = False
+
+
 class SSEBuilder:
     """Builder for Anthropic SSE streaming events."""
 
-    def __init__(self, message_id: str, model: str, input_tokens: int = 0):
+    def __init__(
+        self,
+        message_id: str,
+        model: str,
+        input_tokens: int = 0,
+        *,
+        log_raw_events: bool = False,
+    ):
         self.message_id = message_id
         self.model = model
         self.input_tokens = input_tokens
+        self._log_raw_events = log_raw_events
         self.blocks = ContentBlockManager()
         self._accumulated_text_parts: list[str] = []
         self._accumulated_reasoning_parts: list[str] = []
 
     def _format_event(self, event_type: str, data: dict) -> str:
-        event_str = f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
-        logger.debug("SSE_EVENT: {} - {}", event_type, event_str.strip())
+        event_str = format_sse_event(event_type, data)
+        if self._log_raw_events:
+            logger.debug("SSE_EVENT: {} - {}", event_type, event_str.strip())
+        else:
+            logger.debug(
+                "SSE_EVENT: event_type={} serialized_bytes={}",
+                event_type,
+                len(event_str.encode("utf-8")),
+            )
         return event_str
 
     def message_start(self) -> str:
@@ -289,10 +342,7 @@ class SSEBuilder:
             yield self.stop_text_block()
 
     def close_all_blocks(self) -> Iterator[str]:
-        if self.blocks.thinking_started:
-            yield self.stop_thinking_block()
-        if self.blocks.text_started:
-            yield self.stop_text_block()
+        yield from self.close_content_blocks()
         for tool_index, state in list(self.blocks.tool_states.items()):
             if state.started:
                 yield self.stop_tool_block(tool_index)

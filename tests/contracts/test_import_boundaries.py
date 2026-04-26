@@ -54,6 +54,15 @@ def test_core_does_not_import_product_packages() -> None:
     assert offenders == []
 
 
+def test_provider_catalog_is_single_source_for_supported_ids() -> None:
+    from config.provider_catalog import PROVIDER_CATALOG, SUPPORTED_PROVIDER_IDS
+    from providers.registry import PROVIDER_DESCRIPTORS, PROVIDER_FACTORIES
+
+    assert tuple(PROVIDER_CATALOG.keys()) == SUPPORTED_PROVIDER_IDS
+    assert PROVIDER_DESCRIPTORS is PROVIDER_CATALOG
+    assert set(SUPPORTED_PROVIDER_IDS) == set(PROVIDER_FACTORIES)
+
+
 def test_config_does_not_import_non_config_packages() -> None:
     """Settings and env handling must not depend on transport or protocol layers."""
     repo_root = Path(__file__).resolve().parents[2]
@@ -71,14 +80,34 @@ def test_config_does_not_import_non_config_packages() -> None:
     assert offenders == []
 
 
-def test_messaging_does_not_import_api_or_cli_or_providers() -> None:
-    """Messaging is wired by ``api.runtime``; must not import server or provider adapters."""
+_MESSAGING_ALLOWED_PROVIDER_MODULES = frozenset({"providers.nvidia_nim.voice"})
+
+
+def test_messaging_does_not_import_disallowed_modules() -> None:
+    """Messaging is wired by ``api.runtime``; narrow provider imports only for NIM voice ASR."""
     repo_root = Path(__file__).resolve().parents[2]
-    offenders = _imports_matching(
-        [repo_root / "messaging"],
-        forbidden_prefixes=("api.", "cli.", "providers.", "smoke."),
-    )
-    assert offenders == []
+    offenders: list[str] = []
+    for path in (repo_root / "messaging").rglob("*.py"):
+        for imported in _imports_from(path, repo_root):
+            if imported is None:
+                continue
+            if (
+                imported == "api"
+                or imported.startswith("api.")
+                or imported == "cli"
+                or imported.startswith("cli.")
+                or imported == "smoke"
+                or imported.startswith("smoke.")
+            ):
+                rel = path.relative_to(repo_root)
+                offenders.append(f"{rel}: {imported}")
+            elif imported.startswith("providers."):
+                if imported in _MESSAGING_ALLOWED_PROVIDER_MODULES:
+                    continue
+                rel = path.relative_to(repo_root)
+                offenders.append(f"{rel}: {imported}")
+
+    assert sorted(offenders) == []
 
 
 def test_api_may_only_import_narrow_provider_facade() -> None:

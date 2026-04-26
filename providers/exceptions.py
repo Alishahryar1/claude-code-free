@@ -90,8 +90,20 @@ class APIError(ProviderError):
         )
 
 
-class UnknownProviderTypeError(ValueError):
+class UnknownProviderTypeError(InvalidRequestError):
     """Raised when ``provider_id`` is not registered in the provider map."""
 
     def __init__(self, message: str) -> None:
         super().__init__(message)
+
+
+class ServiceUnavailableError(ProviderError):
+    """Raised when the server is not ready (e.g. app lifespan did not wire state)."""
+
+    def __init__(self, message: str, raw_error: Any = None):
+        super().__init__(
+            message,
+            status_code=503,
+            error_type="api_error",
+            raw_error=raw_error,
+        )

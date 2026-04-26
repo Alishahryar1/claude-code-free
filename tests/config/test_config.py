@@ -3,6 +3,10 @@
 import pytest
 from pydantic import ValidationError
 
+from config.constants import (
+    ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS,
+    HTTP_CONNECT_TIMEOUT_DEFAULT,
+)
 from config.nim import NimSettings
 
 
@@ -22,6 +26,7 @@ class TestSettings:
 
         monkeypatch.delenv("MODEL", raising=False)
         monkeypatch.delenv("HTTP_READ_TIMEOUT", raising=False)
+        monkeypatch.delenv("HTTP_CONNECT_TIMEOUT", raising=False)
         monkeypatch.setitem(Settings.model_config, "env_file", ())
         settings = Settings()
         assert settings.model == "nvidia_nim/z-ai/glm4.7"
@@ -31,6 +36,12 @@ class TestSettings:
         assert isinstance(settings.fast_prefix_detection, bool)
         assert isinstance(settings.enable_model_thinking, bool)
         assert settings.http_read_timeout == 120.0
+        assert settings.http_connect_timeout == HTTP_CONNECT_TIMEOUT_DEFAULT
+        assert settings.enable_web_server_tools is False
+        assert settings.log_raw_api_payloads is False
+        assert settings.log_raw_sse_events is False
+        assert settings.debug_platform_edits is False
+        assert settings.debug_subagent_stack is False
 
     def test_get_settings_cached(self):
         """Test get_settings returns cached instance."""
@@ -57,10 +68,10 @@ class TestSettings:
         assert len(settings.model) > 0
 
     def test_base_url_constant(self):
-        """Test NVIDIA_NIM_BASE_URL is a constant."""
-        from providers.nvidia_nim import NVIDIA_NIM_BASE_URL
+        """Test NVIDIA_NIM_DEFAULT_BASE is a constant."""
+        from providers.nvidia_nim import NVIDIA_NIM_DEFAULT_BASE
 
-        assert NVIDIA_NIM_BASE_URL == "https://integrate.api.nvidia.com/v1"
+        assert NVIDIA_NIM_DEFAULT_BASE == "https://integrate.api.nvidia.com/v1"
 
     def test_lm_studio_base_url_from_env(self, monkeypatch):
         """LM_STUDIO_BASE_URL env var is loaded into settings."""
@@ -126,6 +137,18 @@ class TestSettings:
         monkeypatch.setenv("HTTP_CONNECT_TIMEOUT", "5")
         settings = Settings()
         assert settings.http_connect_timeout == 5.0
+
+    def test_http_connect_timeout_default_matches_shared_constant(
+        self, monkeypatch
+    ) -> None:
+        """Default must match config.constants (and README / .env.example)."""
+        from config.settings import Settings
+
+        monkeypatch.delenv("HTTP_CONNECT_TIMEOUT", raising=False)
+        monkeypatch.setitem(Settings.model_config, "env_file", ())
+        settings = Settings()
+        assert settings.http_connect_timeout == HTTP_CONNECT_TIMEOUT_DEFAULT
+        assert HTTP_CONNECT_TIMEOUT_DEFAULT == 10.0
 
     def test_enable_model_thinking_from_env(self, monkeypatch):
         """ENABLE_MODEL_THINKING env var is loaded into settings."""
@@ -318,6 +341,9 @@ class TestNimSettingsInvalidBounds:
 
 class TestNimSettingsValidators:
     """Test custom field validators in NimSettings."""
+
+    def test_default_max_tokens_matches_shared_constant(self):
+        assert NimSettings().max_tokens == ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS
 
     @pytest.mark.parametrize(
         "seed_val,expected",

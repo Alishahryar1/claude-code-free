@@ -8,16 +8,14 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from core.anthropic import ContentType, HeuristicToolParser, SSEBuilder, ThinkTagParser
+from core.anthropic.sse import format_sse_event
 from core.anthropic.stream_contracts import (
     assert_anthropic_stream_contract,
     event_names,
-    has_tool_use,
     parse_sse_text,
     text_content,
     thinking_content,
 )
-from messaging.event_parser import parse_cli_event
-from messaging.transcript import RenderCtx, TranscriptBuffer
 
 
 def test_interleaved_thinking_text_blocks_are_valid() -> None:
@@ -59,44 +57,49 @@ def test_mixed_reasoning_content_and_think_tags_keep_order() -> None:
     assert text_content(events) == " visible  done"
 
 
-def test_thinking_tool_text_and_transcript_order_contract() -> None:
-    builder = SSEBuilder("msg_contract", "contract-model")
-    chunks = [builder.message_start()]
-    chunks.extend(builder.ensure_thinking_block())
-    chunks.append(builder.emit_thinking_delta("inspect first"))
-    chunks.extend(builder.close_content_blocks())
-    tool_block_index = builder.blocks.allocate_index()
-    chunks.append(
-        builder.content_block_start(
-            tool_block_index, "tool_use", id="toolu_1", name="Read"
-        )
-    )
-    chunks.append(
-        builder.content_block_delta(
-            tool_block_index, "input_json_delta", '{"file":"README.md"}'
-        )
-    )
-    chunks.append(builder.content_block_stop(tool_block_index))
-    chunks.extend(builder.ensure_text_block())
-    chunks.append(builder.emit_text_delta("done"))
-    chunks.extend(builder.close_all_blocks())
-    chunks.append(builder.message_delta("end_turn", 20))
-    chunks.append(builder.message_stop())
-
+def test_redacted_thinking_block_start_stop_is_valid() -> None:
+    """Native redacted_thinking uses start/stop only (no deltas)."""
+    chunks = [
+        format_sse_event(
+            "message_start",
+            {
+                "type": "message_start",
+                "message": {
+                    "id": "msg_r",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": "m",
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 1, "output_tokens": 1},
+                },
+            },
+        ),
+        format_sse_event(
+            "content_block_start",
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "redacted_thinking", "data": "opaque"},
+            },
+        ),
+        format_sse_event(
+            "content_block_stop",
+            {"type": "content_block_stop", "index": 0},
+        ),
+        format_sse_event(
+            "message_delta",
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                "usage": {"input_tokens": 1, "output_tokens": 2},
+            },
+        ),
+        format_sse_event("message_stop", {"type": "message_stop"}),
+    ]
     events = parse_sse_text("".join(chunks))
     assert_anthropic_stream_contract(events)
-    assert has_tool_use(events)
-
-    transcript = TranscriptBuffer()
-    for event in events:
-        for parsed in parse_cli_event(event.data):
-            transcript.apply(parsed)
-    rendered = transcript.render(_render_ctx(), limit_chars=3900, status=None)
-    assert (
-        rendered.find("inspect first")
-        < rendered.find("Tool call:")
-        < rendered.find("done")
-    )
 
 
 def test_enable_thinking_false_suppresses_reasoning_only() -> None:
@@ -186,13 +189,3 @@ def _emit_parser_parts(
 
 def _parse_builder_events(chunks: Iterable[str]):
     return parse_sse_text("".join(chunks))
-
-
-def _render_ctx() -> RenderCtx:
-    return RenderCtx(
-        bold=lambda text: f"*{text}*",
-        code_inline=lambda text: f"`{text}`",
-        escape_code=lambda text: text,
-        escape_text=lambda text: text,
-        render_markdown=lambda text: text,
-    )

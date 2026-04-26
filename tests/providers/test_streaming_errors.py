@@ -1,14 +1,20 @@
 """Tests for streaming error handling in providers/nvidia_nim/client.py."""
 
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
 from config.nim import NimSettings
+from core.anthropic.stream_contracts import (
+    assert_anthropic_stream_contract,
+    parse_sse_text,
+)
 from providers.base import ProviderConfig
 from providers.nvidia_nim import NvidiaNimProvider
+from tests.provider_request_mocks import make_openai_compat_stream_request
 
 
 class AsyncStreamMock:
@@ -53,22 +59,7 @@ def _make_provider_with_thinking_enabled(enabled: bool):
 
 def _make_request(model="test-model", stream=True):
     """Create a mock request with all fields build_request_body needs."""
-    req = MagicMock()
-    req.model = model
-    req.stream = stream
-    req.messages = []
-    req.system = None
-    req.tools = None
-    req.tool_choice = None
-    req.metadata = None
-    req.max_tokens = 4096
-    req.temperature = None
-    req.top_p = None
-    req.top_k = None
-    req.stop_sequences = None
-    req.extra_body = None
-    req.thinking = None
-    return req
+    return make_openai_compat_stream_request(model=model, stream=stream)
 
 
 def _make_chunk(
@@ -93,6 +84,29 @@ def _make_chunk(
 async def _collect_stream(provider, request):
     """Collect all SSE events from a stream."""
     return [e async for e in provider.stream_response(request)]
+
+
+def _assert_no_content_deltas_after_error_text(
+    events: list[str], error_substr: str
+) -> None:
+    """After the error text delta, only block close + message tail events may follow."""
+    parsed = parse_sse_text("".join(events))
+    first_error_idx = None
+    for i, ev in enumerate(parsed):
+        if ev.event != "content_block_delta":
+            continue
+        delta = ev.data.get("delta", {})
+        if delta.get("type") == "text_delta" and error_substr in str(
+            delta.get("text", "")
+        ):
+            first_error_idx = i
+            break
+    assert first_error_idx is not None, (error_substr, "".join(events))
+    for ev in parsed[first_error_idx + 1 :]:
+        assert ev.event in ("content_block_stop", "message_delta", "message_stop"), (
+            ev.event,
+            ev.data,
+        )
 
 
 class TestStreamingExceptionHandling:
@@ -128,6 +142,7 @@ class TestStreamingExceptionHandling:
         assert "message_start" in event_text
         assert "API failed" in event_text
         assert "message_stop" in event_text
+        _assert_no_content_deltas_after_error_text(events, "API failed")
 
     @pytest.mark.asyncio
     async def test_read_timeout_with_empty_message_emits_fallback(self):
@@ -161,6 +176,7 @@ class TestStreamingExceptionHandling:
         assert "timed out after" in event_text
         assert "request_id=req_timeout123" in event_text
         assert "message_stop" in event_text
+        _assert_no_content_deltas_after_error_text(events, "timed out after")
 
     @pytest.mark.asyncio
     async def test_error_after_partial_content(self):
@@ -191,6 +207,7 @@ class TestStreamingExceptionHandling:
         assert "Hello" in event_text
         assert "Connection lost" in event_text
         assert "message_stop" in event_text
+        _assert_no_content_deltas_after_error_text(events, "Connection lost")
 
     @pytest.mark.asyncio
     async def test_empty_response_gets_space(self):
@@ -353,6 +370,10 @@ class TestStreamingExceptionHandling:
             in event_text
         )
         assert "request_id=REQ405" in event_text
+        _assert_no_content_deltas_after_error_text(
+            events,
+            "Upstream provider NIM rejected the request method or endpoint (HTTP 405).",
+        )
 
     @pytest.mark.asyncio
     async def test_stream_rate_limited_retries_via_execute_with_retry(self):
@@ -405,6 +426,59 @@ class TestProcessToolCall:
         assert "tool_use" in event_text
         assert "search" in event_text
         assert "call_123" in event_text
+
+    def test_tool_call_id_arrives_before_name_still_emits_id_and_name(self):
+        """Split-stream tool: id (no name) then name then args; id preserved on start."""
+        provider = _make_provider()
+        from core.anthropic import SSEBuilder
+
+        sse = SSEBuilder("msg_test", "test-model")
+        t1 = {
+            "index": 0,
+            "id": "call_split",
+            "function": {"name": None, "arguments": ""},
+        }
+        t2 = {
+            "index": 0,
+            "id": "call_split",
+            "function": {"name": "Grep", "arguments": ""},
+        }
+        t3 = {
+            "index": 0,
+            "id": "call_split",
+            "function": {"name": None, "arguments": "{}"},
+        }
+        b1 = "".join(provider._process_tool_call(t1, sse))
+        b2 = "".join(provider._process_tool_call(t2, sse))
+        b3 = "".join(provider._process_tool_call(t3, sse))
+        combined = b1 + b2 + b3
+        assert "call_split" in combined
+        assert "Grep" in combined
+        assert b1 == ""
+
+    def test_tool_call_arguments_buffered_until_name(self):
+        """Argument deltas before tool name are emitted after the block starts."""
+        provider = _make_provider()
+        from core.anthropic import SSEBuilder
+
+        sse = SSEBuilder("msg_test", "test-model")
+        t1 = {
+            "index": 0,
+            "id": "call_buf",
+            "function": {"name": None, "arguments": '{"x":'},
+        }
+        t2 = {
+            "index": 0,
+            "id": "call_buf",
+            "function": {"name": "Read", "arguments": "1}"},
+        }
+        b1 = "".join(provider._process_tool_call(t1, sse))
+        b2 = "".join(provider._process_tool_call(t2, sse))
+        assert b1 == ""
+        combined = b2
+        assert "Read" in combined
+        assert "call_buf" in combined
+        assert '{"x":' in combined or "partial_json" in combined
 
     def test_tool_call_without_id_generates_uuid(self):
         """Tool call without id generates a uuid-based id."""
@@ -617,6 +691,7 @@ class TestStreamChunkEdgeCases:
         assert "Partial" in event_text
         assert "Connection reset" in event_text
         assert "message_stop" in event_text
+        _assert_no_content_deltas_after_error_text(events, "Connection reset")
 
     def test_stream_malformed_tool_args_chunked(self):
         """Chunked tool args that never form valid JSON are flushed with {}."""
@@ -642,3 +717,36 @@ class TestStreamChunkEdgeCases:
         event_text = "".join(events1 + events2 + flushed)
         assert "tool_use" in event_text
         assert "{}" in event_text
+
+
+@pytest.mark.asyncio
+async def test_openai_compat_stream_ends_with_contract_when_tool_name_never_arrives() -> (
+    None
+):
+    """Nameless / incomplete tool-call buffer must not break Anthropic stream contract."""
+    provider = _make_provider()
+    request = _make_request()
+    tc0 = SimpleNamespace(
+        index=0,
+        id="call_inc",
+        function=SimpleNamespace(name=None, arguments="{}"),
+    )
+    stream_mock = AsyncStreamMock([_make_chunk(tool_calls=[tc0])])
+    with (
+        patch.object(
+            provider._client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
+            return_value=stream_mock,
+        ),
+        patch.object(
+            provider._global_rate_limiter,
+            "wait_if_blocked",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+    ):
+        events = await _collect_stream(provider, request)
+    text = "".join(events)
+    assert_anthropic_stream_contract(parse_sse_text(text))
+    assert "text_delta" in text
