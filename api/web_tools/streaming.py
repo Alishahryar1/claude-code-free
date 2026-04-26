@@ -52,6 +52,7 @@ async def stream_web_server_tool_response(
     tool_name = forced_server_tool_name(request)
     if tool_name is None or not has_tool_named(request, tool_name):
         return
+        yield ""  # unreachable - but Python's async generators are picky little things
 
     text = forced_tool_turn_text(request)
     message_id = f"msg_{uuid.uuid4()}"

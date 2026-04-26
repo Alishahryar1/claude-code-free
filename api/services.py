@@ -38,12 +38,17 @@ _OPENAI_CHAT_UPSTREAM_IDS = frozenset({"nvidia_nim", "deepseek"})
 
 def anthropic_sse_streaming_response(
     body: AsyncIterator[str],
+    *,
+    request_id: str | None = None,
 ) -> StreamingResponse:
     """Return a :class:`StreamingResponse` for Anthropic-style SSE streams."""
+    headers = dict(ANTHROPIC_SSE_RESPONSE_HEADERS)
+    if request_id:
+        headers["X-Request-ID"] = request_id  # handy for grepping logs later
     return StreamingResponse(
         body,
         media_type="text/event-stream",
-        headers=ANTHROPIC_SSE_RESPONSE_HEADERS,
+        headers=headers,
     )
 
 
@@ -100,6 +105,7 @@ class ClaudeProxyService:
 
     def create_message(self, request_data: MessagesRequest) -> object:
         """Create a message response or streaming response."""
+        request_id = f"req_{uuid.uuid4().hex[:12]}"
         try:
             _require_non_empty_messages(request_data.messages)
 
@@ -130,6 +136,7 @@ class ClaudeProxyService:
                         web_fetch_egress=egress,
                         verbose_client_errors=self._settings.log_api_error_tracebacks,
                     ),
+                    request_id=request_id,
                 )
 
             optimized = try_optimizations(routed.request, self._settings)
@@ -143,7 +150,6 @@ class ClaudeProxyService:
                 thinking_enabled=routed.resolved.thinking_enabled,
             )
 
-            request_id = f"req_{uuid.uuid4().hex[:12]}"
             logger.info(
                 "API_REQUEST: request_id={} model={} messages={}",
                 request_id,
@@ -165,6 +171,7 @@ class ClaudeProxyService:
                     request_id=request_id,
                     thinking_enabled=routed.resolved.thinking_enabled,
                 ),
+                request_id=request_id,
             )
 
         except ProviderError:

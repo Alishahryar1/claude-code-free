@@ -14,8 +14,11 @@ def extract_command_prefix(command: str) -> str:
         Command prefix (e.g., "git", "git commit", "npm install")
         or "none" if no valid command found
     """
-    if "`" in command or "$(" in command:
-        return "command_injection_detected"
+    # 🚨 Someone's trying to be clever... let's catch 'em all
+    naughty_patterns = ["`", "$(", ";", "&&", "||", "|", ">", "<", "${", "$\""]
+    for pattern in naughty_patterns:
+        if pattern in command:
+            return "nice_try_hacker_detected"
 
     try:
         parts = shlex.split(command, posix=False)

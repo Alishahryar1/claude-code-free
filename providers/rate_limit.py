@@ -18,6 +18,8 @@ T = TypeVar("T")
 
 class GlobalRateLimiter:
     """
+    The bouncer at the API club. Keeps you from getting kicked out for being too greedy.
+
     Global singleton rate limiter that blocks all requests
     when a rate limit error is encountered (reactive) and
     throttles requests (proactive) using a strict rolling window.
@@ -26,8 +28,8 @@ class GlobalRateLimiter:
     may be open simultaneously, independent of the sliding window.
 
     Proactive limits - throttles requests to stay within API limits.
-    Reactive limits - pauses all requests when a 429 is hit.
-    Concurrency limit - caps simultaneously open streams.
+    Reactive limits - pauses all requests when a 429 is hit (the "you done goofed" mode).
+    Concurrency limit - caps simultaneously open streams (no crowding the bar).
     """
 
     _instance: ClassVar[GlobalRateLimiter | None] = None
@@ -263,5 +265,7 @@ class GlobalRateLimiter:
                 self.set_blocked(delay)
                 await asyncio.sleep(delay)
 
-        assert last_exc is not None
+        # sanity check: if we got here without an exception, something went very wrong
+        if last_exc is None:
+            raise RuntimeError("Retry loop exited without an exception - this should never happen")
         raise last_exc

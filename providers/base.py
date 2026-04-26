@@ -1,4 +1,8 @@
-"""Base provider interface - extend this to implement your own provider."""
+"""Base provider interface - extend this to implement your own provider.
+
+Think of this as the "recipe" for adding new LLM backends. Follow the recipe,
+don't burn down the kitchen, and you'll have a working provider in no time.
+"""
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator

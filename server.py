@@ -29,4 +29,5 @@ if __name__ == "__main__":
         )
     finally:
         # Safety net: cleanup subprocesses if lifespan shutdown doesn't fully run.
+        # It's like a toilet brush for your processes - nobody wants to think about it but you'll be glad it's there.
         kill_all_best_effort()

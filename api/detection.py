@@ -10,10 +10,11 @@ from .models.anthropic import MessagesRequest
 
 
 def is_quota_check_request(request_data: MessagesRequest) -> bool:
-    """Check if this is a quota probe request.
+    """Check if Claude is just pinging us to see if we're alive.
 
     Quota checks are typically simple requests with max_tokens=1
     and a single message containing the word "quota".
+    Basically the AI equivalent of "you still there?"
     """
     if (
         request_data.max_tokens == 1

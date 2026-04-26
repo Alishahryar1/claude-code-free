@@ -135,12 +135,13 @@ class Settings(BaseSettings):
     )
 
     # ==================== Model ====================
-    # All Claude model requests are mapped to this single model (fallback)
-    # Format: provider_type/model/name
+    # Pro tip: Set up fallback chains for reliability
+    # OPUS -> expensive but smart | SONNET -> balanced | HAIKU -> fast & cheap
+    # Example fallback: nvidia_nim/z-ai/glm4.7 -> open_router/meta/llama-3.3-70b -> ollama/llama3.2
     model: str = "nvidia_nim/z-ai/glm4.7"
 
     # Per-model overrides (optional, falls back to MODEL)
-    # Each can use a different provider
+    # Each can use a different provider - mix and match for your budget
     model_opus: str | None = Field(default=None, validation_alias="MODEL_OPUS")
     model_sonnet: str | None = Field(default=None, validation_alias="MODEL_SONNET")
     model_haiku: str | None = Field(default=None, validation_alias="MODEL_HAIKU")

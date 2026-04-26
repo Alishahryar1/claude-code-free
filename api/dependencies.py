@@ -63,7 +63,7 @@ def _resolve_with_registry(
         # Provider :class:`~providers.exceptions.AuthenticationError` messages are
         # curated configuration hints (env var names, docs links), not upstream noise.
         detail = str(e).strip() or get_user_facing_error_message(e)
-        raise HTTPException(status_code=503, detail=detail) from e
+        raise HTTPException(status_code=401, detail=detail) from e  # not 503 - this is your fault, not the server's
     except UnknownProviderTypeError:
         logger.error(
             "Unknown provider_type: '{}'. Supported: {}",

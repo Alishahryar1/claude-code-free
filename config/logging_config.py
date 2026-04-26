@@ -74,8 +74,20 @@ class InterceptHandler(logging.Handler):
         )
 
 
+def _pretty_format(record) -> str:
+    """Human-readable format for console output - because JSON is great for machines but terrible for eyeballs."""
+    time_str = record["time"].strftime("%H:%M:%S")
+    level = record["level"].name[:4]  # INFO, DEBU, WARN, ERRR
+    msg = _redact_sensitive_substrings(str(record["message"]))
+    return f"[{time_str}] {level:4} | {msg}\n"
+
+
 def configure_logging(
-    log_file: str, *, force: bool = False, verbose_third_party: bool = False
+    log_file: str,
+    *,
+    force: bool = False,
+    verbose_third_party: bool = False,
+    pretty_console: bool = True,
 ) -> None:
     """Configure loguru with JSON output to log_file and intercept stdlib logging.
 
@@ -84,6 +96,8 @@ def configure_logging(
 
     When ``verbose_third_party`` is false, noisy HTTP and Telegram loggers are capped
     at WARNING unless explicitly configured otherwise.
+
+    When ``pretty_console`` is true, also output human-readable logs to stderr.
     """
     global _configured
     if _configured and not force:
@@ -105,6 +119,15 @@ def configure_logging(
         mode="a",
         rotation="50 MB",
     )
+
+    # Add pretty console output for humans who like readable logs
+    if pretty_console:
+        logger.add(
+            lambda msg: print(msg, end=""),
+            level="INFO",
+            format=_pretty_format,
+            colorize=True,
+        )
 
     # Intercept stdlib logging: route all root logger output to loguru
     intercept = InterceptHandler()

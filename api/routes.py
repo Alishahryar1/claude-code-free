@@ -127,9 +127,30 @@ async def probe_root(_auth=Depends(require_api_key)):
 
 
 @router.get("/health")
-async def health():
-    """Health check endpoint."""
-    return {"status": "healthy"}
+async def health(
+    settings: Settings = Depends(get_settings),
+):
+    """Health check endpoint - now with extra sprinkles of info."""
+    import time
+    from datetime import datetime, UTC
+
+    # simple uptime since import (not perfect but good enough for a quick check)
+    now = datetime.now(UTC)
+    start_time = getattr(health, "_start_time", now)
+    if not hasattr(health, "_start_time"):
+        health._start_time = now
+
+    uptime = now - start_time
+    hours, remainder = divmod(int(uptime.total_seconds()), 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    return {
+        "status": "healthy",
+        "provider": settings.provider_type,
+        "model": settings.model,
+        "uptime": f"{hours}h {minutes}m {seconds}s" if hours else f"{minutes}m {seconds}s",
+        "message": "all systems nominal, coffee levels adequate",
+    }
 
 
 @router.api_route("/health", methods=["HEAD", "OPTIONS"])
