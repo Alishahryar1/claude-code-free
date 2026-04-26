@@ -361,7 +361,7 @@ The proxy also exposes Claude-compatible probe routes: `GET /v1/models`, `POST /
 | **DeepSeek**   | Usage-based  | Varies     | Direct access to DeepSeek chat/reasoner |
 | **LM Studio**  | Free (local) | Unlimited  | Privacy, offline use, no rate limits |
 | **llama.cpp**  | Free (local) | Unlimited  | Lightweight local inference engine   |
-| **Ollama**     | Free (local) | Unlimited  | Easy local LLM runtime, OpenAI API    |
+| **Ollama**     | Free (local) | Unlimited  | Easy local LLM runtime, native Anthropic API |
 
 Models use a prefix format: `provider_prefix/model/name`. An invalid prefix causes an error.
 
@@ -372,7 +372,7 @@ Models use a prefix format: `provider_prefix/model/name`. An invalid prefix caus
 | DeepSeek   | `deepseek/...`    | `DEEPSEEK_API_KEY`   | `api.deepseek.com`            |
 | LM Studio  | `lmstudio/...`    | (none)               | `localhost:1234/v1`           |
 | llama.cpp  | `llamacpp/...`    | (none)               | `localhost:8080/v1`           |
-| Ollama     | `ollama/...`      | (none)               | `localhost:11434/v1`          |
+| Ollama     | `ollama/...`      | (none)               | `localhost:11434`             |
 
 <details>
 <summary><b>NVIDIA NIM models</b></summary>
@@ -445,7 +445,7 @@ See the Unsloth docs for detailed instructions and capable models:
 <summary><b>Ollama</b> (fully local, no API key)</summary>
 
 ```dotenv
-OLLAMA_BASE_URL="http://localhost:11434/v1"
+OLLAMA_BASE_URL="http://localhost:11434"
 
 MODEL_OPUS="ollama/llama3.1:70b"
 MODEL_SONNET="ollama/llama3.1:8b"
@@ -572,7 +572,7 @@ Configure via `WHISPER_DEVICE` (`cpu` | `cuda` | `nvidia_nim`) and `WHISPER_MODE
 | `OPENROUTER_PROXY`   | Optional proxy URL for OpenRouter requests (`http://...` or `socks5://...`) | `""` |
 | `LMSTUDIO_PROXY`     | Optional proxy URL for LM Studio requests (`http://...` or `socks5://...`) | `""` |
 | `LLAMACPP_PROXY`     | Optional proxy URL for llama.cpp requests (`http://...` or `socks5://...`) | `""` |
-| `OLLAMA_BASE_URL`    | Ollama server URL                                                    | `http://localhost:11434/v1`                       |
+| `OLLAMA_BASE_URL`    | Ollama server root URL                                               | `http://localhost:11434`                          |
 
 ### Rate Limiting & Timeouts
 

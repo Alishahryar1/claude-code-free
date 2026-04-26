@@ -30,10 +30,8 @@ def test_llamacpp_models_endpoint_when_available(smoke_config: SmokeConfig) -> N
 @pytest.mark.live
 @pytest.mark.smoke_target("ollama")
 def test_ollama_models_endpoint_when_available(smoke_config: SmokeConfig) -> None:
-    _assert_models_endpoint(
-        smoke_config.settings.ollama_base_url,
-        timeout_s=smoke_config.timeout_s,
-        provider_name="Ollama",
+    _assert_ollama_tags_endpoint(
+        smoke_config.settings.ollama_base_url, timeout_s=smoke_config.timeout_s
     )
 
 
@@ -57,9 +55,6 @@ def _assert_models_endpoint(
     payload = response.json()
     data = payload.get("data")
     if isinstance(data, list) and data:
-        return
-    if provider_name == "Ollama":
-        _assert_ollama_tags_endpoint(base_url, timeout_s=timeout_s)
         return
     if isinstance(data, list):
         pytest.skip(f"upstream_unavailable: {provider_name} has no local models")
@@ -88,7 +83,4 @@ def _assert_ollama_tags_endpoint(base_url: str, *, timeout_s: float) -> None:
 
 
 def _ollama_root_url(base_url: str) -> str:
-    stripped = base_url.rstrip("/")
-    if stripped.endswith("/v1"):
-        return stripped[:-3]
-    return stripped
+    return base_url.rstrip("/")

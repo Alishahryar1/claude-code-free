@@ -350,11 +350,11 @@ FEATURE_INVENTORY: tuple[FeatureCoverage, ...] = (
     ),
     FeatureCoverage(
         "ollama_endpoint",
-        "Ollama OpenAI-compatible messages and local no-key operation work when running",
+        "Ollama native Anthropic messages and local no-key operation work when running",
         "public_surface",
         ("tests/providers/test_ollama.py",),
         ("test_ollama_models_endpoint_when_available",),
-        ("test_ollama_openai_messages_e2e",),
+        ("test_ollama_native_messages_e2e",),
         ("ollama",),
         ("OLLAMA_BASE_URL with running Ollama server",),
         "skip when local upstream is unavailable",

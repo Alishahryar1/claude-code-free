@@ -91,11 +91,18 @@ PROVIDER_DESCRIPTORS: dict[str, ProviderDescriptor] = {
     ),
     "ollama": ProviderDescriptor(
         provider_id="ollama",
-        transport_type="openai_chat",
+        transport_type="anthropic_messages",
         static_credential="ollama",
         default_base_url=OLLAMA_DEFAULT_BASE,
         base_url_attr="ollama_base_url",
-        capabilities=("chat", "streaming", "thinking", "local"),
+        capabilities=(
+            "chat",
+            "streaming",
+            "tools",
+            "thinking",
+            "native_anthropic",
+            "local",
+        ),
     ),
 }
 

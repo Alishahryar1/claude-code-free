@@ -1,32 +1,31 @@
 """Ollama provider implementation."""
 
-from typing import Any
+import httpx
 
+from providers.anthropic_messages import AnthropicMessagesTransport
 from providers.base import ProviderConfig
 from providers.defaults import OLLAMA_DEFAULT_BASE
-from providers.openai_compat import OpenAIChatTransport
-
-from .request import build_request_body
 
 OLLAMA_BASE_URL = OLLAMA_DEFAULT_BASE
 
 
-class OllamaProvider(OpenAIChatTransport):
-    """Ollama provider using OpenAI-compatible API."""
+class OllamaProvider(AnthropicMessagesTransport):
+    """Ollama provider using native Anthropic Messages API."""
 
     def __init__(self, config: ProviderConfig):
         super().__init__(
             config,
             provider_name="OLLAMA",
-            base_url=config.base_url or OLLAMA_BASE_URL,
-            api_key=config.api_key or "ollama",
+            default_base_url=OLLAMA_BASE_URL,
         )
+        self._api_key = config.api_key or "ollama"
 
-    def _build_request_body(
-        self, request: Any, thinking_enabled: bool | None = None
-    ) -> dict:
-        """Build OpenAI-format request body from Anthropic request."""
-        return build_request_body(
-            request,
-            thinking_enabled=self._is_thinking_enabled(request, thinking_enabled),
+    async def _send_stream_request(self, body: dict) -> httpx.Response:
+        """Create a streaming native Anthropic messages response."""
+        request = self._client.build_request(
+            "POST",
+            "/v1/messages",
+            json=body,
+            headers=self._request_headers(),
         )
+        return await self._client.send(request, stream=True)

@@ -36,7 +36,7 @@ def _make_mock_settings(**overrides):
     mock.open_router_api_key = "test_openrouter_key"
     mock.deepseek_api_key = "test_deepseek_key"
     mock.lm_studio_base_url = "http://localhost:1234/v1"
-    mock.ollama_base_url = "http://localhost:11434/v1"
+    mock.ollama_base_url = "http://localhost:11434"
     mock.nim = NimSettings()
     mock.http_read_timeout = 300.0
     mock.http_write_timeout = 10.0
@@ -141,7 +141,7 @@ async def test_get_provider_ollama():
         provider = get_provider()
 
         assert isinstance(provider, OllamaProvider)
-        assert provider._base_url == "http://localhost:11434/v1"
+        assert provider._base_url == "http://localhost:11434"
         assert provider._api_key == "ollama"
 
 

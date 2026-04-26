@@ -29,7 +29,7 @@ def _make_settings(**overrides):
     mock.deepseek_api_key = "test_deepseek_key"
     mock.lm_studio_base_url = "http://localhost:1234/v1"
     mock.llamacpp_base_url = "http://localhost:8080/v1"
-    mock.ollama_base_url = "http://localhost:11434/v1"
+    mock.ollama_base_url = "http://localhost:11434"
     mock.nvidia_nim_proxy = ""
     mock.open_router_proxy = ""
     mock.lmstudio_proxy = ""
@@ -69,6 +69,14 @@ def test_descriptors_cover_advertised_provider_ids():
         assert descriptor.provider_id
         assert descriptor.transport_type in {"openai_chat", "anthropic_messages"}
         assert descriptor.capabilities
+
+
+def test_ollama_descriptor_uses_native_anthropic_transport():
+    descriptor = PROVIDER_DESCRIPTORS["ollama"]
+
+    assert descriptor.transport_type == "anthropic_messages"
+    assert descriptor.default_base_url == "http://localhost:11434"
+    assert "native_anthropic" in descriptor.capabilities
 
 
 def test_create_provider_uses_native_openrouter_by_default():

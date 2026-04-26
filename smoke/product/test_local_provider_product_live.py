@@ -30,7 +30,7 @@ def test_llamacpp_native_messages_e2e(smoke_config: SmokeConfig) -> None:
 
 
 @pytest.mark.smoke_target("ollama")
-def test_ollama_openai_messages_e2e(smoke_config: SmokeConfig) -> None:
+def test_ollama_native_messages_e2e(smoke_config: SmokeConfig) -> None:
     _local_native_messages_e2e(
         smoke_config,
         provider="ollama",
@@ -47,15 +47,11 @@ def _local_native_messages_e2e(
     if not base_url.strip():
         pytest.skip(f"missing_env: {provider} base URL is not configured")
 
-    models_url = urljoin(base_url.rstrip("/") + "/", "models")
-    try:
-        models = httpx.get(models_url, timeout=5)
-    except httpx.ConnectError as exc:
-        pytest.skip(f"upstream_unavailable: {provider} models endpoint: {exc}")
-    except httpx.TimeoutException as exc:
-        pytest.skip(f"upstream_unavailable: {provider} models endpoint: {exc}")
-    assert models.status_code == 200, models.text
-    model_id = _first_local_model_id(models, provider=provider, base_url=base_url)
+    model_id = (
+        _first_ollama_tag_model_id(base_url)
+        if provider == "ollama"
+        else (_first_non_ollama_model_id(provider, base_url))
+    )
 
     with SmokeServerDriver(
         smoke_config,
@@ -69,9 +65,15 @@ def _local_native_messages_e2e(
     assert_product_stream(turn.events)
 
 
-def _first_local_model_id(
-    response: httpx.Response, *, provider: str, base_url: str
-) -> str:
+def _first_non_ollama_model_id(provider: str, base_url: str) -> str:
+    models_url = urljoin(base_url.rstrip("/") + "/", "models")
+    try:
+        response = httpx.get(models_url, timeout=5)
+    except httpx.ConnectError as exc:
+        pytest.skip(f"upstream_unavailable: {provider} models endpoint: {exc}")
+    except httpx.TimeoutException as exc:
+        pytest.skip(f"upstream_unavailable: {provider} models endpoint: {exc}")
+    assert response.status_code == 200, response.text
     payload = response.json()
     data = payload.get("data") if isinstance(payload, dict) else None
     if isinstance(data, list):
@@ -79,8 +81,6 @@ def _first_local_model_id(
             if isinstance(item, dict) and isinstance(item.get("id"), str):
                 return item["id"]
         pytest.skip(f"upstream_unavailable: {provider} has no local models")
-    if provider == "ollama":
-        return _first_ollama_tag_model_id(base_url)
     pytest.fail("product_failure: local /models did not expose a model id")
 
 
@@ -105,7 +105,4 @@ def _first_ollama_tag_model_id(base_url: str) -> str:
 
 
 def _ollama_root_url(base_url: str) -> str:
-    stripped = base_url.rstrip("/")
-    if stripped.endswith("/v1"):
-        return stripped[:-3]
-    return stripped
+    return base_url.rstrip("/")

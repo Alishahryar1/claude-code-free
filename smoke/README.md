@@ -54,7 +54,7 @@ Default targets do not send real bot messages or load voice backends:
 | `rate_limit` | disconnect cleanup and follow-up request | configured provider |
 | `lmstudio` | local `/models` plus native `/messages` through proxy | running LM Studio server |
 | `llamacpp` | local `/models` plus native `/messages` through proxy | running llama-server |
-| `ollama` | local `/models` plus OpenAI-compatible chat through proxy | running Ollama server |
+| `ollama` | local `/api/tags` plus native Anthropic messages through proxy | running Ollama server |
 
 Side-effectful targets are opt-in:
 
@@ -75,7 +75,7 @@ uv run pytest smoke/product -n 0 -s --tb=short
 ```powershell
 $env:FCC_LIVE_SMOKE = "1"
 $env:FCC_SMOKE_TARGETS = "ollama"
-$env:OLLAMA_BASE_URL = "http://localhost:11434/v1"
+$env:OLLAMA_BASE_URL = "http://localhost:11434"
 uv run pytest smoke/prereq smoke/product -n 0 -s --tb=short
 ```
 

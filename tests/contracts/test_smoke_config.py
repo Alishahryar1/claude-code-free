@@ -17,7 +17,7 @@ def _settings(**overrides):
         "deepseek_api_key": "",
         "lm_studio_base_url": "",
         "llamacpp_base_url": "",
-        "ollama_base_url": "http://localhost:11434/v1",
+        "ollama_base_url": "http://localhost:11434",
     }
     values.update(overrides)
     return SimpleNamespace(**values)
