@@ -12,10 +12,15 @@ concurrency:
 
 jobs:
   checks:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: CI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -24,6 +29,7 @@ jobs:
           fetch-depth: 1
 
       - name: "Fail on type: ignore (no suppressions allowed)"
+        shell: bash
         run: |
           if grep -rE '# type: ignore|# ty: ignore' --include='*.py' . --exclude-dir=.venv --exclude-dir=.git; then
             echo "::error::type: ignore / ty: ignore comments are not allowed. Fix the underlying type errors instead."
@@ -37,6 +43,9 @@ jobs:
           version: "0.10.4"
           enable-cache: true
           cache-python: true
+
+      - name: Install Python 3.14
+        run: uv python install 3.14
 
       - name: Format check
         run: uv run ruff format --check
