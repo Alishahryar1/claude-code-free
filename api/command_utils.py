@@ -3,6 +3,17 @@
 import shlex
 
 
+def _strip_env_assignments(parts: list[str]) -> list[str]:
+    """Return command parts after leading shell-style env assignments."""
+    cmd_start = 0
+    for i, part in enumerate(parts):
+        if "=" in part and not part.startswith("-"):
+            cmd_start = i + 1
+        else:
+            break
+    return parts[cmd_start:]
+
+
 def extract_command_prefix(command: str) -> str:
     """Extract the command prefix for fast prefix detection.
 
@@ -90,14 +101,18 @@ def extract_filepaths_from_command(command: str, output: str) -> str:
         if not parts:
             return "<filepaths>\n</filepaths>"
 
-        base_cmd = parts[0].split("/")[-1].split("\\")[-1].lower()
+        cmd_parts = _strip_env_assignments(parts)
+        if not cmd_parts:
+            return "<filepaths>\n</filepaths>"
+
+        base_cmd = cmd_parts[0].split("/")[-1].split("\\")[-1].lower()
 
         if base_cmd in listing_commands:
             return "<filepaths>\n</filepaths>"
 
         if base_cmd in reading_commands:
             filepaths = []
-            for part in parts[1:]:
+            for part in cmd_parts[1:]:
                 if part.startswith("-"):
                     continue
                 filepaths.append(part)
@@ -113,7 +128,7 @@ def extract_filepaths_from_command(command: str, output: str) -> str:
             positional: list[str] = []
 
             skip_next = False
-            for part in parts[1:]:
+            for part in cmd_parts[1:]:
                 if skip_next:
                     skip_next = False
                     continue
