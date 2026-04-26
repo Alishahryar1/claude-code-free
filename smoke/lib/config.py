@@ -20,6 +20,7 @@ DEFAULT_TARGETS = frozenset(
         "llamacpp",
         "lmstudio",
         "messaging",
+        "ollama",
         "providers",
         "rate_limit",
         "tools",
@@ -49,6 +50,7 @@ TARGET_REQUIRED_ENV: dict[str, tuple[str, ...]] = {
     "tools": ("configured tool-capable provider model",),
     "lmstudio": ("LM_STUDIO_BASE_URL with a running LM Studio server",),
     "llamacpp": ("LLAMACPP_BASE_URL with a running llama-server",),
+    "ollama": ("OLLAMA_BASE_URL with a running Ollama server",),
     "telegram": (
         "TELEGRAM_BOT_TOKEN",
         "ALLOWED_TELEGRAM_USER_ID or FCC_SMOKE_TELEGRAM_CHAT_ID",
@@ -142,6 +144,8 @@ class SmokeConfig:
             return bool(self.settings.lm_studio_base_url.strip())
         if provider == "llamacpp":
             return bool(self.settings.llamacpp_base_url.strip())
+        if provider == "ollama":
+            return bool(self.settings.ollama_base_url.strip())
         return False
 
 

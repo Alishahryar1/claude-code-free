@@ -56,13 +56,20 @@ with **runtime composition** (e.g. `api.runtime` constructs `cli` and `messaging
 **Contract highlights:** `api/` may import only `providers.base`, `providers.exceptions`,
 and `providers.registry` from the providers package (not per-adapter modules).
 `core/` stays free of `api`, `messaging`, `cli`, `providers`, `config`, and `smoke`.
-`messaging/` does not import `api`, `cli`, or `providers`. Neutral stream contract
-assertions for default CI live under `core/anthropic/stream_contracts.py`;
-`smoke.lib.sse` re-exports them for live smoke. Process-cached provider helpers
-(`api.dependencies.get_provider` / `get_provider_for_type`) exist for scripts and
-unit tests; production HTTP handlers must use `resolve_provider` with
+`messaging/` does not import `api`, `cli`, or `smoke`, and may import `providers`
+only via `providers.nvidia_nim.voice` (NVIDIA/Riva offline ASR). Stream contract
+helpers live in `core/anthropic/stream_contracts.py`; live smoke imports that
+module directly (no dedicated smoke SSE shim). NVIDIA NIM chat tuning uses the
+canonical `config.nim.NimSettings` model on `Settings`; `providers.registry`
+passes `settings.nim` into `NvidiaNimProvider` without a duplicate schema.
+Default upstream base URLs use a single constant per endpoint in
+`providers/defaults.py` (e.g. `NVIDIA_NIM_DEFAULT_BASE`). Process-cached provider
+helpers (`api.dependencies.get_provider` / `get_provider_for_type`) exist for
+scripts and unit tests; production HTTP handlers must use `resolve_provider` with
 `request.app` so the app-scoped `ProviderRegistry` is used. The `api` package
-`__all__` exposes HTTP models and `create_app` only (not those helpers).
+`__all__` exposes HTTP models and `create_app` only (not `app`, not those helpers).
+`api.app:create_app` is the ASGI factory (e.g. `uvicorn api.app:create_app --factory`);
+`server.py` still exposes `server:app` as a module-level instance for convenience.
 
 ## Target Boundaries
 

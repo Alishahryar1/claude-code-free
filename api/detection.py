@@ -65,8 +65,8 @@ def is_prefix_detection_request(request_data: MessagesRequest) -> tuple[bool, st
         try:
             cmd_start = content.rfind("Command:") + len("Command:")
             return True, content[cmd_start:].strip()
-        except Exception:
-            pass
+        except TypeError:
+            return False, ""
 
     return False, ""
 
@@ -121,19 +121,16 @@ def is_filepath_extraction_request(
     if not user_has_filepaths and not system_has_extract:
         return False, "", ""
 
-    try:
-        cmd_start = content.find("Command:") + len("Command:")
-        output_marker = content.find("Output:", cmd_start)
-        if output_marker == -1:
-            return False, "", ""
-
-        command = content[cmd_start:output_marker].strip()
-        output = content[output_marker + len("Output:") :].strip()
-
-        for marker in ["<", "\n\n"]:
-            if marker in output:
-                output = output.split(marker)[0].strip()
-
-        return True, command, output
-    except Exception:
+    cmd_start = content.find("Command:") + len("Command:")
+    output_marker = content.find("Output:", cmd_start)
+    if output_marker == -1:
         return False, "", ""
+
+    command = content[cmd_start:output_marker].strip()
+    output = content[output_marker + len("Output:") :].strip()
+
+    for marker in ["<", "\n\n"]:
+        if marker in output:
+            output = output.split(marker)[0].strip()
+
+    return True, command, output

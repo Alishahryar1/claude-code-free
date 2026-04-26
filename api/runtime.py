@@ -23,15 +23,31 @@ _SHUTDOWN_TIMEOUT_S = 5.0
 
 
 async def best_effort(
-    name: str, awaitable: Any, timeout_s: float = _SHUTDOWN_TIMEOUT_S
+    name: str,
+    awaitable: Any,
+    timeout_s: float = _SHUTDOWN_TIMEOUT_S,
+    *,
+    log_verbose_errors: bool = False,
 ) -> None:
     """Run a shutdown step with timeout; never raise to callers."""
     try:
         await asyncio.wait_for(awaitable, timeout=timeout_s)
     except TimeoutError:
-        logger.warning(f"Shutdown step timed out: {name} ({timeout_s}s)")
+        logger.warning("Shutdown step timed out: {} ({}s)", name, timeout_s)
     except Exception as e:
-        logger.warning(f"Shutdown step failed: {name}: {type(e).__name__}: {e}")
+        if log_verbose_errors:
+            logger.warning(
+                "Shutdown step failed: {}: {}: {}",
+                name,
+                type(e).__name__,
+                e,
+            )
+        else:
+            logger.warning(
+                "Shutdown step failed: {}: exc_type={}",
+                name,
+                type(e).__name__,
+            )
 
 
 def warn_if_process_auth_token(settings: Settings) -> None:
@@ -73,20 +89,37 @@ class AppRuntime:
         self._publish_state()
 
     async def shutdown(self) -> None:
+        verbose = self.settings.log_api_error_tracebacks
         if self.message_handler is not None:
             try:
                 self.message_handler.session_store.flush_pending_save()
             except Exception as e:
-                logger.warning(f"Session store flush on shutdown: {e}")
+                if verbose:
+                    logger.warning("Session store flush on shutdown: {}", e)
+                else:
+                    logger.warning(
+                        "Session store flush on shutdown: exc_type={}",
+                        type(e).__name__,
+                    )
 
         logger.info("Shutdown requested, cleaning up...")
         if self.messaging_platform:
-            await best_effort("messaging_platform.stop", self.messaging_platform.stop())
+            await best_effort(
+                "messaging_platform.stop",
+                self.messaging_platform.stop(),
+                log_verbose_errors=verbose,
+            )
         if self.cli_manager:
-            await best_effort("cli_manager.stop_all", self.cli_manager.stop_all())
+            await best_effort(
+                "cli_manager.stop_all",
+                self.cli_manager.stop_all(),
+                log_verbose_errors=verbose,
+            )
         if self._provider_registry is not None:
             await best_effort(
-                "provider_registry.cleanup", self._provider_registry.cleanup()
+                "provider_registry.cleanup",
+                self._provider_registry.cleanup(),
+                log_verbose_errors=verbose,
             )
         await self._shutdown_limiter()
         logger.info("Server shut down cleanly")
@@ -110,6 +143,10 @@ class AppRuntime:
                     whisper_device=self.settings.whisper_device,
                     hf_token=self.settings.hf_token,
                     nvidia_nim_api_key=self.settings.nvidia_nim_api_key,
+                    messaging_rate_limit=self.settings.messaging_rate_limit,
+                    messaging_rate_window=self.settings.messaging_rate_window,
+                    log_raw_messaging_content=self.settings.log_raw_messaging_content,
+                    log_api_error_tracebacks=self.settings.log_api_error_tracebacks,
                 ),
             )
 
@@ -117,12 +154,24 @@ class AppRuntime:
                 await self._start_message_handler()
 
         except ImportError as e:
-            logger.warning(f"Messaging module import error: {e}")
+            if self.settings.log_api_error_tracebacks:
+                logger.warning("Messaging module import error: {}", e)
+            else:
+                logger.warning(
+                    "Messaging module import error: exc_type={}",
+                    type(e).__name__,
+                )
         except Exception as e:
-            logger.error(f"Failed to start messaging platform: {e}")
-            import traceback
+            if self.settings.log_api_error_tracebacks:
+                logger.error("Failed to start messaging platform: {}", e)
+                import traceback
 
-            logger.error(traceback.format_exc())
+                logger.error(traceback.format_exc())
+            else:
+                logger.error(
+                    "Failed to start messaging platform: exc_type={}",
+                    type(e).__name__,
+                )
 
     async def _start_message_handler(self) -> None:
         from cli.manager import CLISessionManager
@@ -151,10 +200,13 @@ class AppRuntime:
             allowed_dirs=allowed_dirs,
             plans_directory=plans_directory,
             claude_bin=self.settings.claude_cli_bin,
+            log_raw_cli_diagnostics=self.settings.log_raw_cli_diagnostics,
+            log_messaging_error_details=self.settings.log_messaging_error_details,
         )
 
         session_store = SessionStore(
-            storage_path=os.path.join(data_path, "sessions.json")
+            storage_path=os.path.join(data_path, "sessions.json"),
+            message_log_cap=self.settings.max_message_log_entries_per_chat,
         )
         platform = self.messaging_platform
         assert platform is not None
@@ -162,6 +214,11 @@ class AppRuntime:
             platform=platform,
             cli_manager=self.cli_manager,
             session_store=session_store,
+            debug_platform_edits=self.settings.debug_platform_edits,
+            debug_subagent_stack=self.settings.debug_subagent_stack,
+            log_raw_messaging_content=self.settings.log_raw_messaging_content,
+            log_raw_cli_diagnostics=self.settings.log_raw_cli_diagnostics,
+            log_messaging_error_details=self.settings.log_messaging_error_details,
         )
         self._restore_tree_state(session_store)
 
@@ -201,18 +258,26 @@ class AppRuntime:
         self.app.state.cli_manager = self.cli_manager
 
     async def _shutdown_limiter(self) -> None:
+        verbose = self.settings.log_api_error_tracebacks
         try:
             from messaging.limiter import MessagingRateLimiter
         except Exception as e:
-            logger.debug(
-                "Rate limiter shutdown skipped (import failed): {}: {}",
-                type(e).__name__,
-                e,
-            )
+            if verbose:
+                logger.debug(
+                    "Rate limiter shutdown skipped (import failed): {}: {}",
+                    type(e).__name__,
+                    e,
+                )
+            else:
+                logger.debug(
+                    "Rate limiter shutdown skipped (import failed): exc_type={}",
+                    type(e).__name__,
+                )
             return
 
         await best_effort(
             "MessagingRateLimiter.shutdown_instance",
             MessagingRateLimiter.shutdown_instance(),
             timeout_s=2.0,
+            log_verbose_errors=verbose,
         )

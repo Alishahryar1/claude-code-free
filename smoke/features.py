@@ -124,8 +124,9 @@ FEATURE_INVENTORY: tuple[FeatureCoverage, ...] = (
         (
             "test_provider_adaptive_thinking_history_e2e",
             "test_claude_cli_adaptive_thinking_e2e",
+            "test_per_model_thinking_config_e2e",
         ),
-        ("providers", "cli"),
+        ("providers", "cli", "config"),
         ("configured provider",),
         "configured providers must not reject adaptive thinking payloads",
     ),
@@ -345,6 +346,17 @@ FEATURE_INVENTORY: tuple[FeatureCoverage, ...] = (
         ("test_llamacpp_native_messages_e2e",),
         ("llamacpp",),
         ("LLAMACPP_BASE_URL with running llama-server",),
+        "skip when local upstream is unavailable",
+    ),
+    FeatureCoverage(
+        "ollama_endpoint",
+        "Ollama native Anthropic messages and local no-key operation work when running",
+        "public_surface",
+        ("tests/providers/test_ollama.py",),
+        ("test_ollama_models_endpoint_when_available",),
+        ("test_ollama_native_messages_e2e",),
+        ("ollama",),
+        ("OLLAMA_BASE_URL with running Ollama server",),
         "skip when local upstream is unavailable",
     ),
     FeatureCoverage(

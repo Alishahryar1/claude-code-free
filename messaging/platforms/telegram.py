@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from core.anthropic import get_user_facing_error_message
+from core.anthropic import format_user_error_preview
 
 if TYPE_CHECKING:
     from telegram import Update
@@ -68,14 +68,18 @@ class TelegramPlatform(MessagingPlatform):
         whisper_device: str = "cpu",
         hf_token: str = "",
         nvidia_nim_api_key: str = "",
+        messaging_rate_limit: int = 1,
+        messaging_rate_window: float = 1.0,
+        log_raw_messaging_content: bool = False,
+        log_api_error_tracebacks: bool = False,
     ):
         if not TELEGRAM_AVAILABLE:
             raise ImportError(
                 "python-telegram-bot is required. Install with: pip install python-telegram-bot"
             )
 
-        self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
-        self.allowed_user_id = allowed_user_id or os.getenv("ALLOWED_TELEGRAM_USER_ID")
+        self.bot_token = bot_token
+        self.allowed_user_id = allowed_user_id
 
         if not self.bot_token:
             # We don't raise here to allow instantiation for testing/conditional logic,
@@ -97,6 +101,10 @@ class TelegramPlatform(MessagingPlatform):
         self._voice_note_enabled = voice_note_enabled
         self._whisper_model = whisper_model
         self._whisper_device = whisper_device
+        self._messaging_rate_limit = messaging_rate_limit
+        self._messaging_rate_window = messaging_rate_window
+        self._log_raw_messaging_content = log_raw_messaging_content
+        self._log_api_error_tracebacks = log_api_error_tracebacks
 
     async def _register_pending_voice(
         self, chat_id: str, voice_msg_id: str, status_msg_id: str
@@ -172,7 +180,10 @@ class TelegramPlatform(MessagingPlatform):
         # Initialize rate limiter
         from ..limiter import MessagingRateLimiter
 
-        self._limiter = await MessagingRateLimiter.get_instance()
+        self._limiter = await MessagingRateLimiter.get_instance(
+            rate_limit=self._messaging_rate_limit,
+            rate_window=self._messaging_rate_window,
+        )
 
         # Send startup notification
         try:
@@ -187,7 +198,13 @@ class TelegramPlatform(MessagingPlatform):
                     startup_text,
                 )
         except Exception as e:
-            logger.warning(f"Could not send startup message: {e}")
+            if self._log_api_error_tracebacks:
+                logger.warning("Could not send startup message: {}", e)
+            else:
+                logger.warning(
+                    "Could not send startup message: exc_type={}",
+                    type(e).__name__,
+                )
 
         logger.info("Telegram platform started (Bot API)")
 
@@ -506,16 +523,26 @@ class TelegramPlatform(MessagingPlatform):
             if getattr(update.message, "message_thread_id", None) is not None
             else None
         )
-        text_preview = (update.message.text or "")[:80]
-        if len(update.message.text or "") > 80:
-            text_preview += "..."
-        logger.info(
-            "TELEGRAM_MSG: chat_id={} message_id={} reply_to={} text_preview={!r}",
-            chat_id,
-            message_id,
-            reply_to,
-            text_preview,
-        )
+        raw_text = update.message.text or ""
+        if self._log_raw_messaging_content:
+            text_preview = raw_text[:80]
+            if len(raw_text) > 80:
+                text_preview += "..."
+            logger.info(
+                "TELEGRAM_MSG: chat_id={} message_id={} reply_to={} text_preview={!r}",
+                chat_id,
+                message_id,
+                reply_to,
+                text_preview,
+            )
+        else:
+            logger.info(
+                "TELEGRAM_MSG: chat_id={} message_id={} reply_to={} text_len={}",
+                chat_id,
+                message_id,
+                reply_to,
+                len(raw_text),
+            )
 
         if not self._message_handler:
             return
@@ -534,11 +561,14 @@ class TelegramPlatform(MessagingPlatform):
         try:
             await self._message_handler(incoming)
         except Exception as e:
-            logger.error(f"Error handling message: {e}")
+            if self._log_api_error_tracebacks:
+                logger.error("Error handling message: {}", e)
+            else:
+                logger.error("Error handling message: exc_type={}", type(e).__name__)
             with contextlib.suppress(Exception):
                 await self.send_message(
                     chat_id,
-                    f"❌ *{escape_md_v2('Error:')}* {escape_md_v2(get_user_facing_error_message(e)[:200])}",
+                    f"❌ *{escape_md_v2('Error:')}* {escape_md_v2(format_user_error_preview(e))}",
                     reply_to=incoming.message_id,
                     message_thread_id=thread_id,
                     parse_mode="MarkdownV2",
@@ -631,20 +661,37 @@ class TelegramPlatform(MessagingPlatform):
                 status_message_id=status_msg_id,
             )
 
-            logger.info(
-                "TELEGRAM_VOICE: chat_id={} message_id={} transcribed={!r}",
-                chat_id,
-                message_id,
-                (transcribed[:80] + "..." if len(transcribed) > 80 else transcribed),
-            )
+            if self._log_raw_messaging_content:
+                logger.info(
+                    "TELEGRAM_VOICE: chat_id={} message_id={} transcribed={!r}",
+                    chat_id,
+                    message_id,
+                    (
+                        transcribed[:80] + "..."
+                        if len(transcribed) > 80
+                        else transcribed
+                    ),
+                )
+            else:
+                logger.info(
+                    "TELEGRAM_VOICE: chat_id={} message_id={} transcribed_len={}",
+                    chat_id,
+                    message_id,
+                    len(transcribed),
+                )
 
             await self._message_handler(incoming)
         except ValueError as e:
-            await update.message.reply_text(get_user_facing_error_message(e)[:200])
+            await update.message.reply_text(format_user_error_preview(e))
         except ImportError as e:
-            await update.message.reply_text(get_user_facing_error_message(e)[:200])
+            await update.message.reply_text(format_user_error_preview(e))
         except Exception as e:
-            logger.error(f"Voice transcription failed: {e}")
+            if self._log_api_error_tracebacks:
+                logger.error("Voice transcription failed: {}", e)
+            else:
+                logger.error(
+                    "Voice transcription failed: exc_type={}", type(e).__name__
+                )
             await update.message.reply_text(
                 "Could not transcribe voice note. Please try again or send text."
             )

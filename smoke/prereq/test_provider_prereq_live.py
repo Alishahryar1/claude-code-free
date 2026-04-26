@@ -5,6 +5,10 @@ import time
 import httpx
 import pytest
 
+from core.anthropic.stream_contracts import (
+    assert_anthropic_stream_contract,
+    text_content,
+)
 from smoke.lib.config import SmokeConfig, auth_headers
 from smoke.lib.http import collect_message_stream, message_payload
 from smoke.lib.server import start_server
@@ -12,7 +16,6 @@ from smoke.lib.skips import (
     skip_if_upstream_unavailable_events,
     skip_if_upstream_unavailable_exception,
 )
-from smoke.lib.sse import assert_anthropic_stream_contract, text_content
 
 pytestmark = [pytest.mark.live, pytest.mark.smoke_target("providers")]
 

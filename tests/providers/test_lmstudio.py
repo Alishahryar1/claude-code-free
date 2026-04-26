@@ -5,8 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from config.constants import ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS
 from providers.base import ProviderConfig
 from providers.lmstudio import LMStudioProvider
+from tests.stream_contract import assert_canonical_stream_error_envelope
 
 
 class MockMessage:
@@ -252,7 +254,7 @@ async def test_stream_response_adds_max_tokens_if_missing(lmstudio_provider):
         [e async for e in lmstudio_provider.stream_response(req)]
 
         _, kwargs = mock_build.call_args
-        assert kwargs["json"]["max_tokens"] == 81920
+        assert kwargs["json"]["max_tokens"] == ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS
 
 
 @pytest.mark.asyncio
@@ -285,10 +287,10 @@ async def test_stream_error_status_code(lmstudio_provider):
             async for e in lmstudio_provider.stream_response(req, request_id="TEST_ID")
         ]
 
-        assert len(events) == 1
-        assert events[0].startswith("event: error\ndata: {")
-        assert "Internal Server Error" in events[0]
-        assert "TEST_ID" in events[0]
+        assert_canonical_stream_error_envelope(
+            events, user_message_substr="Provider API request failed"
+        )
+        assert "TEST_ID" in "".join(events)
 
 
 @pytest.mark.asyncio
@@ -312,10 +314,11 @@ async def test_stream_network_error(lmstudio_provider):
             async for e in lmstudio_provider.stream_response(req, request_id="TEST_ID2")
         ]
 
-        assert len(events) == 1
-        assert events[0].startswith("event: error\ndata: {")
-        assert "Connection refused" in events[0]
-        assert "TEST_ID2" in events[0]
+        blob = "".join(events)
+        assert_canonical_stream_error_envelope(
+            events, user_message_substr="Connection refused"
+        )
+        assert "TEST_ID2" in blob
 
 
 @pytest.mark.asyncio
@@ -346,8 +349,61 @@ async def test_stream_error_405_mentions_upstream_provider(lmstudio_provider):
             e async for e in lmstudio_provider.stream_response(req, request_id="REQ405")
         ]
 
+    blob = "".join(events)
     assert (
         "Upstream provider LMSTUDIO rejected the request method or endpoint (HTTP 405)."
-        in events[0]
+        in blob
     )
-    assert "REQ405" in events[0]
+    assert "REQ405" in blob
+
+
+def test_build_request_body_disabled_thinking_strips_native_thinking_history(
+    lmstudio_config,
+):
+    """Disabled thinking must omit prior assistant thinking/redacted blocks in JSON."""
+    provider = LMStudioProvider(
+        lmstudio_config.model_copy(update={"enable_thinking": False})
+    )
+    req = MockRequest(
+        system=None,
+        messages=[
+            MockMessage("user", "hi"),
+            MockMessage(
+                "assistant",
+                [
+                    {"type": "thinking", "thinking": "t"},
+                    {"type": "redacted_thinking", "data": "opaque"},
+                ],
+            ),
+        ],
+    )
+    body = provider._build_request_body(req, thinking_enabled=False)
+    assert body["messages"][1]["content"] == ""
+    assert "redacted_thinking" not in str(body)
+
+
+def test_build_request_body_preserves_signed_thinking_native_history(lmstudio_config):
+    """When thinking is enabled, signed thinking blocks are kept; unsigned stripped."""
+    provider = LMStudioProvider(lmstudio_config)
+    req = MockRequest(
+        system=None,
+        messages=[
+            MockMessage("user", "hi"),
+            MockMessage(
+                "assistant",
+                [
+                    {
+                        "type": "thinking",
+                        "thinking": "signed",
+                        "signature": "sig",
+                    },
+                    {"type": "redacted_thinking", "data": "opaque"},
+                ],
+            ),
+        ],
+    )
+    body = provider._build_request_body(req, thinking_enabled=True)
+    c = body["messages"][1]["content"]
+    assert isinstance(c, list)
+    assert any(isinstance(b, dict) and b.get("type") == "thinking" for b in c)
+    assert any(isinstance(b, dict) and b.get("type") == "redacted_thinking" for b in c)

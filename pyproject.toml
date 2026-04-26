@@ -44,6 +44,9 @@ voice_local = [
 [tool.hatch.build.targets.wheel]
 packages = ["api", "cli", "config", "core", "messaging", "providers"]
 
+[tool.hatch.build.targets.wheel.force-include]
+".env.example" = "cli/env.example"
+
 [tool.uv.sources]
 torch = { index = "pytorch-cu130" }
 

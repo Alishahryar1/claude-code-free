@@ -14,6 +14,10 @@ def settings():
     settings.model_opus = None
     settings.model_sonnet = None
     settings.model_haiku = None
+    settings.enable_model_thinking = True
+    settings.enable_opus_thinking = None
+    settings.enable_sonnet_thinking = None
+    settings.enable_haiku_thinking = None
     return settings
 
 
@@ -24,6 +28,7 @@ def test_model_router_resolves_default_model(settings):
     assert resolved.provider_id == "nvidia_nim"
     assert resolved.provider_model == "fallback-model"
     assert resolved.provider_model_ref == "nvidia_nim/fallback-model"
+    assert resolved.thinking_enabled is True
 
 
 def test_model_router_applies_opus_override(settings):
@@ -39,7 +44,21 @@ def test_model_router_applies_opus_override(settings):
     assert routed.request.model == "deepseek/deepseek-r1"
     assert routed.resolved.provider_model_ref == "open_router/deepseek/deepseek-r1"
     assert routed.resolved.original_model == "claude-opus-4-20250514"
+    assert routed.resolved.thinking_enabled is True
     assert request.model == "claude-opus-4-20250514"
+
+
+def test_model_router_resolves_per_model_thinking(settings):
+    settings.enable_model_thinking = False
+    settings.enable_opus_thinking = True
+    settings.enable_haiku_thinking = False
+
+    router = ModelRouter(settings)
+
+    assert router.resolve("claude-opus-4-20250514").thinking_enabled is True
+    assert router.resolve("claude-sonnet-4-20250514").thinking_enabled is False
+    assert router.resolve("claude-3-haiku-20240307").thinking_enabled is False
+    assert router.resolve("claude-2.1").thinking_enabled is False
 
 
 def test_model_router_applies_haiku_override(settings):

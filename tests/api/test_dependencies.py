@@ -16,9 +16,10 @@ from api.dependencies import (
 )
 from config.nim import NimSettings
 from providers.deepseek import DeepSeekProvider
-from providers.exceptions import UnknownProviderTypeError
+from providers.exceptions import ServiceUnavailableError, UnknownProviderTypeError
 from providers.lmstudio import LMStudioProvider
 from providers.nvidia_nim import NvidiaNimProvider
+from providers.ollama import OllamaProvider
 from providers.open_router import OpenRouterProvider
 from providers.registry import ProviderRegistry
 
@@ -35,11 +36,12 @@ def _make_mock_settings(**overrides):
     mock.open_router_api_key = "test_openrouter_key"
     mock.deepseek_api_key = "test_deepseek_key"
     mock.lm_studio_base_url = "http://localhost:1234/v1"
+    mock.ollama_base_url = "http://localhost:11434"
     mock.nim = NimSettings()
     mock.http_read_timeout = 300.0
     mock.http_write_timeout = 10.0
-    mock.http_connect_timeout = 2.0
-    mock.enable_thinking = True
+    mock.http_connect_timeout = 10.0
+    mock.enable_model_thinking = True
     for key, value in overrides.items():
         setattr(mock, key, value)
     return mock
@@ -131,6 +133,19 @@ async def test_get_provider_lmstudio():
 
 
 @pytest.mark.asyncio
+async def test_get_provider_ollama():
+    """Test that provider_type=ollama returns OllamaProvider without an API key."""
+    with patch("api.dependencies.get_settings") as mock_settings:
+        mock_settings.return_value = _make_mock_settings(provider_type="ollama")
+
+        provider = get_provider()
+
+        assert isinstance(provider, OllamaProvider)
+        assert provider._base_url == "http://localhost:11434"
+        assert provider._api_key == "ollama"
+
+
+@pytest.mark.asyncio
 async def test_get_provider_deepseek():
     """Test that provider_type=deepseek returns DeepSeekProvider."""
     with patch("api.dependencies.get_settings") as mock_settings:
@@ -159,12 +174,12 @@ async def test_get_provider_deepseek_uses_fixed_base_url():
 
 
 @pytest.mark.asyncio
-async def test_get_provider_deepseek_passes_enable_thinking():
-    """DeepSeek provider receives the global thinking toggle."""
+async def test_get_provider_deepseek_passes_enable_model_thinking():
+    """DeepSeek provider receives the fallback thinking toggle."""
     with patch("api.dependencies.get_settings") as mock_settings:
         mock_settings.return_value = _make_mock_settings(
             provider_type="deepseek",
-            enable_thinking=False,
+            enable_model_thinking=False,
         )
 
         provider = get_provider()
@@ -419,18 +434,17 @@ def test_resolve_provider_per_app_uses_separate_registries() -> None:
         assert p1 is not p2
 
 
-def test_resolve_provider_lazily_installs_registry() -> None:
-    """If app has no provider_registry, one is created on app.state."""
+def test_resolve_provider_missing_registry_raises_service_unavailable() -> None:
+    """HTTP apps must install app.state.provider_registry (e.g. via AppRuntime)."""
     with patch("api.dependencies.get_settings") as mock_settings:
         mock_settings.return_value = _make_mock_settings()
         settings = _make_mock_settings()
         app = SimpleNamespace(state=State())
         assert getattr(app.state, "provider_registry", None) is None
-        resolve_provider("nvidia_nim", app=cast(Starlette, app), settings=settings)
-        reg = app.state.provider_registry
-        assert reg is not None
-        p2 = resolve_provider("nvidia_nim", app=cast(Starlette, app), settings=settings)
-        assert p2 is reg.get("nvidia_nim", settings)  # same registry instance
+        with pytest.raises(
+            ServiceUnavailableError, match="Provider registry is not configured"
+        ):
+            resolve_provider("nvidia_nim", app=cast(Starlette, app), settings=settings)
 
 
 def test_resolve_provider_unrelated_value_error_is_not_unknown_provider_log() -> None:

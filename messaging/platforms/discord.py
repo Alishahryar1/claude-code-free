@@ -6,7 +6,6 @@ Implements MessagingPlatform for Discord using discord.py.
 
 import asyncio
 import contextlib
-import os
 import tempfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -14,7 +13,7 @@ from typing import Any, cast
 
 from loguru import logger
 
-from core.anthropic import get_user_facing_error_message
+from core.anthropic import format_user_error_preview
 
 from ..models import IncomingMessage
 from ..rendering.discord_markdown import format_status_discord
@@ -97,15 +96,18 @@ class DiscordPlatform(MessagingPlatform):
         whisper_device: str = "cpu",
         hf_token: str = "",
         nvidia_nim_api_key: str = "",
+        messaging_rate_limit: int = 1,
+        messaging_rate_window: float = 1.0,
+        log_raw_messaging_content: bool = False,
+        log_api_error_tracebacks: bool = False,
     ):
         if not DISCORD_AVAILABLE:
             raise ImportError(
                 "discord.py is required. Install with: pip install discord.py"
             )
 
-        self.bot_token = bot_token or os.getenv("DISCORD_BOT_TOKEN")
-        raw_channels = allowed_channel_ids or os.getenv("ALLOWED_DISCORD_CHANNELS")
-        self.allowed_channel_ids = _parse_allowed_channels(raw_channels)
+        self.bot_token = bot_token
+        self.allowed_channel_ids = _parse_allowed_channels(allowed_channel_ids)
 
         if not self.bot_token:
             logger.warning("DISCORD_BOT_TOKEN not set")
@@ -130,6 +132,10 @@ class DiscordPlatform(MessagingPlatform):
         self._voice_note_enabled = voice_note_enabled
         self._whisper_model = whisper_model
         self._whisper_device = whisper_device
+        self._messaging_rate_limit = messaging_rate_limit
+        self._messaging_rate_window = messaging_rate_window
+        self._log_raw_messaging_content = log_raw_messaging_content
+        self._log_api_error_tracebacks = log_api_error_tracebacks
 
     async def _handle_client_message(self, message: Any) -> None:
         """Adapter entry point used by the internal discord client."""
@@ -234,23 +240,40 @@ class DiscordPlatform(MessagingPlatform):
                 status_message_id=status_msg_id,
             )
 
-            logger.info(
-                "DISCORD_VOICE: chat_id={} message_id={} transcribed={!r}",
-                channel_id,
-                message_id,
-                (transcribed[:80] + "..." if len(transcribed) > 80 else transcribed),
-            )
+            if self._log_raw_messaging_content:
+                logger.info(
+                    "DISCORD_VOICE: chat_id={} message_id={} transcribed={!r}",
+                    channel_id,
+                    message_id,
+                    (
+                        transcribed[:80] + "..."
+                        if len(transcribed) > 80
+                        else transcribed
+                    ),
+                )
+            else:
+                logger.info(
+                    "DISCORD_VOICE: chat_id={} message_id={} transcribed_len={}",
+                    channel_id,
+                    message_id,
+                    len(transcribed),
+                )
 
             await self._message_handler(incoming)
             return True
         except ValueError as e:
-            await message.reply(get_user_facing_error_message(e)[:200])
+            await message.reply(format_user_error_preview(e))
             return True
         except ImportError as e:
-            await message.reply(get_user_facing_error_message(e)[:200])
+            await message.reply(format_user_error_preview(e))
             return True
         except Exception as e:
-            logger.error(f"Voice transcription failed: {e}")
+            if self._log_api_error_tracebacks:
+                logger.error("Voice transcription failed: {}", e)
+            else:
+                logger.error(
+                    "Voice transcription failed: exc_type={}", type(e).__name__
+                )
             await message.reply(
                 "Could not transcribe voice note. Please try again or send text."
             )
@@ -285,16 +308,26 @@ class DiscordPlatform(MessagingPlatform):
             else None
         )
 
-        text_preview = (message.content or "")[:80]
-        if len(message.content or "") > 80:
-            text_preview += "..."
-        logger.info(
-            "DISCORD_MSG: chat_id={} message_id={} reply_to={} text_preview={!r}",
-            channel_id,
-            message_id,
-            reply_to,
-            text_preview,
-        )
+        raw_content = message.content or ""
+        if self._log_raw_messaging_content:
+            text_preview = raw_content[:80]
+            if len(raw_content) > 80:
+                text_preview += "..."
+            logger.info(
+                "DISCORD_MSG: chat_id={} message_id={} reply_to={} text_preview={!r}",
+                channel_id,
+                message_id,
+                reply_to,
+                text_preview,
+            )
+        else:
+            logger.info(
+                "DISCORD_MSG: chat_id={} message_id={} reply_to={} text_len={}",
+                channel_id,
+                message_id,
+                reply_to,
+                len(raw_content),
+            )
 
         if not self._message_handler:
             return
@@ -313,13 +346,14 @@ class DiscordPlatform(MessagingPlatform):
         try:
             await self._message_handler(incoming)
         except Exception as e:
-            logger.error(f"Error handling message: {e}")
+            if self._log_api_error_tracebacks:
+                logger.error("Error handling message: {}", e)
+            else:
+                logger.error("Error handling message: exc_type={}", type(e).__name__)
             with contextlib.suppress(Exception):
                 await self.send_message(
                     channel_id,
-                    format_status_discord(
-                        "Error:", get_user_facing_error_message(e)[:200]
-                    ),
+                    format_status_discord("Error:", format_user_error_preview(e)),
                     reply_to=message_id,
                 )
 
@@ -336,7 +370,10 @@ class DiscordPlatform(MessagingPlatform):
 
         from ..limiter import MessagingRateLimiter
 
-        self._limiter = await MessagingRateLimiter.get_instance()
+        self._limiter = await MessagingRateLimiter.get_instance(
+            rate_limit=self._messaging_rate_limit,
+            rate_window=self._messaging_rate_window,
+        )
 
         self._start_task = asyncio.create_task(
             self._client.start(self.bot_token),

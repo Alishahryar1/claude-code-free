@@ -3,8 +3,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from api.app import app
+from api.app import create_app
 from providers.nvidia_nim import NvidiaNimProvider
+
+app = create_app()
 
 # Mock provider
 mock_provider = MagicMock(spec=NvidiaNimProvider)
@@ -100,7 +102,9 @@ def test_model_mapping(client: TestClient):
     client.post("/v1/messages", json=payload_haiku)
     assert len(_stream_response_calls) == 1
     args = _stream_response_calls[0][0]
+    kwargs = _stream_response_calls[0][1]
     assert args[0].model != "claude-3-haiku-20240307"
+    assert kwargs["thinking_enabled"] is True
 
 
 def test_error_fallbacks(client: TestClient):
@@ -169,7 +173,7 @@ def test_generic_exception_returns_500(client: TestClient):
 
 
 def test_generic_exception_with_status_code(client: TestClient):
-    """Generic exception with status_code attribute uses that status (getattr fallback)."""
+    """Unexpected errors always map to HTTP 500 (ignore ad-hoc status_code attrs)."""
 
     class ExceptionWithStatus(RuntimeError):
         def __init__(self, msg: str, status_code: int = 500):
@@ -189,7 +193,7 @@ def test_generic_exception_with_status_code(client: TestClient):
             "stream": True,
         },
     )
-    assert response.status_code == 502
+    assert response.status_code == 500
     mock_provider.stream_response = _mock_stream_response
 
 

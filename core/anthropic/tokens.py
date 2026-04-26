@@ -68,6 +68,27 @@ def get_token_count(
                         total_tokens += len(ENCODER.encode(json.dumps(content)))
                     total_tokens += len(ENCODER.encode(str(tool_use_id)))
                     total_tokens += 8
+                elif b_type in (
+                    "server_tool_use",
+                    "web_search_tool_result",
+                    "web_fetch_tool_result",
+                ):
+                    if hasattr(block, "model_dump"):
+                        blob: object = block.model_dump()
+                    else:
+                        blob = block
+                    try:
+                        total_tokens += len(
+                            ENCODER.encode(
+                                json.dumps(blob, default=str, ensure_ascii=False)
+                            )
+                        )
+                    except (TypeError, ValueError, OverflowError) as e:
+                        logger.debug(
+                            "Block encode fallback b_type={} err={}", b_type, e
+                        )
+                        total_tokens += len(ENCODER.encode(str(blob)))
+                    total_tokens += 12
                 else:
                     logger.debug(
                         "Unexpected block type %r, falling back to json/str encoding",

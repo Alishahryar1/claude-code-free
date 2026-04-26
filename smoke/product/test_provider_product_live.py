@@ -3,6 +3,11 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from core.anthropic.stream_contracts import (
+    assert_anthropic_stream_contract,
+    parse_sse_lines,
+    text_content,
+)
 from smoke.lib.config import ProviderModel, SmokeConfig, auth_headers
 from smoke.lib.e2e import (
     ConversationDriver,
@@ -15,11 +20,6 @@ from smoke.lib.e2e import (
 from smoke.lib.skips import (
     skip_if_upstream_unavailable_events,
     skip_if_upstream_unavailable_exception,
-)
-from smoke.lib.sse import (
-    assert_anthropic_stream_contract,
-    parse_sse_lines,
-    text_content,
 )
 
 pytestmark = [pytest.mark.live, pytest.mark.smoke_target("providers")]

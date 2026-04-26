@@ -4,8 +4,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from api.models.anthropic import ContentBlockImage, Message, MessagesRequest
 from providers.base import ProviderConfig
-from providers.deepseek import DEEPSEEK_BASE_URL, DeepSeekProvider
+from providers.deepseek import DEEPSEEK_DEFAULT_BASE, DeepSeekProvider
+from providers.exceptions import InvalidRequestError
 
 
 class MockMessage:
@@ -41,7 +43,7 @@ class MockRequest:
 def deepseek_config():
     return ProviderConfig(
         api_key="test_deepseek_key",
-        base_url=DEEPSEEK_BASE_URL,
+        base_url=DEEPSEEK_DEFAULT_BASE,
         rate_limit=10,
         rate_window=60,
         enable_thinking=True,
@@ -72,7 +74,7 @@ def test_init(deepseek_config):
     with patch("providers.openai_compat.AsyncOpenAI") as mock_openai:
         provider = DeepSeekProvider(deepseek_config)
         assert provider._api_key == "test_deepseek_key"
-        assert provider._base_url == DEEPSEEK_BASE_URL
+        assert provider._base_url == DEEPSEEK_DEFAULT_BASE
         mock_openai.assert_called_once()
 
 
@@ -91,7 +93,7 @@ def test_build_request_body_global_disable_blocks_request_thinking():
     provider = DeepSeekProvider(
         ProviderConfig(
             api_key="test_deepseek_key",
-            base_url=DEEPSEEK_BASE_URL,
+            base_url=DEEPSEEK_DEFAULT_BASE,
             rate_limit=10,
             rate_window=60,
             enable_thinking=False,
@@ -152,6 +154,67 @@ def test_build_request_body_preserves_reasoning_content(deepseek_provider):
     assert body["messages"][0]["reasoning_content"] == "First think"
 
 
+def test_build_request_body_disabled_thinking_omits_reasoning_and_thinking_tags():
+    """Resolved thinking policy must strip assistant thinking from OpenAI history."""
+    provider = DeepSeekProvider(
+        ProviderConfig(
+            api_key="test_deepseek_key",
+            base_url=DEEPSEEK_DEFAULT_BASE,
+            rate_limit=10,
+            rate_window=60,
+            enable_thinking=False,
+        )
+    )
+    req = MockRequest(
+        system=None,
+        model="deepseek-chat",
+        messages=[
+            MockMessage(
+                "assistant",
+                [
+                    MockBlock(type="thinking", thinking="secret"),
+                    MockBlock(type="text", text="hi"),
+                ],
+            )
+        ],
+    )
+
+    body = provider._build_request_body(req)
+
+    assistant = body["messages"][0]
+    assert "reasoning_content" not in assistant
+    assert "secret" not in assistant["content"]
+    assert assistant["content"] == "hi"
+
+
+def test_build_request_body_disabled_thinking_omits_redacted_blocks():
+    """redacted_thinking is not sent as OpenAI text when thinking is disabled."""
+    provider = DeepSeekProvider(
+        ProviderConfig(
+            api_key="test_deepseek_key",
+            base_url=DEEPSEEK_DEFAULT_BASE,
+            rate_limit=10,
+            rate_window=60,
+            enable_thinking=False,
+        )
+    )
+    req = MockRequest(
+        system=None,
+        model="deepseek-chat",
+        messages=[
+            MockMessage(
+                "assistant",
+                [
+                    MockBlock(type="redacted_thinking", data="opaque-xyz"),
+                    MockBlock(type="text", text="hi"),
+                ],
+            )
+        ],
+    )
+    body = provider._build_request_body(req)
+    assert "opaque-xyz" not in body["messages"][0]["content"]
+
+
 @pytest.mark.asyncio
 async def test_stream_response_reasoning_content(deepseek_provider):
     """reasoning_content deltas are emitted as thinking blocks."""
@@ -179,3 +242,37 @@ async def test_stream_response_reasoning_content(deepseek_provider):
         assert any(
             '"thinking_delta"' in event and "Thinking..." in event for event in events
         )
+
+
+def test_preflight_stream_rejects_unsupported_user_image_for_openai_conversion():
+    """Eager preflight: image block fails before a stream would be opened."""
+    request = MessagesRequest(
+        model="deepseek/deepseek-chat",
+        max_tokens=100,
+        messages=[
+            Message(
+                role="user",
+                content=[
+                    ContentBlockImage(
+                        type="image",
+                        source={
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": "YQ==",
+                        },
+                    )
+                ],
+            )
+        ],
+    )
+    provider = DeepSeekProvider(
+        ProviderConfig(
+            api_key="k",
+            base_url=DEEPSEEK_DEFAULT_BASE,
+            rate_limit=10,
+            rate_window=60,
+        )
+    )
+    with pytest.raises(InvalidRequestError) as exc:
+        provider.preflight_stream(request, thinking_enabled=True)
+    assert "image" in str(exc.value).lower()

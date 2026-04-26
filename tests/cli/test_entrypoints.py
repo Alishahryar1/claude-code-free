@@ -33,15 +33,24 @@ def test_init_creates_env_file(tmp_path: Path) -> None:
 
 
 def test_init_copies_template_content(tmp_path: Path) -> None:
-    """init() writes the actual bundled env.example content, not an empty file."""
-    import importlib.resources
-
-    template = (
-        importlib.resources.files("config").joinpath("env.example").read_text("utf-8")
+    """init() writes the canonical root env.example content, not an empty file."""
+    template = (Path(__file__).resolve().parents[2] / ".env.example").read_text(
+        encoding="utf-8"
     )
     _, env_file = _run_init(tmp_path)
 
     assert env_file.read_text("utf-8") == template
+
+
+def test_env_template_loader_uses_root_template_in_source_checkout() -> None:
+    """Source checkout fallback uses the root .env.example as the single source."""
+    from cli.entrypoints import _load_env_template
+
+    template = (Path(__file__).resolve().parents[2] / ".env.example").read_text(
+        encoding="utf-8"
+    )
+
+    assert _load_env_template() == template
 
 
 def test_init_creates_parent_directories(tmp_path: Path) -> None:

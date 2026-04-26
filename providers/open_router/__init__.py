@@ -1,5 +1,7 @@
 """OpenRouter provider - Anthropic-compatible native transport."""
 
-from .client import OPENROUTER_BASE_URL, OpenRouterProvider
+from providers.defaults import OPENROUTER_DEFAULT_BASE
 
-__all__ = ["OPENROUTER_BASE_URL", "OpenRouterProvider"]
+from .client import OpenRouterProvider
+
+__all__ = ["OPENROUTER_DEFAULT_BASE", "OpenRouterProvider"]

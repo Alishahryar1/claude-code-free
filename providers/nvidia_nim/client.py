@@ -8,7 +8,7 @@ from loguru import logger
 
 from config.nim import NimSettings
 from providers.base import ProviderConfig
-from providers.defaults import NVIDIA_NIM_BASE_URL
+from providers.defaults import NVIDIA_NIM_DEFAULT_BASE
 from providers.openai_compat import OpenAIChatTransport
 
 from .request import (
@@ -25,17 +25,19 @@ class NvidiaNimProvider(OpenAIChatTransport):
         super().__init__(
             config,
             provider_name="NIM",
-            base_url=config.base_url or NVIDIA_NIM_BASE_URL,
+            base_url=config.base_url or NVIDIA_NIM_DEFAULT_BASE,
             api_key=config.api_key,
         )
         self._nim_settings = nim_settings
 
-    def _build_request_body(self, request: Any) -> dict:
+    def _build_request_body(
+        self, request: Any, thinking_enabled: bool | None = None
+    ) -> dict:
         """Internal helper for tests and shared building."""
         return build_request_body(
             request,
             self._nim_settings,
-            thinking_enabled=self._is_thinking_enabled(request),
+            thinking_enabled=self._is_thinking_enabled(request, thinking_enabled),
         )
 
     def _get_retry_request_body(self, error: Exception, body: dict) -> dict | None:

@@ -65,6 +65,39 @@ def test_removed_env_migration_e2e(smoke_config: SmokeConfig, tmp_path) -> None:
 
 
 @pytest.mark.smoke_target("config")
+def test_per_model_thinking_config_e2e(smoke_config: SmokeConfig, tmp_path) -> None:
+    env_file = tmp_path / "thinking.env"
+    env_file.write_text(
+        'ENABLE_MODEL_THINKING="false"\n'
+        'ENABLE_OPUS_THINKING="true"\n'
+        "ENABLE_SONNET_THINKING=\n"
+        'ENABLE_HAIKU_THINKING="false"\n',
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["FCC_ENV_FILE"] = str(env_file)
+    script = (
+        "from config.settings import Settings; "
+        "s=Settings(); "
+        "print(s.resolve_thinking('claude-opus-4-20250514')); "
+        "print(s.resolve_thinking('claude-sonnet-4-20250514')); "
+        "print(s.resolve_thinking('claude-haiku-4-20250514')); "
+        "print(s.resolve_thinking('unknown-model'))"
+    )
+    result = subprocess.run(
+        cmd_python_c(script),
+        cwd=smoke_config.root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=smoke_config.timeout_s,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == ["True", "False", "False", "False"]
+
+
+@pytest.mark.smoke_target("config")
 def test_proxy_timeout_config_e2e(smoke_config: SmokeConfig, tmp_path) -> None:
     env_file = tmp_path / "timeouts.env"
     env_file.write_text(

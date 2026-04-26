@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
+from config.constants import ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS
+
 
 class NimSettings(BaseModel):
     """Fixed NVIDIA NIM settings (not configurable via env)."""
@@ -14,7 +16,9 @@ class NimSettings(BaseModel):
     )
     top_k: int = -1
     max_tokens: int = Field(
-        81920, ge=1, description="Maximum number of tokens in output."
+        ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS,
+        ge=1,
+        description="Maximum number of tokens in output.",
     )
     presence_penalty: float = Field(0.0, ge=-2.0, le=2.0)
     frequency_penalty: float = Field(0.0, ge=-2.0, le=2.0)
@@ -68,7 +72,7 @@ class NimSettings(BaseModel):
             return field_defaults.get(key, 1.0)
         try:
             val = float(v)
-        except Exception as err:
+        except (TypeError, ValueError) as err:
             raise ValueError(
                 f"{info.field_name} must be a float. Got {type(v).__name__}."
             ) from err
@@ -78,15 +82,15 @@ class NimSettings(BaseModel):
     @classmethod
     def validate_int_fields(cls, v, info: ValidationInfo):
         field_defaults = {
-            "max_tokens": 81920,
+            "max_tokens": ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS,
             "min_tokens": 0,
         }
         if v is None or v == "":
             key = info.field_name or "max_tokens"
-            return field_defaults.get(key, 81920)
+            return field_defaults.get(key, ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS)
         try:
             val = int(v)
-        except Exception as err:
+        except (TypeError, ValueError) as err:
             raise ValueError(
                 f"{info.field_name} must be an int. Got {type(v).__name__}."
             ) from err
@@ -99,7 +103,7 @@ class NimSettings(BaseModel):
             return None
         try:
             return int(v)
-        except Exception as err:
+        except (TypeError, ValueError) as err:
             raise ValueError(
                 f"{info.field_name} must be an int or empty/None."
             ) from err

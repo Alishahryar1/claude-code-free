@@ -14,10 +14,30 @@ from providers.exceptions import (
 from providers.rate_limit import GlobalRateLimiter
 
 
+def user_visible_message_for_mapped_provider_error(
+    mapped: Exception,
+    *,
+    provider_name: str,
+    read_timeout_s: float | None,
+) -> str:
+    """Return the user-visible string after :func:`map_error` (405 + mapped types)."""
+    if getattr(mapped, "status_code", None) == 405:
+        return (
+            f"Upstream provider {provider_name} rejected the request method "
+            "or endpoint (HTTP 405)."
+        )
+    return get_user_facing_error_message(mapped, read_timeout_s=read_timeout_s)
+
+
 def map_error(
     e: Exception, *, rate_limiter: GlobalRateLimiter | None = None
 ) -> Exception:
-    """Map OpenAI or HTTPX exception to specific ProviderError."""
+    """Map OpenAI or HTTPX exception to specific ProviderError.
+
+    Streaming transports should pass their scoped limiter (``self._global_rate_limiter``)
+    so reactive 429 handling applies to the correct provider. Tests may omit
+    ``rate_limiter`` to use the process-wide singleton.
+    """
     message = get_user_facing_error_message(e)
     limiter = rate_limiter or GlobalRateLimiter.get_instance()
 

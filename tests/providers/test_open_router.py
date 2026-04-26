@@ -6,6 +6,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.anthropic.stream_contracts import (
+    assert_anthropic_stream_contract,
+    parse_sse_text,
+    text_content,
+    thinking_content,
+)
 from providers.base import ProviderConfig
 from providers.open_router import OpenRouterProvider
 from providers.open_router.request import OPENROUTER_DEFAULT_MAX_TOKENS
@@ -30,8 +36,6 @@ class MockRequest:
         self.tool_choice = None
         self.metadata = None
         self.extra_body = {}
-        self.original_model = "claude-3-sonnet"
-        self.resolved_provider_model = "open_router/stepfun/step-3.5-flash:free"
         self.thinking = MagicMock()
         self.thinking.enabled = True
         for k, v in kwargs.items():
@@ -135,8 +139,26 @@ def test_build_request_body_is_native_anthropic(open_router_provider):
     assert body["system"] == "System prompt"
     assert body["reasoning"] == {"enabled": True}
     assert "extra_body" not in body
-    assert "original_model" not in body
-    assert "resolved_provider_model" not in body
+
+
+def test_openrouter_extra_body_rejects_overriding_reserved_fields() -> None:
+    from providers.exceptions import InvalidRequestError
+    from providers.open_router.request import build_request_body
+
+    r = MockRequest()
+    r.extra_body = {"model": "hijack"}
+    with pytest.raises(InvalidRequestError, match="model"):
+        build_request_body(r, thinking_enabled=True)
+
+
+def test_openrouter_extra_body_allows_openrouter_only_keys() -> None:
+    from providers.open_router.request import build_request_body
+
+    r = MockRequest()
+    r.extra_body = {"transforms": ["no-web"], "plugins": []}
+    body = build_request_body(r, thinking_enabled=False)
+    assert body["transforms"] == ["no-web"]
+    assert body["plugins"] == []
 
 
 def test_build_request_body_omits_reasoning_when_globally_disabled(
@@ -188,7 +210,6 @@ def test_build_request_body_default_max_tokens(open_router_provider):
     body = open_router_provider._build_request_body(req)
 
     assert body["max_tokens"] == OPENROUTER_DEFAULT_MAX_TOKENS
-    assert body["max_tokens"] == 81920
 
 
 def test_build_request_body_strips_unsigned_thinking_history(open_router_provider):
@@ -209,7 +230,32 @@ def test_build_request_body_strips_unsigned_thinking_history(open_router_provide
 
     body = open_router_provider._build_request_body(req)
 
-    assert body["messages"][1]["content"] == [{"type": "text", "text": "Hello"}]
+    assert body["messages"][1]["content"] == [
+        {"type": "redacted_thinking", "data": "opaque"},
+        {"type": "text", "text": "Hello"},
+    ]
+
+
+def test_build_request_body_strips_redacted_when_thinking_disabled(
+    open_router_config,
+):
+    """Disabled thinking must remove all assistant thinking history including redacted."""
+    provider = OpenRouterProvider(
+        open_router_config.model_copy(update={"enable_thinking": False})
+    )
+    req = MockRequest(
+        messages=[
+            MockMessage(
+                "assistant",
+                [
+                    {"type": "redacted_thinking", "data": "opaque"},
+                    {"type": "text", "text": "Hi"},
+                ],
+            )
+        ]
+    )
+    body = provider._build_request_body(req)
+    assert body["messages"][0]["content"] == [{"type": "text", "text": "Hi"}]
 
 
 def test_build_request_body_preserves_signed_thinking_history(open_router_provider):
@@ -336,12 +382,12 @@ async def test_stream_response_suppresses_native_thinking_when_disabled(
     assert "Answer" in event_text
 
     text_start = next(event for event in events if "content_block_start" in event)
-    payload = json.loads(text_start.split("data: ", 1)[1])
+    payload = parse_sse_text(text_start)[0].data
     assert payload["index"] == 0
 
 
 @pytest.mark.asyncio
-async def test_stream_response_drops_redacted_thinking_when_enabled(
+async def test_stream_response_preserves_redacted_thinking_when_enabled(
     open_router_provider,
 ):
     response = FakeResponse(
@@ -379,13 +425,213 @@ async def test_stream_response_drops_redacted_thinking_when_enabled(
         events = [e async for e in open_router_provider.stream_response(MockRequest())]
 
     event_text = "".join(events)
+    assert "redacted_thinking" in event_text
+    assert "opaque" in event_text
+    assert "Answer" in event_text
+
+    parsed = parse_sse_text(event_text)
+    first_start = next(
+        p
+        for p in parsed
+        if p.event == "content_block_start"
+        and p.data.get("content_block", {}).get("type") == "redacted_thinking"
+    )
+    assert first_start.data["index"] == 0
+
+
+@pytest.mark.asyncio
+async def test_stream_response_drops_redacted_thinking_when_disabled(
+    open_router_config,
+):
+    provider = OpenRouterProvider(
+        open_router_config.model_copy(update={"enable_thinking": False})
+    )
+    response = FakeResponse(
+        lines=[
+            "event: content_block_start",
+            'data: {"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"opaque"}}',
+            "",
+            "event: content_block_stop",
+            'data: {"type":"content_block_stop","index":0}',
+            "",
+            "event: content_block_start",
+            'data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}',
+            "",
+            "event: content_block_delta",
+            'data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Answer"}}',
+            "",
+            "event: content_block_stop",
+            'data: {"type":"content_block_stop","index":1}',
+            "",
+        ]
+    )
+
+    with (
+        patch.object(provider._client, "build_request"),
+        patch.object(
+            provider._client,
+            "send",
+            new_callable=AsyncMock,
+            return_value=response,
+        ),
+    ):
+        events = [e async for e in provider.stream_response(MockRequest())]
+
+    event_text = "".join(events)
     assert "redacted_thinking" not in event_text
+    assert "opaque" not in event_text
     assert "Answer" in event_text
 
     start_event = next(event for event in events if "content_block_start" in event)
-    payload = json.loads(start_event.split("data: ", 1)[1])
+    payload = parse_sse_text(start_event)[0].data
     assert payload["index"] == 0
     assert payload["content_block"]["type"] == "text"
+
+
+@pytest.mark.asyncio
+async def test_stream_response_reopens_interleaved_thinking_after_text(
+    open_router_provider,
+):
+    """Overthinking+text+more thinking: downstream indices must not reuse closed blocks."""
+    response = FakeResponse(
+        lines=[
+            "event: message_start",
+            'data: {"type":"message_start","message":{}}',
+            "",
+            "event: content_block_start",
+            'data: {"type":"content_block_start","index":0,'
+            '"content_block":{"type":"thinking","thinking":"","signature":""}}',
+            "",
+            "event: content_block_delta",
+            'data: {"type":"content_block_delta","index":0,'
+            '"delta":{"type":"thinking_delta","thinking":"first"}}',
+            "",
+            "event: content_block_start",
+            'data: {"type":"content_block_start","index":1,'
+            '"content_block":{"type":"text","text":""}}',
+            "",
+            "event: content_block_delta",
+            'data: {"type":"content_block_delta","index":0,'
+            '"delta":{"type":"thinking_delta","thinking":" second"}}',
+            "",
+            "event: content_block_delta",
+            'data: {"type":"content_block_delta","index":1,'
+            '"delta":{"type":"text_delta","text":"Answer"}}',
+            "",
+            "event: content_block_stop",
+            'data: {"type":"content_block_stop","index":1}',
+            "",
+            "event: content_block_stop",
+            'data: {"type":"content_block_stop","index":0}',
+            "",
+            "event: message_stop",
+            'data: {"type":"message_stop"}',
+            "",
+        ]
+    )
+
+    with (
+        patch.object(open_router_provider._client, "build_request"),
+        patch.object(
+            open_router_provider._client,
+            "send",
+            new_callable=AsyncMock,
+            return_value=response,
+        ),
+    ):
+        events = [e async for e in open_router_provider.stream_response(MockRequest())]
+
+    parsed = parse_sse_text("".join(events))
+    assert_anthropic_stream_contract(parsed)
+    assert thinking_content(parsed) == "first second"
+    assert "Answer" in text_content(parsed)
+    stop_payloads = [
+        p.data
+        for p in parsed
+        if p.event == "content_block_stop"
+        and p.data.get("type") == "content_block_stop"
+    ]
+    seen_stop_indices: set[int] = set()
+    for s in stop_payloads:
+        idx = s.get("index")
+        assert isinstance(idx, int)
+        assert idx not in seen_stop_indices, "stop reused or duplicated index"
+        seen_stop_indices.add(idx)
+    # Two distinct thinking block indices: initial + reopened segment
+    think_starts = [
+        p
+        for p in parsed
+        if p.event == "content_block_start"
+        and p.data.get("content_block", {}).get("type") == "thinking"
+    ]
+    assert len(think_starts) == 2, (
+        "reopened thinking must have its own `content_block_start`"
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_response_reopened_tool_use_preserves_tool_identity(
+    open_router_provider,
+):
+    """After overlapping close, resumed input_json_delta must keep original tool id/name."""
+    lines: list[str] = []
+    for payload in (
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {
+                "type": "tool_use",
+                "id": "toolu_real_1",
+                "name": "Read",
+                "input": {},
+            },
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": '{"path'},
+        },
+        {
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {"type": "text", "text": ""},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": '":"/tmp"}'},
+        },
+        {"type": "content_block_stop", "index": 1},
+        {"type": "content_block_stop", "index": 0},
+    ):
+        event_name = payload["type"]
+        lines.extend((f"event: {event_name}", f"data: {json.dumps(payload)}", ""))
+
+    response = FakeResponse(lines=lines)
+
+    with (
+        patch.object(open_router_provider._client, "build_request"),
+        patch.object(
+            open_router_provider._client,
+            "send",
+            new_callable=AsyncMock,
+            return_value=response,
+        ),
+    ):
+        events = [e async for e in open_router_provider.stream_response(MockRequest())]
+
+    parsed = parse_sse_text("".join(events))
+    tool_starts = [
+        p
+        for p in parsed
+        if p.event == "content_block_start"
+        and p.data.get("content_block", {}).get("type") == "tool_use"
+    ]
+    assert len(tool_starts) == 2
+    for start in tool_starts:
+        block = start.data["content_block"]
+        assert block["id"] == "toolu_real_1"
+        assert block["name"] == "Read"
 
 
 @pytest.mark.asyncio

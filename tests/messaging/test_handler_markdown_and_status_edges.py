@@ -4,6 +4,7 @@ import pytest
 
 from messaging.handler import ClaudeMessageHandler
 from messaging.models import IncomingMessage
+from messaging.node_event_pipeline import process_parsed_cli_event
 from messaging.rendering.telegram_markdown import render_markdown_to_mdv2
 from messaging.trees.data import MessageNode, MessageState
 
@@ -333,7 +334,7 @@ async def test_handle_message_incoming_text_none_safe():
 
 @pytest.mark.asyncio
 async def test_process_parsed_event_malformed_content_continues():
-    """Malformed/unknown parsed event does not crash _process_parsed_event."""
+    """Malformed/unknown parsed event does not crash process_parsed_cli_event."""
     platform = MagicMock()
     platform.queue_edit_message = AsyncMock()
 
@@ -344,7 +345,7 @@ async def test_process_parsed_event_malformed_content_continues():
     transcript = MagicMock()
     update_ui = AsyncMock()
 
-    last_status, had = await handler._process_parsed_event(
+    last_status, had = await process_parsed_cli_event(
         parsed={"type": "unknown_type"},
         transcript=transcript,
         update_ui=update_ui,
@@ -353,6 +354,9 @@ async def test_process_parsed_event_malformed_content_continues():
         tree=None,
         node_id="n1",
         captured_session_id=None,
+        session_store=session_store,
+        format_status=handler.format_status,
+        propagate_error_to_children=AsyncMock(),
     )
     assert last_status is None
     assert had is False

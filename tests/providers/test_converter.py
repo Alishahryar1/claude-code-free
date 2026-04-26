@@ -2,7 +2,12 @@ import json
 
 import pytest
 
-from core.anthropic import AnthropicToOpenAIConverter
+from api.models.anthropic import MessagesRequest
+from core.anthropic import (
+    AnthropicToOpenAIConverter,
+    OpenAIConversionError,
+    build_base_request_body,
+)
 
 # --- Mock Classes ---
 
@@ -468,3 +473,102 @@ def test_convert_multiple_tool_results():
     assert len(result) == 2
     assert result[0]["tool_call_id"] == "t1"
     assert result[1]["tool_call_id"] == "t2"
+
+
+def test_convert_user_message_tool_result_dict_as_json():
+    content = [
+        MockBlock(
+            type="tool_result",
+            tool_use_id="t_dict",
+            content={"ok": True, "count": 2},
+        ),
+    ]
+    messages = [MockMessage("user", content)]
+    result = AnthropicToOpenAIConverter.convert_messages(messages)
+    assert result[0]["role"] == "tool"
+    assert result[0]["content"] == '{"ok": true, "count": 2}'
+
+
+def test_assistant_redacted_thinking_omitted_from_openai_chat():
+    """Opaque redacted_thinking is not materialized as content or reasoning_content."""
+    content = [
+        MockBlock(type="redacted_thinking", data="secret-opaque"),
+        MockBlock(type="text", text="Visible."),
+    ]
+    messages = [MockMessage("assistant", content)]
+    result = AnthropicToOpenAIConverter.convert_messages(
+        messages, include_thinking=True, include_reasoning_content=True
+    )
+    assert result[0]["content"] == "Visible."
+    assert "secret-opaque" not in result[0]["content"]
+    assert "reasoning_content" not in result[0]
+
+
+def test_convert_user_message_image_raises():
+    content = [
+        MockBlock(type="image", source={"type": "url", "url": "https://example.com/x"})
+    ]
+    messages = [MockMessage("user", content)]
+    with pytest.raises(OpenAIConversionError):
+        AnthropicToOpenAIConverter.convert_messages(messages)
+
+
+def test_convert_assistant_text_after_tool_use_raises():
+    content = [
+        MockBlock(type="tool_use", id="call_z", name="Read", input={}),
+        MockBlock(type="text", text="Illegal after tool"),
+    ]
+    messages = [MockMessage("assistant", content)]
+    with pytest.raises(OpenAIConversionError):
+        AnthropicToOpenAIConverter.convert_messages(messages)
+
+
+def test_openai_build_accepts_declared_native_top_level_hints() -> None:
+    """OpenAI conversion ignores known non-OpenAI hints (e.g. context_management) without 400."""
+    req = MessagesRequest.model_validate(
+        {
+            "model": "m",
+            "messages": [{"role": "user", "content": "h"}],
+            "context_management": {"edits": []},
+            "output_config": {"foo": 1},
+            "mcp_servers": [{"type": "url", "url": "https://x.com"}],
+        }
+    )
+    body = build_base_request_body(req, default_max_tokens=100)
+    assert "context_management" not in body
+    assert "output_config" not in body
+    assert "mcp_servers" not in body
+    assert body["model"] == "m"
+
+
+def test_openai_build_rejects_unknown_top_level_extras() -> None:
+    """Truly unknown keys must still be rejected (not dropped silently)."""
+    req = MessagesRequest.model_validate(
+        {
+            "model": "m",
+            "messages": [{"role": "user", "content": "h"}],
+            "experimental_client_only_passthrough": True,
+        }
+    )
+    with pytest.raises(OpenAIConversionError, match="top-level request fields"):
+        build_base_request_body(req)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        [MockBlock(type="server_tool_use", id="1", name="web_search", input={})],
+        [MockBlock(type="web_search_tool_result", tool_use_id="1", content=[])],
+        [
+            MockBlock(
+                type="web_fetch_tool_result",
+                tool_use_id="1",
+                content={"type": "web_fetch_result", "url": "https://a.com/x"},
+            )
+        ],
+    ],
+)
+def test_convert_assistant_server_tool_blocks_raise(content) -> None:
+    messages = [MockMessage("assistant", content)]
+    with pytest.raises(OpenAIConversionError, match="server tool"):
+        AnthropicToOpenAIConverter.convert_messages(messages)

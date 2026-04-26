@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from smoke.lib.sse import SSEEvent
+from core.anthropic.stream_contracts import SSEEvent
 
 UPSTREAM_UNAVAILABLE_MARKERS = (
     "connection refused",

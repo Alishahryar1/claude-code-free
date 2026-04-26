@@ -6,9 +6,10 @@ from typing import Any
 
 import httpx
 
+from core.anthropic.stream_contracts import SSEEvent, parse_sse_lines
+
 from .config import SmokeConfig, auth_headers, redacted
 from .server import RunningServer
-from .sse import SSEEvent, parse_sse_lines
 
 
 def message_payload(

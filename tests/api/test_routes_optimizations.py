@@ -3,9 +3,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from api.app import app
+from api.app import create_app
 from api.dependencies import get_settings
 from config.settings import Settings
+
+app = create_app()
 
 
 @pytest.fixture
@@ -96,6 +98,17 @@ def test_create_message_empty_messages_returns_400(client):
         "messages": [],
     }
     response = client.post("/v1/messages", json=payload)
+    assert response.status_code == 400
+    data = response.json()
+    assert data.get("type") == "error"
+    assert data.get("error", {}).get("type") == "invalid_request_error"
+    assert "cannot be empty" in data.get("error", {}).get("message", "")
+
+
+def test_count_tokens_empty_messages_returns_400(client):
+    """POST /v1/messages/count_tokens with messages: [] matches messages validation."""
+    payload = {"model": "claude-3-sonnet", "messages": []}
+    response = client.post("/v1/messages/count_tokens", json=payload)
     assert response.status_code == 400
     data = response.json()
     assert data.get("type") == "error"

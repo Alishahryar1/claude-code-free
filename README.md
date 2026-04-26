@@ -12,7 +12,7 @@
 [![Code style: Ruff](https://img.shields.io/badge/code%20formatting-ruff-f5a623.svg?style=for-the-badge)](https://github.com/astral-sh/ruff)
 [![Logging: Loguru](https://img.shields.io/badge/logging-loguru-4ecdc4.svg?style=for-the-badge)](https://github.com/Delgan/loguru)
 
-A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NIM** (40 req/min free), **OpenRouter** (hundreds of models), **DeepSeek** (direct API), **LM Studio** (fully local), or **llama.cpp** (local with Anthropic endpoints).
+A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NIM** (40 req/min free), **OpenRouter** (hundreds of models), **DeepSeek** (direct API), **LM Studio** (fully local), **llama.cpp** (local with Anthropic endpoints), or **Ollama** (fully local, native Anthropic Messages).
 
 [Quick Start](#quick-start) · [Providers](#providers) · [Discord Bot](#discord-bot) · [Configuration](#configuration) · [Development](#development) · [Contributing](#contributing)
 
@@ -29,9 +29,9 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
 
 | Feature                    | Description                                                                                     |
 | -------------------------- | ----------------------------------------------------------------------------------------------- |
-| **Zero Cost**              | 40 req/min free on NVIDIA NIM. Free models on OpenRouter. Fully local with LM Studio            |
+| **Zero Cost**              | 40 req/min free on NVIDIA NIM. Free models on OpenRouter. Fully local with LM Studio, Ollama, or llama.cpp |
 | **Drop-in Replacement**    | Set 2 env vars. No modifications to Claude Code CLI or VSCode extension needed                  |
-| **5 Providers**            | NVIDIA NIM, OpenRouter, DeepSeek, LM Studio (local), llama.cpp (`llama-server`)                  |
+| **6 Providers**            | NVIDIA NIM, OpenRouter, DeepSeek, LM Studio (local), llama.cpp (`llama-server`), Ollama         |
 | **Per-Model Mapping**      | Route Opus / Sonnet / Haiku to different models and providers. Mix providers freely             |
 | **Thinking Token Support** | Parses `<think>` tags and `reasoning_content` into native Claude thinking blocks                |
 | **Heuristic Tool Parser**  | Models outputting tool calls as text are auto-parsed into structured tool use                   |
@@ -45,20 +45,42 @@ A lightweight proxy that routes Claude Code's Anthropic API calls to **NVIDIA NI
 
 ### Prerequisites
 
-1. Get an API key (or use LM Studio / llama.cpp locally):
+1. Get an API key (or use a local provider):
    - **NVIDIA NIM**: [build.nvidia.com/settings/api-keys](https://build.nvidia.com/settings/api-keys)
    - **OpenRouter**: [openrouter.ai/keys](https://openrouter.ai/keys)
    - **DeepSeek**: [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys)
    - **LM Studio**: No API key needed. Run locally with [LM Studio](https://lmstudio.ai)
    - **llama.cpp**: No API key needed. Run `llama-server` locally.
+   - **Ollama**: No API key needed. Run locally with [Ollama](https://ollama.com) (`ollama serve`).
 2. Install [Claude Code](https://github.com/anthropics/claude-code)
 
 ### Install `uv`
+
 ```bash
-# Install uv (required to run the project)
-pip install uv
+# Recommended installer (works on macOS/Linux without relying on system pip)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Keep uv current if it is already installed
+uv self update
+
+# This project requires Python 3.14
+uv python install 3.14
 ```
-If uv is already installed, run uv self update to get the latest version.
+
+PowerShell (Windows):
+
+```powershell
+# Recommended installer (avoids relying on system pip)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Keep uv current if it is already installed
+uv self update
+
+# This project requires Python 3.14
+uv python install 3.14
+```
+
+`pip install uv` can fail on Homebrew-managed Python with `externally-managed-environment` (PEP 668), so prefer the official installer above.
 
 ### Clone & Configure
 
@@ -81,8 +103,12 @@ MODEL_SONNET=
 MODEL_HAIKU=
 MODEL="nvidia_nim/z-ai/glm4.7"                     # fallback
 
-# Global switch for provider reasoning requests and Claude thinking blocks.
-ENABLE_THINKING=true
+# Per-Claude-model switches for provider reasoning requests and Claude thinking blocks.
+# Blank per-model switches inherit ENABLE_MODEL_THINKING.
+ENABLE_OPUS_THINKING=
+ENABLE_SONNET_THINKING=
+ENABLE_HAIKU_THINKING=
+ENABLE_MODEL_THINKING=true
 ```
 
 </details>
@@ -142,6 +168,22 @@ MODEL="llamacpp/local-model"
 </details>
 
 <details>
+<summary><b>Ollama</b> (fully local, no API key)</summary>
+
+```dotenv
+OLLAMA_BASE_URL="http://localhost:11434"
+
+MODEL_OPUS="ollama/llama3.1"
+MODEL_SONNET="ollama/llama3.1"
+MODEL_HAIKU="ollama/llama3.1"
+MODEL="ollama/llama3.1"                             # fallback
+```
+
+Install: [ollama.com](https://ollama.com). Pull a model (`ollama pull llama3.1`) and keep the server running (`ollama serve` or the desktop app). Use the same model tag in `MODEL*` that appears in `ollama list` (for example `ollama/llama3.1:8b`).
+
+</details>
+
+<details>
 <summary><b>Mix providers</b></summary>
 
 Each `MODEL_*` variable can use a different provider. `MODEL` is the fallback for unrecognized Claude models.
@@ -158,7 +200,7 @@ MODEL="nvidia_nim/z-ai/glm4.7"                      # fallback
 
 </details>
 
-> Migration: `NIM_ENABLE_THINKING` was removed in this release. Rename it to `ENABLE_THINKING`.
+> Migration: `NIM_ENABLE_THINKING` and `ENABLE_THINKING` were removed in this release. Use `ENABLE_MODEL_THINKING` as the fallback switch, with optional `ENABLE_OPUS_THINKING`, `ENABLE_SONNET_THINKING`, and `ENABLE_HAIKU_THINKING` overrides.
 
 <details>
 <summary><b>Optional Authentication</b> (restrict access to your proxy)</summary>
@@ -320,8 +362,8 @@ free-claude-code    # starts the server
 - **Transparent proxy**: Claude Code sends standard Anthropic API requests; the proxy forwards them to your configured provider
 - **Per-model routing**: Opus / Sonnet / Haiku requests resolve to their model-specific backend, with `MODEL` as fallback
 - **Request optimization**: 5 categories of trivial requests (quota probes, title generation, prefix detection, suggestions, filepath extraction) are intercepted and responded to locally without using API quota
-- **Format handling**: OpenRouter, LM Studio, and llama.cpp use native Anthropic Messages endpoints; NIM and DeepSeek use shared OpenAI chat translation
-- **Thinking tokens**: `<think>` tags and `reasoning_content` fields are converted into native Claude thinking blocks when `ENABLE_THINKING=true`
+- **Format handling**: OpenRouter, LM Studio, llama.cpp, and Ollama use native Anthropic Messages endpoints; NIM and DeepSeek use shared OpenAI chat translation
+- **Thinking tokens**: `<think>` tags and `reasoning_content` fields are converted into native Claude thinking blocks when the resolved model's thinking switch is enabled
 
 The proxy also exposes Claude-compatible probe routes: `GET /v1/models`, `POST /v1/messages`, `POST /v1/messages/count_tokens`, plus `HEAD`/`OPTIONS` support for the common probe endpoints.
 
@@ -336,6 +378,7 @@ The proxy also exposes Claude-compatible probe routes: `GET /v1/models`, `POST /
 | **DeepSeek**   | Usage-based  | Varies     | Direct access to DeepSeek chat/reasoner |
 | **LM Studio**  | Free (local) | Unlimited  | Privacy, offline use, no rate limits |
 | **llama.cpp**  | Free (local) | Unlimited  | Lightweight local inference engine   |
+| **Ollama**     | Free (local) | Unlimited  | Easy local LLM runtime, native Anthropic API |
 
 Models use a prefix format: `provider_prefix/model/name`. An invalid prefix causes an error.
 
@@ -346,6 +389,7 @@ Models use a prefix format: `provider_prefix/model/name`. An invalid prefix caus
 | DeepSeek   | `deepseek/...`    | `DEEPSEEK_API_KEY`   | `api.deepseek.com`            |
 | LM Studio  | `lmstudio/...`    | (none)               | `localhost:1234/v1`           |
 | llama.cpp  | `llamacpp/...`    | (none)               | `localhost:8080/v1`           |
+| Ollama     | `ollama/...`      | (none)               | `localhost:11434`             |
 
 <details>
 <summary><b>NVIDIA NIM models</b></summary>
@@ -411,6 +455,23 @@ Run models locally using `llama-server`. Ensure you have a tool-capable GGUF. Se
 
 See the Unsloth docs for detailed instructions and capable models:
 [https://unsloth.ai/docs/models/qwen3.5#qwen3.5-small-0.8b-2b-4b-9b](https://unsloth.ai/docs/models/qwen3.5#qwen3.5-small-0.8b-2b-4b-9b)
+
+</details>
+
+<details>
+<summary><b>Ollama models</b></summary>
+
+Run models locally with [Ollama](https://ollama.com). Pull a model, then set `MODEL` to `ollama/<tag>` where `<tag>` matches the name in `ollama list` (for example `ollama/llama3.1:8b` or `ollama/qwen2.5-coder:7b`).
+
+- `OLLAMA_BASE_URL` is the **Ollama server root** (default `http://localhost:11434`). Do not append `/v1`; the proxy uses Ollama's native Anthropic Messages support at that host.
+- Override `OLLAMA_BASE_URL` only if Ollama listens on another address or port.
+
+```bash
+ollama pull llama3.1
+ollama serve   # or use the desktop app, which keeps the server running
+```
+
+Browse: [ollama.com/library](https://ollama.com/library)
 
 </details>
 
@@ -507,7 +568,10 @@ Configure via `WHISPER_DEVICE` (`cpu` | `cuda` | `nvidia_nim`) and `WHISPER_MODE
 | `MODEL_SONNET`       | Model for Claude Sonnet requests; empty falls back to `MODEL`         | empty                                             |
 | `MODEL_HAIKU`        | Model for Claude Haiku requests; empty falls back to `MODEL`          | empty                                             |
 | `NVIDIA_NIM_API_KEY`    | NVIDIA API key                                                        | required for NIM                                  |
-| `ENABLE_THINKING`    | Global switch for provider reasoning requests and Claude thinking blocks. Set `false` to hide thinking across all providers. | `true` |
+| `ENABLE_MODEL_THINKING` | Fallback switch for provider reasoning requests and Claude thinking blocks. Set `false` to hide thinking unless a model tier overrides it. | `true` |
+| `ENABLE_OPUS_THINKING` | Optional thinking switch for Claude Opus requests; empty inherits `ENABLE_MODEL_THINKING`. | empty |
+| `ENABLE_SONNET_THINKING` | Optional thinking switch for Claude Sonnet requests; empty inherits `ENABLE_MODEL_THINKING`. | empty |
+| `ENABLE_HAIKU_THINKING` | Optional thinking switch for Claude Haiku requests; empty inherits `ENABLE_MODEL_THINKING`. | empty |
 | `OPENROUTER_API_KEY` | OpenRouter API key                                                    | required for OpenRouter                           |
 | `DEEPSEEK_API_KEY`   | DeepSeek API key                                                      | required for DeepSeek                             |
 | `LM_STUDIO_BASE_URL` | LM Studio server URL                                                  | `http://localhost:1234/v1`                        |
@@ -516,6 +580,7 @@ Configure via `WHISPER_DEVICE` (`cpu` | `cuda` | `nvidia_nim`) and `WHISPER_MODE
 | `OPENROUTER_PROXY`   | Optional proxy URL for OpenRouter requests (`http://...` or `socks5://...`) | `""` |
 | `LMSTUDIO_PROXY`     | Optional proxy URL for LM Studio requests (`http://...` or `socks5://...`) | `""` |
 | `LLAMACPP_PROXY`     | Optional proxy URL for llama.cpp requests (`http://...` or `socks5://...`) | `""` |
+| `OLLAMA_BASE_URL`    | Ollama server root URL                                               | `http://localhost:11434`                          |
 
 ### Rate Limiting & Timeouts
 

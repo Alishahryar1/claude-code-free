@@ -29,6 +29,9 @@ class CLISessionManager:
         allowed_dirs: list[str] | None = None,
         plans_directory: str | None = None,
         claude_bin: str = "claude",
+        *,
+        log_raw_cli_diagnostics: bool = False,
+        log_messaging_error_details: bool = False,
     ):
         """
         Initialize the session manager.
@@ -44,6 +47,8 @@ class CLISessionManager:
         self.allowed_dirs = allowed_dirs or []
         self.plans_directory = plans_directory
         self.claude_bin = claude_bin
+        self._log_raw_cli_diagnostics = log_raw_cli_diagnostics
+        self._log_messaging_error_details = log_messaging_error_details
 
         self._sessions: dict[str, CLISession] = {}
         self._pending_sessions: dict[str, CLISession] = {}
@@ -79,6 +84,7 @@ class CLISessionManager:
                 allowed_dirs=self.allowed_dirs,
                 plans_directory=self.plans_directory,
                 claude_bin=self.claude_bin,
+                log_raw_cli_diagnostics=self._log_raw_cli_diagnostics,
             )
             self._pending_sessions[temp_id] = new_session
             logger.info(f"Created new session: {temp_id}")
@@ -130,7 +136,17 @@ class CLISessionManager:
                 try:
                     await session.stop()
                 except Exception as e:
-                    logger.error(f"Error stopping session: {e}")
+                    if self._log_messaging_error_details:
+                        logger.error(
+                            "Error stopping session: {}: {}",
+                            type(e).__name__,
+                            e,
+                        )
+                    else:
+                        logger.error(
+                            "Error stopping session: exc_type={}",
+                            type(e).__name__,
+                        )
 
             self._sessions.clear()
             self._pending_sessions.clear()

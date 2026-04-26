@@ -11,6 +11,7 @@ from providers.exceptions import UnknownProviderTypeError
 from providers.llamacpp import LlamaCppProvider
 from providers.lmstudio import LMStudioProvider
 from providers.nvidia_nim import NvidiaNimProvider
+from providers.ollama import OllamaProvider
 from providers.open_router import OpenRouterProvider
 from providers.registry import (
     PROVIDER_DESCRIPTORS,
@@ -28,6 +29,7 @@ def _make_settings(**overrides):
     mock.deepseek_api_key = "test_deepseek_key"
     mock.lm_studio_base_url = "http://localhost:1234/v1"
     mock.llamacpp_base_url = "http://localhost:8080/v1"
+    mock.ollama_base_url = "http://localhost:11434"
     mock.nvidia_nim_proxy = ""
     mock.open_router_proxy = ""
     mock.lmstudio_proxy = ""
@@ -37,8 +39,8 @@ def _make_settings(**overrides):
     mock.provider_max_concurrency = 5
     mock.http_read_timeout = 300.0
     mock.http_write_timeout = 10.0
-    mock.http_connect_timeout = 2.0
-    mock.enable_thinking = True
+    mock.http_connect_timeout = 10.0
+    mock.enable_model_thinking = True
     mock.nim = NimSettings()
     for key, value in overrides.items():
         setattr(mock, key, value)
@@ -69,6 +71,14 @@ def test_descriptors_cover_advertised_provider_ids():
         assert descriptor.capabilities
 
 
+def test_ollama_descriptor_uses_native_anthropic_transport():
+    descriptor = PROVIDER_DESCRIPTORS["ollama"]
+
+    assert descriptor.transport_type == "anthropic_messages"
+    assert descriptor.default_base_url == "http://localhost:11434"
+    assert "native_anthropic" in descriptor.capabilities
+
+
 def test_create_provider_uses_native_openrouter_by_default():
     with patch("httpx.AsyncClient"):
         provider = create_provider("open_router", _make_settings())
@@ -83,6 +93,7 @@ def test_create_provider_instantiates_each_builtin():
         "deepseek": DeepSeekProvider,
         "lmstudio": LMStudioProvider,
         "llamacpp": LlamaCppProvider,
+        "ollama": OllamaProvider,
     }
 
     with (
