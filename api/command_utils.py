@@ -4,6 +4,7 @@ import re
 import shlex
 
 
+<<<<<<< HEAD
 _ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
 
 
@@ -12,11 +13,17 @@ def _is_env_assignment(part: str) -> bool:
     return bool(_ENV_ASSIGNMENT_RE.match(part))
 
 
+=======
+>>>>>>> upstream/main
 def _strip_env_assignments(parts: list[str]) -> list[str]:
     """Return command parts after leading shell-style env assignments."""
     cmd_start = 0
     for i, part in enumerate(parts):
+<<<<<<< HEAD
         if _is_env_assignment(part):
+=======
+        if "=" in part and not part.startswith("-"):
+>>>>>>> upstream/main
             cmd_start = i + 1
         else:
             break
