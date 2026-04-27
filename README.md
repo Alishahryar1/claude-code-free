@@ -528,6 +528,8 @@ Set `MESSAGING_PLATFORM=telegram` and configure:
 ```dotenv
 TELEGRAM_BOT_TOKEN="123456789:ABCdefGHIjklMNOpqrSTUvwxYZ"
 ALLOWED_TELEGRAM_USER_ID="your_telegram_user_id"
+# Or, to share with a team / family, comma-separate:
+# ALLOWED_TELEGRAM_USER_ID="123456789,987654321,555555555"
 ```
 
 Get a token from [@BotFather](https://t.me/BotFather); find your user ID via [@userinfobot](https://t.me/userinfobot).
@@ -603,7 +605,7 @@ Configure via `WHISPER_DEVICE` (`cpu` | `cuda` | `nvidia_nim`) and `WHISPER_MODE
 | `DISCORD_BOT_TOKEN`        | Discord bot token                                                                                                                                                  | `""`                |
 | `ALLOWED_DISCORD_CHANNELS` | Comma-separated channel IDs (empty = none allowed)                                                                                                                 | `""`                |
 | `TELEGRAM_BOT_TOKEN`       | Telegram bot token                                                                                                                                                 | `""`                |
-| `ALLOWED_TELEGRAM_USER_ID` | Allowed Telegram user ID                                                                                                                                           | `""`                |
+| `ALLOWED_TELEGRAM_USER_ID` | Allowed Telegram user ID; comma-separate for multiple (`"123,456"`), empty = all users blocked                                                                    | `""`                |
 | `CLAUDE_WORKSPACE`         | Directory where the agent operates                                                                                                                                 | `./agent_workspace` |
 | `ALLOWED_DIR`              | Allowed directories for the agent                                                                                                                                  | `""`                |
 | `MESSAGING_RATE_LIMIT`     | Messaging messages per window                                                                                                                                      | `1`                 |

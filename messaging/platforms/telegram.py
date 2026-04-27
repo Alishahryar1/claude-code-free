@@ -48,6 +48,18 @@ except ImportError:
     TELEGRAM_AVAILABLE = False
 
 
+def _parse_allowed_user_ids(raw: str | None) -> set[str]:
+    """Parse comma-separated Telegram user IDs into a set of strings.
+
+    Empty / whitespace-only entries are dropped. An unset value (None or
+    blank string) yields an empty set, which the auth check treats as
+    "no allow-list configured" — same shape as the prior single-ID behavior.
+    """
+    if not raw or not str(raw).strip():
+        return set()
+    return {s.strip() for s in str(raw).split(",") if s.strip()}
+
+
 class TelegramPlatform(MessagingPlatform):
     """
     Telegram messaging platform adapter.
@@ -79,7 +91,7 @@ class TelegramPlatform(MessagingPlatform):
             )
 
         self.bot_token = bot_token
-        self.allowed_user_id = allowed_user_id
+        self.allowed_user_ids = _parse_allowed_user_ids(allowed_user_id)
 
         if not self.bot_token:
             # We don't raise here to allow instantiation for testing/conditional logic,
@@ -185,26 +197,27 @@ class TelegramPlatform(MessagingPlatform):
             rate_window=self._messaging_rate_window,
         )
 
-        # Send startup notification
-        try:
-            target = self.allowed_user_id
-            if target:
-                startup_text = (
-                    f"🚀 *{escape_md_v2('Claude Code Proxy is online!')}* "
-                    f"{escape_md_v2('(Bot API)')}"
-                )
-                await self.send_message(
-                    target,
-                    startup_text,
-                )
-        except Exception as e:
-            if self._log_api_error_tracebacks:
-                logger.warning("Could not send startup message: {}", e)
-            else:
-                logger.warning(
-                    "Could not send startup message: exc_type={}",
-                    type(e).__name__,
-                )
+        # Send startup notification to every allowed user; a per-target failure
+        # must not block the others (one user's blocked bot shouldn't silence
+        # the rest of the team).
+        startup_text = (
+            f"🚀 *{escape_md_v2('Claude Code Proxy is online!')}* "
+            f"{escape_md_v2('(Bot API)')}"
+        )
+        for target in sorted(self.allowed_user_ids):
+            try:
+                await self.send_message(target, startup_text)
+            except Exception as e:
+                if self._log_api_error_tracebacks:
+                    logger.warning(
+                        "Could not send startup message to {}: {}", target, e
+                    )
+                else:
+                    logger.warning(
+                        "Could not send startup message to {}: exc_type={}",
+                        target,
+                        type(e).__name__,
+                    )
 
         logger.info("Telegram platform started (Bot API)")
 
@@ -508,7 +521,7 @@ class TelegramPlatform(MessagingPlatform):
         chat_id = str(update.effective_chat.id)
 
         # Security check
-        if self.allowed_user_id and user_id != str(self.allowed_user_id).strip():
+        if self.allowed_user_ids and user_id not in self.allowed_user_ids:
             logger.warning(f"Unauthorized access attempt from {user_id}")
             return
 
@@ -593,7 +606,7 @@ class TelegramPlatform(MessagingPlatform):
         user_id = str(update.effective_user.id)
         chat_id = str(update.effective_chat.id)
 
-        if self.allowed_user_id and user_id != str(self.allowed_user_id).strip():
+        if self.allowed_user_ids and user_id not in self.allowed_user_ids:
             logger.warning(f"Unauthorized voice access attempt from {user_id}")
             return
 
