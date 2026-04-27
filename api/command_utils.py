@@ -3,8 +3,6 @@
 import re
 import shlex
 
-
-<<<<<<< HEAD
 _ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
 
 
@@ -13,17 +11,11 @@ def _is_env_assignment(part: str) -> bool:
     return bool(_ENV_ASSIGNMENT_RE.match(part))
 
 
-=======
->>>>>>> upstream/main
 def _strip_env_assignments(parts: list[str]) -> list[str]:
     """Return command parts after leading shell-style env assignments."""
     cmd_start = 0
     for i, part in enumerate(parts):
-<<<<<<< HEAD
         if _is_env_assignment(part):
-=======
-        if "=" in part and not part.startswith("-"):
->>>>>>> upstream/main
             cmd_start = i + 1
         else:
             break
@@ -145,21 +137,19 @@ def extract_filepaths_from_command(command: str, output: str) -> str:
         if base_cmd == "grep":
             flags_with_args = {"-e", "-f", "-m", "-A", "-B", "-C"}
             pattern_provided_via_flag = False
-            positional: list[str] = []
+            positional = []
 
             skip_next = False
             for part in cmd_parts[1:]:
                 if skip_next:
                     skip_next = False
                     continue
-
                 if part.startswith("-"):
                     if part in flags_with_args:
                         if part in {"-e", "-f"}:
                             pattern_provided_via_flag = True
                         skip_next = True
                     continue
-
                 positional.append(part)
 
             filepaths = positional if pattern_provided_via_flag else positional[1:]
