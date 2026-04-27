@@ -18,6 +18,7 @@ DEEPSEEK_ANTHROPIC_DEFAULT_BASE = "https://api.deepseek.com/anthropic"
 # Historical export name: DeepSeek upstream is the native Anthropic path above.
 DEEPSEEK_DEFAULT_BASE = DEEPSEEK_ANTHROPIC_DEFAULT_BASE
 OPENROUTER_DEFAULT_BASE = "https://openrouter.ai/api/v1"
+GOOGLE_VERTEX_DEFAULT_BASE = "https://aiplatform.googleapis.com/v1"
 LMSTUDIO_DEFAULT_BASE = "http://localhost:1234/v1"
 LLAMACPP_DEFAULT_BASE = "http://localhost:8080/v1"
 OLLAMA_DEFAULT_BASE = "http://localhost:11434"
@@ -101,6 +102,16 @@ PROVIDER_CATALOG: dict[str, ProviderDescriptor] = {
             "native_anthropic",
             "local",
         ),
+    ),
+    "google_vertex": ProviderDescriptor(
+        provider_id="google_vertex",
+        transport_type="anthropic_messages",
+        credential_env="GOOGLE_VERTEX_API_KEY",
+        credential_url="https://console.cloud.google.com/expressmode",
+        credential_attr="google_vertex_api_key",
+        default_base_url=GOOGLE_VERTEX_DEFAULT_BASE,
+        proxy_attr="google_vertex_proxy",
+        capabilities=("chat", "streaming", "tools", "thinking", "native_anthropic"),
     ),
 }
 
