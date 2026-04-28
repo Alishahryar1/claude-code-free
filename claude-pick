@@ -11,7 +11,6 @@ ENV_FILE="${CLAUDE_PICK_ENV_FILE:-$SCRIPT_DIR/.env}"
 PORT="${CLAUDE_PICK_PORT:-8082}"
 BASE_URL="http://localhost:$PORT"
 OPENROUTER_MODELS_URL="https://openrouter.ai/api/v1/models"
-OPENCODE_GO_MODELS_URL="https://opencode.ai/zen/go/v1/models"
 DEFAULT_LM_STUDIO_BASE_URL="http://localhost:1234/v1"
 DEFAULT_LLAMACPP_BASE_URL="http://localhost:8080/v1"
 
