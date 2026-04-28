@@ -97,16 +97,33 @@ free-claude-code
 
 Point `ANTHROPIC_BASE_URL` at the proxy root. Do not append `/v1`.
 
-PowerShell:
+## Temporary
 
-```powershell
+### PowerShell
+
+```powershell id="e9md8o"
 $env:ANTHROPIC_AUTH_TOKEN="freecc"; $env:ANTHROPIC_BASE_URL="http://localhost:8082"; claude
 ```
 
-Bash:
+### Bash
 
-```bash
+```bash id="o56gtu"
 ANTHROPIC_AUTH_TOKEN="freecc" ANTHROPIC_BASE_URL="http://localhost:8082" claude
+```
+
+## Permanent (Windows)
+
+### PowerShell
+
+```powershell id="3h0q7f"
+[Environment]::SetEnvironmentVariable("ANTHROPIC_AUTH_TOKEN", "freecc", "User")
+[Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "http://localhost:8082", "User")
+```
+
+Then reopen terminal and run:
+
+```powershell id="vfr74v"
+claude
 ```
 
 ## Choose A Provider
