@@ -31,6 +31,12 @@ def _create_open_router(config: ProviderConfig, _settings: Settings) -> BaseProv
     return OpenRouterProvider(config)
 
 
+def _create_opencode_go(config: ProviderConfig, _settings: Settings) -> BaseProvider:
+    from providers.opencode_go import OpenCodeGoProvider
+
+    return OpenCodeGoProvider(config)
+
+
 def _create_deepseek(config: ProviderConfig, _settings: Settings) -> BaseProvider:
     from providers.deepseek import DeepSeekProvider
 
@@ -58,6 +64,7 @@ def _create_ollama(config: ProviderConfig, _settings: Settings) -> BaseProvider:
 PROVIDER_FACTORIES: dict[str, ProviderFactory] = {
     "nvidia_nim": _create_nvidia_nim,
     "open_router": _create_open_router,
+    "opencode_go": _create_opencode_go,
     "deepseek": _create_deepseek,
     "lmstudio": _create_lmstudio,
     "llamacpp": _create_llamacpp,

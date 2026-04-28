@@ -10,6 +10,7 @@ ENV_FILE="${CLAUDE_PICK_ENV_FILE:-$SCRIPT_DIR/.env}"
 PORT="${CLAUDE_PICK_PORT:-8082}"
 BASE_URL="http://localhost:$PORT"
 OPENROUTER_MODELS_URL="https://openrouter.ai/api/v1/models"
+OPENCODE_GO_MODELS_URL="https://opencode.ai/zen/go/v1/models"
 DEFAULT_LM_STUDIO_BASE_URL="http://localhost:1234/v1"
 DEFAULT_LLAMACPP_BASE_URL="http://localhost:8080/v1"
 
@@ -101,6 +102,31 @@ get_openrouter_models() {
     parse_models_from_json <<< "$response"
 }
 
+get_opencode_go_models() {
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "Error: curl is required for OpenCode Go model discovery." >&2
+        exit 1
+    fi
+
+    local opencode_key
+    opencode_key="${OPENCODE_GO_API_KEY:-$(read_env_value OPENCODE_GO_API_KEY)}"
+    
+    local response
+    if [[ -n "$opencode_key" ]]; then
+        if ! response="$(curl -fsSL -H "Authorization: Bearer $opencode_key" "$OPENCODE_GO_MODELS_URL")"; then
+            echo "Error: Failed to fetch OpenCode Go models." >&2
+            exit 1
+        fi
+    else
+        if ! response="$(curl -fsSL "$OPENCODE_GO_MODELS_URL")"; then
+            echo "Error: Failed to fetch OpenCode Go models. Ensure you have network connectivity or valid keys." >&2
+            exit 1
+        fi
+    fi
+
+    parse_models_from_json <<< "$response"
+}
+
 get_lmstudio_models() {
     if ! command -v curl >/dev/null 2>&1; then
         echo "Error: curl is required for LM Studio model discovery." >&2
@@ -141,6 +167,10 @@ case "$provider" in
         models="$(get_openrouter_models)"
         prompt="Select an OpenRouter model> "
         ;;
+    opencode_go|opencode)
+        models="$(get_opencode_go_models)"
+        prompt="Select an OpenCode Go model> "
+        ;;
     lmstudio|lm_studio|lm-studio)
         models="$(get_lmstudio_models)"
         prompt="Select an LM Studio model> "
@@ -154,7 +184,7 @@ case "$provider" in
         ;;
     *)
         echo "Error: Unsupported PROVIDER_TYPE='$provider'." >&2
-        echo "Expected one of: nvidia_nim, open_router, lmstudio, llamacpp" >&2
+        echo "Expected one of: nvidia_nim, open_router, opencode_go, lmstudio, llamacpp" >&2
         exit 1
         ;;
 esac
