@@ -7,6 +7,21 @@ from providers.anthropic_messages import AnthropicMessagesTransport
 from providers.base import BaseProvider, ProviderConfig
 from providers.defaults import OPENCODE_GO_DEFAULT_BASE
 from providers.openai_compat import OpenAIChatTransport
+from core.anthropic import build_base_request_body, ReasoningReplayMode
+
+
+class _OpenCodeGoOpenAITransport(OpenAIChatTransport):
+    """Internal OpenAI transport for OpenCode Go models."""
+
+    def _build_request_body(
+        self, request: Any, thinking_enabled: bool | None = None
+    ) -> dict:
+        return build_base_request_body(
+            request,
+            reasoning_replay=ReasoningReplayMode.REASONING_CONTENT
+            if thinking_enabled
+            else ReasoningReplayMode.DISABLED,
+        )
 
 
 class OpenCodeGoProvider(BaseProvider):
@@ -23,7 +38,7 @@ class OpenCodeGoProvider(BaseProvider):
         )
 
         # OpenAI Chat Completions endpoint handles 'glm', 'qwen', 'kimi', 'mimo', 'deepseek'.
-        self._openai_client = OpenAIChatTransport(
+        self._openai_client = _OpenCodeGoOpenAITransport(
             config,
             provider_name="OPENCODE_GO",
             base_url=config.base_url or OPENCODE_GO_DEFAULT_BASE,
