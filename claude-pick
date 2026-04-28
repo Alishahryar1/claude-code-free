@@ -6,6 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODELS_FILE="$SCRIPT_DIR/nvidia_nim_models.json"
+OPENCODE_MODELS_FILE="$SCRIPT_DIR/opencode_go_models.json"
 ENV_FILE="${CLAUDE_PICK_ENV_FILE:-$SCRIPT_DIR/.env}"
 PORT="${CLAUDE_PICK_PORT:-8082}"
 BASE_URL="http://localhost:$PORT"
@@ -103,28 +104,21 @@ get_openrouter_models() {
 }
 
 get_opencode_go_models() {
-    if ! command -v curl >/dev/null 2>&1; then
-        echo "Error: curl is required for OpenCode Go model discovery." >&2
+    if [[ ! -f "$OPENCODE_MODELS_FILE" ]]; then
+        echo "Error: $OPENCODE_MODELS_FILE not found." >&2
+        echo "Run: curl \"https://opencode.ai/zen/go/v1/models\" > opencode_go_models.json" >&2
         exit 1
     fi
 
-    local opencode_key
-    opencode_key="${OPENCODE_GO_API_KEY:-$(read_env_value OPENCODE_GO_API_KEY)}"
-    
-    local response
-    if [[ -n "$opencode_key" ]]; then
-        if ! response="$(curl -fsSL -H "Authorization: Bearer $opencode_key" "$OPENCODE_GO_MODELS_URL")"; then
-            echo "Error: Failed to fetch OpenCode Go models." >&2
-            exit 1
-        fi
-    else
-        if ! response="$(curl -fsSL "$OPENCODE_GO_MODELS_URL")"; then
-            echo "Error: Failed to fetch OpenCode Go models. Ensure you have network connectivity or valid keys." >&2
-            exit 1
-        fi
-    fi
-
-    parse_models_from_json <<< "$response"
+    run_python -c '
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    payload = json.load(f)
+for item in payload.get("data", []):
+    model_id = item.get("id")
+    if model_id:
+        print(model_id)
+' "$OPENCODE_MODELS_FILE"
 }
 
 get_lmstudio_models() {
