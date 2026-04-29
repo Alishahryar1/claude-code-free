@@ -213,12 +213,18 @@ def _parse_timeout_s(raw: str | None) -> float:
 
 
 def _parse_provider_type(raw_model: str, source: str) -> str:
-    try:
-        return Settings.parse_provider_type(raw_model)
-    except (IndexError, ValueError) as exc:
+    model = raw_model.strip()
+    if not model or "/" not in model:
         raise ValueError(
             f"{source} must be a non-empty provider/model reference"
-        ) from exc
+        )
+
+    provider = Settings.parse_provider_type(model)
+    if provider not in SUPPORTED_PROVIDER_IDS:
+        raise ValueError(
+            f"{source} must use a supported provider prefix, got {provider!r}"
+        )
+    return provider
 
 
 def _provider_smoke_model(provider: str) -> tuple[str, str]:
