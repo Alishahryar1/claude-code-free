@@ -8,6 +8,7 @@ from core.anthropic import get_token_count
 
 from . import dependencies
 from .dependencies import get_settings, require_api_key
+from .health import build_health_payload
 from .models.anthropic import MessagesRequest, TokenCountRequest
 from .models.responses import ModelResponse, ModelsListResponse
 from .services import ClaudeProxyService
@@ -127,9 +128,18 @@ async def probe_root(_auth=Depends(require_api_key)):
 
 
 @router.get("/health")
-async def health():
-    """Health check endpoint."""
-    return {"status": "healthy"}
+async def health(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _auth=Depends(require_api_key),
+):
+    """Health check with a runtime configuration snapshot.
+
+    Returns model routing, provider state (configured / credentialed /
+    instantiated / rate-limit), messaging status, and web-tool policy.
+    Use ``HEAD /health`` for unauthenticated liveness probes.
+    """
+    return build_health_payload(request.app, settings)
 
 
 @router.api_route("/health", methods=["HEAD", "OPTIONS"])
