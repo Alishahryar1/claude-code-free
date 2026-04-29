@@ -110,7 +110,7 @@ class SmokeConfig:
             interactive=os.getenv("FCC_SMOKE_INTERACTIVE") == "1",
             targets=_parse_targets(os.getenv("FCC_SMOKE_TARGETS")),
             provider_matrix=_parse_csv(os.getenv("FCC_SMOKE_PROVIDER_MATRIX")),
-            timeout_s=float(os.getenv("FCC_SMOKE_TIMEOUT_S", "45")),
+            timeout_s=_parse_timeout_s(os.getenv("FCC_SMOKE_TIMEOUT_S")),
             prompt=os.getenv("FCC_SMOKE_PROMPT", "Reply with exactly: FCC_SMOKE_PONG"),
             claude_bin=os.getenv("FCC_SMOKE_CLAUDE_BIN", "claude"),
             worker_id=os.getenv("PYTEST_XDIST_WORKER", "main"),
@@ -132,7 +132,7 @@ class SmokeConfig:
         for source, model in candidates:
             if not model or model in seen:
                 continue
-            provider = Settings.parse_provider_type(model)
+            provider = _parse_provider_type(model, source)
             if self.provider_matrix and provider not in self.provider_matrix:
                 continue
             if not self.has_provider_configuration(provider):
@@ -201,6 +201,24 @@ def _parse_targets(raw: str | None) -> frozenset[str]:
     if "all" in parsed:
         return ALL_TARGETS
     return frozenset(TARGET_ALIASES.get(target, target) for target in parsed)
+
+
+def _parse_timeout_s(raw: str | None) -> float:
+    if raw is None:
+        return 45.0
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ValueError("FCC_SMOKE_TIMEOUT_S must be a number") from exc
+
+
+def _parse_provider_type(raw_model: str, source: str) -> str:
+    try:
+        return Settings.parse_provider_type(raw_model)
+    except (IndexError, ValueError) as exc:
+        raise ValueError(
+            f"{source} must be a non-empty provider/model reference"
+        ) from exc
 
 
 def _provider_smoke_model(provider: str) -> tuple[str, str]:
