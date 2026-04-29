@@ -98,6 +98,14 @@ class Settings(BaseSettings):
     # ==================== OpenRouter Config ====================
     open_router_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
 
+    # ==================== Custom OpenAI Config ====================
+    custom_openai_base_url: str = Field(
+        default="", validation_alias="CUSTOM_OPENAI_BASE_URL"
+    )
+    custom_openai_api_key: str = Field(
+        default="", validation_alias="CUSTOM_OPENAI_API_KEY"
+    )
+
     # ==================== DeepSeek Config ====================
     deepseek_api_key: str = Field(default="", validation_alias="DEEPSEEK_API_KEY")
 

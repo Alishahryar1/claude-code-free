@@ -11,7 +11,11 @@ from config.provider_catalog import (
 )
 from config.settings import Settings
 from providers.base import BaseProvider, ProviderConfig
-from providers.exceptions import AuthenticationError, UnknownProviderTypeError
+from providers.exceptions import (
+    AuthenticationError,
+    InvalidRequestError,
+    UnknownProviderTypeError,
+)
 
 ProviderFactory = Callable[[ProviderConfig, Settings], BaseProvider]
 
@@ -37,6 +41,12 @@ def _create_deepseek(config: ProviderConfig, _settings: Settings) -> BaseProvide
     return DeepSeekProvider(config)
 
 
+def _create_custom_openai(config: ProviderConfig, _settings: Settings) -> BaseProvider:
+    from providers.custom_openai import CustomOpenAIProvider
+
+    return CustomOpenAIProvider(config)
+
+
 def _create_lmstudio(config: ProviderConfig, _settings: Settings) -> BaseProvider:
     from providers.lmstudio import LMStudioProvider
 
@@ -59,6 +69,7 @@ PROVIDER_FACTORIES: dict[str, ProviderFactory] = {
     "nvidia_nim": _create_nvidia_nim,
     "open_router": _create_open_router,
     "deepseek": _create_deepseek,
+    "custom_openai": _create_custom_openai,
     "lmstudio": _create_lmstudio,
     "llamacpp": _create_llamacpp,
     "ollama": _create_ollama,
@@ -100,18 +111,35 @@ def _require_credential(descriptor: ProviderDescriptor, credential: str) -> None
     raise AuthenticationError(message)
 
 
+def _base_url_for(descriptor: ProviderDescriptor, settings: Settings) -> str | None:
+    configured = _string_attr(settings, descriptor.base_url_attr)
+    if configured:
+        return configured
+    if descriptor.default_base_url is not None:
+        return descriptor.default_base_url
+    if descriptor.base_url_attr and descriptor.credential_env:
+        env_name = descriptor.base_url_attr.upper()
+        if env_name.endswith("_BASE_URL"):
+            env_hint = env_name
+        else:
+            env_hint = f"{descriptor.provider_id.upper()}_BASE_URL"
+        raise InvalidRequestError(
+            f"{env_hint} is not set. Add it to your .env file with the base URL "
+            "of your OpenAI-compatible API."
+        )
+    return None
+
+
 def build_provider_config(
     descriptor: ProviderDescriptor, settings: Settings
 ) -> ProviderConfig:
     credential = _credential_for(descriptor, settings)
     _require_credential(descriptor, credential)
-    base_url = _string_attr(
-        settings, descriptor.base_url_attr, descriptor.default_base_url or ""
-    )
+    base_url = _base_url_for(descriptor, settings)
     proxy = _string_attr(settings, descriptor.proxy_attr)
     return ProviderConfig(
         api_key=credential,
-        base_url=base_url or descriptor.default_base_url,
+        base_url=base_url,
         rate_limit=settings.provider_rate_limit,
         rate_window=settings.provider_rate_window,
         max_concurrency=settings.provider_max_concurrency,

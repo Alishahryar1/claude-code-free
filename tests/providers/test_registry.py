@@ -6,8 +6,13 @@ import pytest
 
 from config.nim import NimSettings
 from config.provider_ids import SUPPORTED_PROVIDER_IDS
+from providers.custom_openai import CustomOpenAIProvider
 from providers.deepseek import DeepSeekProvider
-from providers.exceptions import UnknownProviderTypeError
+from providers.exceptions import (
+    AuthenticationError,
+    InvalidRequestError,
+    UnknownProviderTypeError,
+)
 from providers.llamacpp import LlamaCppProvider
 from providers.lmstudio import LMStudioProvider
 from providers.nvidia_nim import NvidiaNimProvider
@@ -27,6 +32,8 @@ def _make_settings(**overrides):
     mock.nvidia_nim_api_key = "test_key"
     mock.open_router_api_key = "test_openrouter_key"
     mock.deepseek_api_key = "test_deepseek_key"
+    mock.custom_openai_api_key = "test_custom_openai_key"
+    mock.custom_openai_base_url = "https://api.example.com/v1"
     mock.lm_studio_base_url = "http://localhost:1234/v1"
     mock.llamacpp_base_url = "http://localhost:8080/v1"
     mock.ollama_base_url = "http://localhost:11434"
@@ -79,6 +86,15 @@ def test_ollama_descriptor_uses_native_anthropic_transport():
     assert "native_anthropic" in descriptor.capabilities
 
 
+def test_custom_openai_descriptor_requires_explicit_base_url():
+    descriptor = PROVIDER_DESCRIPTORS["custom_openai"]
+
+    assert descriptor.transport_type == "openai_chat"
+    assert descriptor.default_base_url is None
+    assert descriptor.base_url_attr == "custom_openai_base_url"
+    assert descriptor.credential_attr == "custom_openai_api_key"
+
+
 def test_create_provider_uses_native_openrouter_by_default():
     with patch("httpx.AsyncClient"):
         provider = create_provider("open_router", _make_settings())
@@ -91,6 +107,7 @@ def test_create_provider_instantiates_each_builtin():
     cases = {
         "nvidia_nim": NvidiaNimProvider,
         "deepseek": DeepSeekProvider,
+        "custom_openai": CustomOpenAIProvider,
         "lmstudio": LMStudioProvider,
         "llamacpp": LlamaCppProvider,
         "ollama": OllamaProvider,
@@ -102,6 +119,22 @@ def test_create_provider_instantiates_each_builtin():
     ):
         for provider_id, provider_cls in cases.items():
             assert isinstance(create_provider(provider_id, settings), provider_cls)
+
+
+def test_custom_openai_requires_api_key():
+    with pytest.raises(AuthenticationError, match="CUSTOM_OPENAI_API_KEY"):
+        create_provider(
+            "custom_openai",
+            _make_settings(custom_openai_api_key=""),
+        )
+
+
+def test_custom_openai_requires_base_url():
+    with pytest.raises(InvalidRequestError, match="CUSTOM_OPENAI_BASE_URL"):
+        create_provider(
+            "custom_openai",
+            _make_settings(custom_openai_base_url=""),
+        )
 
 
 def test_provider_registry_caches_by_provider_id():

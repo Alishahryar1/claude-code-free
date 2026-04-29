@@ -69,6 +69,14 @@ PROVIDER_CATALOG: dict[str, ProviderDescriptor] = {
         default_base_url=DEEPSEEK_ANTHROPIC_DEFAULT_BASE,
         capabilities=("chat", "streaming", "tools", "thinking", "native_anthropic"),
     ),
+    "custom_openai": ProviderDescriptor(
+        provider_id="custom_openai",
+        transport_type="openai_chat",
+        credential_env="CUSTOM_OPENAI_API_KEY",
+        credential_attr="custom_openai_api_key",
+        base_url_attr="custom_openai_base_url",
+        capabilities=("chat", "streaming", "tools"),
+    ),
     "lmstudio": ProviderDescriptor(
         provider_id="lmstudio",
         transport_type="anthropic_messages",
