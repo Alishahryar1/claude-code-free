@@ -15,6 +15,34 @@ from core.anthropic import (
 from core.anthropic.conversion import OpenAIConversionError
 from providers.exceptions import InvalidRequestError
 
+# Map a short model family prefix to its NIM vendor namespace. Users can set
+# MODEL_OPUS=nvidia_nim/qwen3-coder-480b-a35b-instruct (no vendor prefix) and
+# the request builder will rewrite it to qwen/qwen3-coder-480b-a35b-instruct
+# before the upstream call. Names that already contain "/" are passed through.
+_NIM_VENDOR_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("qwen", "qwen"),
+    ("deepseek", "deepseek-ai"),
+    ("devstral", "mistralai"),
+    ("glm", "z-ai"),
+    ("gemma", "google"),
+    ("llama", "meta"),
+    ("nemotron", "nvidia"),
+)
+
+
+def map_nim_model(model: str | None) -> str | None:
+    """Rewrite a short NIM model name to its vendor-prefixed form.
+
+    Returns ``model`` unchanged when it is empty, already vendor-prefixed
+    (contains "/"), or has no known vendor mapping.
+    """
+    if not model or "/" in model:
+        return model
+    for prefix, vendor in _NIM_VENDOR_PREFIXES:
+        if model.startswith(prefix):
+            return f"{vendor}/{model}"
+    return model
+
 
 def _clone_strip_extra_body(
     body: dict[str, Any],
@@ -112,6 +140,8 @@ def build_request_body(
         )
     except OpenAIConversionError as exc:
         raise InvalidRequestError(str(exc)) from exc
+
+    body["model"] = map_nim_model(body.get("model"))
 
     # NIM-specific max_tokens: cap against nim.max_tokens
     max_tokens = body.get("max_tokens") or getattr(request_data, "max_tokens", None)

@@ -11,6 +11,7 @@ from providers.nvidia_nim.request import (
     build_request_body,
     clone_body_without_chat_template,
     clone_body_without_reasoning_content,
+    map_nim_model,
 )
 
 
@@ -307,3 +308,74 @@ class TestBuildRequestBody:
         body = {"model": "test", "messages": [{"role": "user", "content": "hi"}]}
 
         assert clone_body_without_reasoning_content(body) is None
+
+
+class TestMapNimModel:
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("qwen3-coder-480b-a35b-instruct", "qwen/qwen3-coder-480b-a35b-instruct"),
+            ("qwen3-32b", "qwen/qwen3-32b"),
+            ("deepseek-v3.2", "deepseek-ai/deepseek-v3.2"),
+            ("devstral-small", "mistralai/devstral-small"),
+            ("glm-4.7", "z-ai/glm-4.7"),
+            ("gemma-3-27b-it", "google/gemma-3-27b-it"),
+            ("llama-3.1-70b-instruct", "meta/llama-3.1-70b-instruct"),
+            ("nemotron-super-49b", "nvidia/nemotron-super-49b"),
+        ],
+    )
+    def test_short_names_get_vendor_prefix(self, raw, expected):
+        assert map_nim_model(raw) == expected
+
+    @pytest.mark.parametrize(
+        "already_prefixed",
+        [
+            "qwen/qwen3-coder-480b-a35b-instruct",
+            "z-ai/glm-4.7",
+            "deepseek-ai/deepseek-v3.2",
+            "google/gemma-3-27b-it",
+        ],
+    )
+    def test_prefixed_names_pass_through(self, already_prefixed):
+        assert map_nim_model(already_prefixed) == already_prefixed
+
+    def test_unknown_prefix_passes_through(self):
+        assert map_nim_model("mystery-model-7b") == "mystery-model-7b"
+
+    @pytest.mark.parametrize("falsy", [None, ""])
+    def test_falsy_input_returns_unchanged(self, falsy):
+        assert map_nim_model(falsy) == falsy
+
+    def test_build_request_body_rewrites_model(self):
+        req = MagicMock()
+        req.model = "gemma-3-27b-it"
+        req.messages = [MagicMock(role="user", content="hi")]
+        req.max_tokens = 100
+        req.system = None
+        req.temperature = None
+        req.top_p = None
+        req.stop_sequences = None
+        req.tools = None
+        req.tool_choice = None
+        req.extra_body = None
+        req.top_k = None
+
+        body = build_request_body(req, NimSettings(), thinking_enabled=False)
+        assert body["model"] == "google/gemma-3-27b-it"
+
+    def test_build_request_body_keeps_prefixed_model(self):
+        req = MagicMock()
+        req.model = "z-ai/glm-4.7"
+        req.messages = [MagicMock(role="user", content="hi")]
+        req.max_tokens = 100
+        req.system = None
+        req.temperature = None
+        req.top_p = None
+        req.stop_sequences = None
+        req.tools = None
+        req.tool_choice = None
+        req.extra_body = None
+        req.top_k = None
+
+        body = build_request_body(req, NimSettings(), thinking_enabled=False)
+        assert body["model"] == "z-ai/glm-4.7"
