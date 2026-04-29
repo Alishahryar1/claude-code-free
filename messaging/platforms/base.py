@@ -17,15 +17,10 @@ class CLISession(Protocol):
 
     def start_task(
         self, prompt: str, session_id: str | None = None, fork_session: bool = False
-    ) -> AsyncGenerator[dict, Any]:
-        """Start a task in the CLI session."""
-        ...
+    ) -> AsyncGenerator[dict, Any]: ...
 
     @property
-    @abstractmethod
-    def is_busy(self) -> bool:
-        """Check if session is busy."""
-        pass
+    def is_busy(self) -> bool: ...
 
 
 @runtime_checkable
@@ -101,7 +96,8 @@ class MessagingPlatform(ABC):
             text: Message content
             reply_to: Optional message ID to reply to
             parse_mode: Optional formatting mode ("markdown", "html")
-            message_thread_id: Optional forum topic ID (Telegram)
+            message_thread_id: Optional thread or topic id for threaded channels
+                (e.g. forum topics); unused on platforms that do not support it.
 
         Returns:
             The message ID of the sent message
@@ -191,6 +187,22 @@ class MessagingPlatform(ABC):
         Otherwise, waits for the rate limiter.
         """
         pass
+
+    async def queue_delete_messages(
+        self,
+        chat_id: str,
+        message_ids: list[str],
+        *,
+        fire_and_forget: bool = True,
+    ) -> None:
+        """Delete many messages; default loops :meth:`queue_delete_message`.
+
+        Adapters with native bulk delete should override.
+        """
+        for mid in message_ids:
+            await self.queue_delete_message(
+                chat_id, mid, fire_and_forget=fire_and_forget
+            )
 
     @abstractmethod
     def on_message(

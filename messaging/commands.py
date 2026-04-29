@@ -114,23 +114,15 @@ async def _delete_message_ids(
     numeric.sort(reverse=True)
     ordered = [mid for _, mid in numeric] + non_numeric
 
-    batch_fn = getattr(handler.platform, "queue_delete_messages", None)
-    if callable(batch_fn):
-        try:
-            CHUNK = 100
-            for i in range(0, len(ordered), CHUNK):
-                chunk = ordered[i : i + CHUNK]
-                await batch_fn(chat_id, chunk, fire_and_forget=False)
-        except Exception as e:
-            logger.debug(f"Batch delete failed: {type(e).__name__}: {e}")
-    else:
-        for mid in ordered:
-            try:
-                await handler.platform.queue_delete_message(
-                    chat_id, mid, fire_and_forget=False
-                )
-            except Exception as e:
-                logger.debug(f"Delete failed for msg {mid}: {type(e).__name__}: {e}")
+    try:
+        CHUNK = 100
+        for i in range(0, len(ordered), CHUNK):
+            chunk = ordered[i : i + CHUNK]
+            await handler.platform.queue_delete_messages(
+                chat_id, chunk, fire_and_forget=False
+            )
+    except Exception as e:
+        logger.debug(f"Batch delete failed: {type(e).__name__}: {e}")
 
 
 async def _handle_clear_branch(

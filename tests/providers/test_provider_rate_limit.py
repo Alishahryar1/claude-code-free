@@ -27,11 +27,11 @@ class TestProviderRateLimiter:
         GlobalRateLimiter.reset_instance()
         limiter = GlobalRateLimiter.get_instance(rate_limit=1, rate_window=0.25)
 
-        start_time = time.time()
+        start_time = time.monotonic()
 
         async def call_limiter():
             await limiter.wait_if_blocked()
-            return time.time()
+            return time.monotonic()
 
         # 5 requests.
         # R0 -> 0s
@@ -41,7 +41,7 @@ class TestProviderRateLimiter:
         # R4 -> 1.00s
         results = [await call_limiter() for _ in range(5)]
 
-        total_time = time.time() - start_time
+        total_time = time.monotonic() - start_time
 
         assert len(results) == 5
         # Should take at least ~1.0s
@@ -56,7 +56,7 @@ class TestProviderRateLimiter:
         GlobalRateLimiter.reset_instance()
         limiter = GlobalRateLimiter.get_instance()
 
-        start_time = time.time()
+        start_time = time.monotonic()
 
         # Manually block for 1.5s
         block_time = 1.5
@@ -71,7 +71,7 @@ class TestProviderRateLimiter:
         # They should both wait for the block time
         results = await asyncio.gather(call_limiter(), call_limiter())
 
-        total_time = time.time() - start_time
+        total_time = time.monotonic() - start_time
 
         # Both should report having waited reactively
         assert all(results) is True
@@ -121,10 +121,10 @@ class TestProviderRateLimiter:
         GlobalRateLimiter.reset_instance()
         limiter = GlobalRateLimiter.get_instance(rate_limit=10000, rate_window=60)
 
-        start = time.time()
+        start = time.monotonic()
         for _ in range(20):
             await limiter.wait_if_blocked()
-        duration = time.time() - start
+        duration = time.monotonic() - start
 
         # 20 requests with 10000 limit should be near-instant
         assert duration < 1.0, f"High rate limit caused throttling: {duration:.2f}s"
@@ -253,6 +253,32 @@ class TestProviderRateLimiter:
         assert call_count == 2
 
     @pytest.mark.asyncio
+    async def test_execute_with_retry_succeeds_on_httpx_429(self):
+        """HTTP 429 as httpx.HTTPStatusError then success returns result."""
+        import httpx
+        from httpx import Request, Response
+
+        limiter = GlobalRateLimiter.get_instance(rate_limit=100, rate_window=60)
+
+        call_count = 0
+
+        async def fail_then_ok():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                r = Response(429, request=Request("POST", "http://x"), text="slow")
+                raise httpx.HTTPStatusError(
+                    "Too Many Requests", request=r.request, response=r
+                )
+            return "ok"
+
+        result = await limiter.execute_with_retry(
+            fail_then_ok, max_retries=2, base_delay=0.01, max_delay=0.1, jitter=0
+        )
+        assert result == "ok"
+        assert call_count == 2
+
+    @pytest.mark.asyncio
     async def test_max_concurrency_zero_raises(self):
         """max_concurrency <= 0 raises ValueError."""
         GlobalRateLimiter.reset_instance()
@@ -315,3 +341,20 @@ class TestProviderRateLimiter:
         )
         assert limiter._concurrency_sem is not None
         assert limiter._concurrency_sem._value == 3
+
+    @pytest.mark.asyncio
+    async def test_scoped_instances_are_isolated(self):
+        """Provider-scoped limiters do not share reactive block state."""
+        GlobalRateLimiter.reset_instance()
+        nim = GlobalRateLimiter.get_scoped_instance(
+            "nvidia_nim", rate_limit=10, rate_window=60
+        )
+        openrouter = GlobalRateLimiter.get_scoped_instance(
+            "open_router", rate_limit=20, rate_window=30
+        )
+
+        assert nim is not openrouter
+        nim.set_blocked(1.0)
+
+        assert nim.is_blocked() is True
+        assert openrouter.is_blocked() is False

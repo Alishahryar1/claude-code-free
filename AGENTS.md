@@ -23,7 +23,7 @@
 
 ## ARCHITECTURE PRINCIPLES (see PLAN.md)
 
-- **Shared utilities**: Extract common logic into shared packages (e.g. `providers/common/`). Do not have one provider import from another provider's utils.
+- **Shared utilities**: Put shared Anthropic protocol logic in neutral `core/anthropic/` modules. Do not have one provider import from another provider's utils.
 - **DRY**: Extract shared base classes to eliminate duplication. Prefer composition over copy-paste.
 - **Encapsulation**: Use accessor methods for internal state (e.g. `set_current_task()`), not direct `_attribute` assignment from outside.
 - **Provider-specific config**: Keep provider-specific fields (e.g. `nim_settings`) in provider constructors, not in the base `ProviderConfig`.
@@ -31,14 +31,15 @@
 - **Performance**: Use list accumulation for strings (not `+=` in loops), cache env vars at init, prefer iterative over recursive when stack depth matters.
 - **Platform-agnostic naming**: Use generic names (e.g. `PLATFORM_EDIT`) not platform-specific ones (e.g. `TELEGRAM_EDIT`) in shared code.
 - **No type ignores**: Do not add `# type: ignore` or `# ty: ignore`. Fix the underlying type issue.
-- **Backward compatibility**: When moving modules, add re-exports from old locations so existing imports keep working.
+- **Complete migrations**: When moving modules, update imports to the new owner and remove old compatibility shims in the same change unless preserving a published interface is explicitly required.
+- **Maximum Test Coverage**: There should be maximum test coverage for everything, preferably live smoke test coverage to catch bugs early
 
 ## COGNITIVE WORKFLOW
 
 1. **ANALYZE**: Read relevant files. Do not guess.
 2. **PLAN**: Map out the logic. Identify root cause or required changes. Order changes by dependency.
 3. **EXECUTE**: Fix the cause, not the symptom. Execute incrementally with clear commits.
-4. **VERIFY**: Run ci checks. Confirm the fix via logs or output.
+4. **VERIFY**: Run ci checks and relevant smoke tests. Confirm the fix via logs or output.
 5. **SPECIFICITY**: Do exactly as much as asked; nothing more, nothing less.
 6. **PROPAGATION**: Changes impact multiple files; propagate updates correctly.
 

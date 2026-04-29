@@ -8,5 +8,7 @@ __pycache__
 agent_workspace
 .env
 server.log
+debug-*.log
 .coverage
 llama_cache
+.smoke-results

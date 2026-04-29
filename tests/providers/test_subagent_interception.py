@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from config.nim import NimSettings
+from core.anthropic import ContentBlockManager
 from providers.base import ProviderConfig
-from providers.common import ContentBlockManager
 from providers.nvidia_nim import NvidiaNimProvider
 
 

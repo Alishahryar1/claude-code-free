@@ -13,6 +13,49 @@ def handler(mock_platform, mock_cli_manager, mock_session_store):
     return ClaudeMessageHandler(mock_platform, mock_cli_manager, mock_session_store)
 
 
+@pytest.mark.asyncio
+async def test_handle_message_default_logs_text_len_not_content(
+    mock_platform, mock_cli_manager, mock_session_store, incoming_message_factory
+):
+    secret = "user-secret-content-never-log-default"
+    handler = ClaudeMessageHandler(
+        mock_platform,
+        mock_cli_manager,
+        mock_session_store,
+        log_raw_messaging_content=False,
+    )
+    incoming = incoming_message_factory(text=secret)
+    with (
+        patch.object(handler, "_handle_message_impl", new_callable=AsyncMock),
+        patch("messaging.handler.logger.info") as log_info,
+    ):
+        await handler.handle_message(incoming)
+    blob = " ".join(str(c) for c in log_info.call_args_list)
+    assert secret not in blob
+    assert "text_len=" in blob
+
+
+@pytest.mark.asyncio
+async def test_handle_message_raw_content_logging_includes_preview(
+    mock_platform, mock_cli_manager, mock_session_store, incoming_message_factory
+):
+    secret = "visible-preview-xyz"
+    handler = ClaudeMessageHandler(
+        mock_platform,
+        mock_cli_manager,
+        mock_session_store,
+        log_raw_messaging_content=True,
+    )
+    incoming = incoming_message_factory(text=secret)
+    with (
+        patch.object(handler, "_handle_message_impl", new_callable=AsyncMock),
+        patch("messaging.handler.logger.info") as log_info,
+    ):
+        await handler.handle_message(incoming)
+    blob = " ".join(str(c) for c in log_info.call_args_list)
+    assert secret in blob
+
+
 def test_get_initial_status_new_conversation(handler):
     """New conversation always returns launching message."""
     result = handler._get_initial_status(None, None)
@@ -375,6 +418,54 @@ async def test_process_node_success_flow(handler, mock_cli_manager, mock_platfor
         last_call = mock_platform.queue_edit_message.call_args_list[-1]
         assert "✅ *Complete*" in last_call[0][2]
         assert "Hello world" in last_call[0][2]
+
+    mock_cli_manager.get_or_create_session.assert_awaited_once_with(session_id=None)
+    mock_session.start_task.assert_called_once()
+    st_kw = mock_session.start_task.call_args
+    assert st_kw.kwargs.get("session_id") is None
+    assert st_kw.kwargs.get("fork_session") is False
+
+
+@pytest.mark.asyncio
+async def test_process_node_reply_uses_parent_session_for_manager_and_fork(
+    handler, mock_cli_manager, mock_platform
+):
+    """Telegram follow-ups must reuse parent Claude session (issue #233)."""
+    node_id = "child_1"
+    mock_node = MagicMock()
+    mock_node.incoming.chat_id = "chat_1"
+    mock_node.incoming.text = "follow up"
+    mock_node.status_message_id = "status_child"
+    mock_node.parent_id = "root_msg"
+
+    parent_claude_session = "claude_sess_parent"
+    mock_session = MagicMock()
+    mock_session.start_task.return_value = mock_async_gen([{"type": "exit", "code": 0}])
+    mock_cli_manager.get_or_create_session.return_value = (
+        mock_session,
+        parent_claude_session,
+        False,
+    )
+
+    mock_tree = MagicMock()
+    mock_tree.update_state = AsyncMock()
+    mock_tree.root_id = "root_msg"
+    mock_tree.to_dict.return_value = {}
+    mock_tree.get_parent_session_id = MagicMock(return_value=parent_claude_session)
+
+    with patch.object(
+        handler.tree_queue, "get_tree_for_node", MagicMock(return_value=mock_tree)
+    ):
+        await handler._process_node(node_id, mock_node)
+
+    mock_tree.get_parent_session_id.assert_called_once_with(node_id)
+    mock_cli_manager.get_or_create_session.assert_awaited_once_with(
+        session_id=parent_claude_session
+    )
+    mock_session.start_task.assert_called_once()
+    st_kw = mock_session.start_task.call_args
+    assert st_kw.kwargs.get("session_id") == parent_claude_session
+    assert st_kw.kwargs.get("fork_session") is True
 
 
 @pytest.mark.asyncio

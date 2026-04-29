@@ -1,23 +1,21 @@
-"""Tests for providers/nvidia_nim/utils/sse_builder.py."""
+"""Tests for core.anthropic.sse."""
 
-import json
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
 
-from providers.common.sse_builder import (
-    ContentBlockManager,
-    SSEBuilder,
-    map_stop_reason,
-)
+from core.anthropic import ContentBlockManager, SSEBuilder, map_stop_reason
+from core.anthropic.sse import ToolCallState
+from core.anthropic.stream_contracts import parse_sse_text
 
 
 def _parse_sse(sse_str: str) -> dict:
     """Parse an SSE event string into its data payload."""
-    for line in sse_str.strip().split("\n"):
-        if line.startswith("data: "):
-            return json.loads(line[len("data: ") :])
-    raise ValueError(f"No data line found in SSE: {sse_str}")
+    events = parse_sse_text(sse_str)
+    if len(events) != 1:
+        raise ValueError(f"expected 1 SSE event, got {len(events)} in {sse_str!r}")
+    return events[0].data
 
 
 class TestMapStopReason:
@@ -65,6 +63,24 @@ class TestContentBlockManager:
         assert mgr.text_started is False
         assert mgr.tool_states == {}
 
+    def test_flush_task_arg_buffers_logs_digest_not_secret(self, caplog):
+        """Invalid Task JSON warnings must not echo argument prefixes (secrets)."""
+        mgr = ContentBlockManager()
+        mgr.tool_states[0] = ToolCallState(
+            block_index=0, tool_id="call_x", name="Task", started=True
+        )
+        mgr.tool_states[
+            0
+        ].task_arg_buffer = (
+            '{"api_key": "sk-live-super-secret-do-not-log"}not_valid_json'
+        )
+        with caplog.at_level("WARNING"):
+            out = mgr.flush_task_arg_buffers()
+        assert out == [(0, "{}")]
+        text = " | ".join(r.message for r in caplog.records)
+        assert "sk-live-super-secret" not in text
+        assert "buffer_sha256_prefix=" in text
+
 
 class TestSSEBuilderMessageLifecycle:
     """Tests for message_start, message_delta, message_stop."""
@@ -93,6 +109,27 @@ class TestSSEBuilderMessageLifecycle:
         assert data["type"] == "message_delta"
         assert data["delta"]["stop_reason"] == "end_turn"
         assert data["usage"]["output_tokens"] == 42
+
+    def test_message_start_coerces_non_int_input_tokens(self):
+        builder = SSEBuilder("msg_1", "model", input_tokens=0)
+        builder.input_tokens = cast(Any, "not_an_int")
+        sse = builder.message_start()
+        data = _parse_sse(sse)
+        assert data["message"]["usage"]["input_tokens"] == 0
+        assert data["message"]["usage"]["output_tokens"] == 1
+
+    def test_message_delta_coerces_none_output_tokens(self):
+        builder = SSEBuilder("msg_1", "model", input_tokens=3)
+        sse = builder.message_delta("end_turn", None)
+        data = _parse_sse(sse)
+        assert data["usage"]["input_tokens"] == 3
+        assert data["usage"]["output_tokens"] == 0
+
+    def test_message_delta_preserves_zero_output_tokens(self):
+        builder = SSEBuilder("msg_1", "model")
+        sse = builder.message_delta("end_turn", 0)
+        data = _parse_sse(sse)
+        assert data["usage"]["output_tokens"] == 0
 
     def test_message_stop(self):
         builder = SSEBuilder("msg_1", "model")
@@ -366,7 +403,7 @@ class TestSSEBuilderTokenEstimation:
         builder.start_text_block()
         builder.emit_text_delta("a" * 100)  # 100 chars -> ~25 tokens
 
-        with patch("providers.common.sse_builder.ENCODER", None):
+        with patch("core.anthropic.sse.ENCODER", None):
             tokens = builder.estimate_output_tokens()
             assert tokens == 25  # 100 // 4
 
@@ -376,7 +413,7 @@ class TestSSEBuilderTokenEstimation:
         builder.start_tool_block(0, "t1", "Read")
         builder.emit_tool_delta(0, '{"path":"test.py"}')
 
-        with patch("providers.common.sse_builder.ENCODER", None):
+        with patch("core.anthropic.sse.ENCODER", None):
             tokens = builder.estimate_output_tokens()
             # 1 tool * 50 = 50
             assert tokens == 50

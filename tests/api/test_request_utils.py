@@ -1,4 +1,4 @@
-"""Tests for api/request_utils.py module."""
+"""Tests for API request detection and token counting helpers."""
 
 from unittest.mock import MagicMock
 
@@ -11,7 +11,7 @@ from api.detection import (
     is_title_generation_request,
 )
 from api.models.anthropic import Message, MessagesRequest
-from api.request_utils import get_token_count
+from core.anthropic import get_token_count
 
 
 class TestQuotaCheckRequest:
@@ -114,11 +114,15 @@ class TestTitleGenerationRequest:
 
     def _title_gen_system(self) -> list[MagicMock]:
         block = MagicMock()
-        block.text = "Analyze if this message indicates a new conversation topic. If it does, extract a 2-3 word title."
+        block.text = (
+            "Generate a concise, sentence-case title (3-7 words) that captures the "
+            "main topic or goal of this coding session. Return JSON with a single "
+            '"title" field.'
+        )
         return [block]
 
     def test_title_generation_detected_via_system(self):
-        """Title gen detected by system prompt containing topic/title keywords."""
+        """Title gen detected by session title system prompt (sentence-case / JSON)."""
         req = MagicMock(spec=MessagesRequest)
         req.system = self._title_gen_system()
         req.tools = None
@@ -150,6 +154,16 @@ class TestTitleGenerationRequest:
         req.tools = None
 
         assert is_title_generation_request(req) is False
+
+    def test_title_generation_return_json_coding_session_branch(self):
+        """JSON title field + session wording matches without sentence-case phrase."""
+        block = MagicMock()
+        block.text = 'Return JSON with a single "title" field for this coding session.'
+        req = MagicMock(spec=MessagesRequest)
+        req.system = [block]
+        req.tools = None
+
+        assert is_title_generation_request(req) is True
 
 
 class TestExtractCommandPrefix:

@@ -1,147 +1,137 @@
 """Dependency injection for FastAPI."""
 
-from fastapi import HTTPException
+import secrets
+
+from fastapi import Depends, HTTPException, Request
 from loguru import logger
+from starlette.applications import Starlette
 
 from config.settings import Settings
 from config.settings import get_settings as _get_settings
-from providers.base import BaseProvider, ProviderConfig
-from providers.common import get_user_facing_error_message
-from providers.custom_openai import CustomOpenAIProvider
-from providers.exceptions import AuthenticationError
-from providers.llamacpp import LlamaCppProvider
-from providers.lmstudio import LMStudioProvider
-from providers.nvidia_nim import NVIDIA_NIM_BASE_URL, NvidiaNimProvider
-from providers.open_router import OPENROUTER_BASE_URL, OpenRouterProvider
+from core.anthropic import get_user_facing_error_message
+from providers.base import BaseProvider
+from providers.exceptions import (
+    AuthenticationError,
+    ServiceUnavailableError,
+    UnknownProviderTypeError,
+)
+from providers.registry import PROVIDER_DESCRIPTORS, ProviderRegistry
 
-# Provider registry: keyed by provider type string, lazily populated
+# Process-level cache: only for :func:`get_provider_for_type` / :func:`get_provider`
+# when there is no ``Request``/``app`` (unit tests, scripts). HTTP handlers must pass
+# ``app`` to :func:`resolve_provider` so the app-scoped registry is used.
 _providers: dict[str, BaseProvider] = {}
 
 
 def get_settings() -> Settings:
-    """Get application settings via dependency injection."""
+    """Return cached :class:`~config.settings.Settings` (FastAPI-friendly alias)."""
     return _get_settings()
 
 
-def _create_provider_for_type(provider_type: str, settings: Settings) -> BaseProvider:
-    """Construct and return a new provider instance for the given provider type."""
-    if provider_type == "nvidia_nim":
-        if not settings.nvidia_nim_api_key or not settings.nvidia_nim_api_key.strip():
-            raise AuthenticationError(
-                "NVIDIA_NIM_API_KEY is not set. Add it to your .env file. "
-                "Get a key at https://build.nvidia.com/settings/api-keys"
+def resolve_provider(
+    provider_type: str,
+    *,
+    app: Starlette | None,
+    settings: Settings,
+) -> BaseProvider:
+    """Resolve a provider using the app-scoped registry when ``app`` is set.
+
+    When ``app`` is not ``None``, the app-owned :attr:`app.state.provider_registry`
+    must exist (installed by :class:`~api.runtime.AppRuntime` during startup).
+    Callers that construct a bare ``FastAPI`` without lifespan must set
+    ``app.state.provider_registry`` explicitly.
+
+    When ``app`` is ``None`` (no HTTP context), uses the process-level
+    :data:`_providers` cache only.
+    """
+    if app is not None:
+        reg = getattr(app.state, "provider_registry", None)
+        if reg is None:
+            raise ServiceUnavailableError(
+                "Provider registry is not configured. Ensure AppRuntime startup ran "
+                "or assign app.state.provider_registry for test apps."
             )
-        config = ProviderConfig(
-            api_key=settings.nvidia_nim_api_key,
-            base_url=NVIDIA_NIM_BASE_URL,
-            rate_limit=settings.provider_rate_limit,
-            rate_window=settings.provider_rate_window,
-            max_concurrency=settings.provider_max_concurrency,
-            http_read_timeout=settings.http_read_timeout,
-            http_write_timeout=settings.http_write_timeout,
-            http_connect_timeout=settings.http_connect_timeout,
+        return _resolve_with_registry(reg, provider_type, settings)
+    return _resolve_with_registry(ProviderRegistry(_providers), provider_type, settings)
+
+
+def _resolve_with_registry(
+    registry: ProviderRegistry, provider_type: str, settings: Settings
+) -> BaseProvider:
+    should_log_init = not registry.is_cached(provider_type)
+    try:
+        provider = registry.get(provider_type, settings)
+    except AuthenticationError as e:
+        # Provider :class:`~providers.exceptions.AuthenticationError` messages are
+        # curated configuration hints (env var names, docs links), not upstream noise.
+        detail = str(e).strip() or get_user_facing_error_message(e)
+        raise HTTPException(status_code=503, detail=detail) from e
+    except UnknownProviderTypeError:
+        logger.error(
+            "Unknown provider_type: '{}'. Supported: {}",
+            provider_type,
+            ", ".join(f"'{key}'" for key in PROVIDER_DESCRIPTORS),
         )
-        return NvidiaNimProvider(config, nim_settings=settings.nim)
-    if provider_type == "open_router":
-        if not settings.open_router_api_key or not settings.open_router_api_key.strip():
-            raise AuthenticationError(
-                "OPENROUTER_API_KEY is not set. Add it to your .env file. "
-                "Get a key at https://openrouter.ai/keys"
-            )
-        config = ProviderConfig(
-            api_key=settings.open_router_api_key,
-            base_url=OPENROUTER_BASE_URL,
-            rate_limit=settings.provider_rate_limit,
-            rate_window=settings.provider_rate_window,
-            max_concurrency=settings.provider_max_concurrency,
-            http_read_timeout=settings.http_read_timeout,
-            http_write_timeout=settings.http_write_timeout,
-            http_connect_timeout=settings.http_connect_timeout,
-        )
-        return OpenRouterProvider(config)
-    if provider_type == "lmstudio":
-        config = ProviderConfig(
-            api_key="lm-studio",
-            base_url=settings.lm_studio_base_url,
-            rate_limit=settings.provider_rate_limit,
-            rate_window=settings.provider_rate_window,
-            max_concurrency=settings.provider_max_concurrency,
-            http_read_timeout=settings.http_read_timeout,
-            http_write_timeout=settings.http_write_timeout,
-            http_connect_timeout=settings.http_connect_timeout,
-        )
-        return LMStudioProvider(config)
-    if provider_type == "llamacpp":
-        config = ProviderConfig(
-            api_key="llamacpp",
-            base_url=settings.llamacpp_base_url,
-            rate_limit=settings.provider_rate_limit,
-            rate_window=settings.provider_rate_window,
-            max_concurrency=settings.provider_max_concurrency,
-            http_read_timeout=settings.http_read_timeout,
-            http_write_timeout=settings.http_write_timeout,
-            http_connect_timeout=settings.http_connect_timeout,
-        )
-        return LlamaCppProvider(config)
-    if provider_type == "custom_openai":
-        if (
-            not settings.custom_openai_api_key
-            or not settings.custom_openai_api_key.strip()
-        ):
-            raise AuthenticationError(
-                "CUSTOM_OPENAI_API_KEY is not set. Add it to your .env file."
-            )
-        if (
-            not settings.custom_openai_base_url
-            or not settings.custom_openai_base_url.strip()
-        ):
-            raise ValueError(
-                "CUSTOM_OPENAI_BASE_URL is not set. Add it to your .env file "
-                "with the base URL of your OpenAI-compatible API."
-            )
-        config = ProviderConfig(
-            api_key=settings.custom_openai_api_key,
-            base_url=settings.custom_openai_base_url,
-            rate_limit=settings.provider_rate_limit,
-            rate_window=settings.provider_rate_window,
-            max_concurrency=settings.provider_max_concurrency,
-            http_read_timeout=settings.http_read_timeout,
-            http_write_timeout=settings.http_write_timeout,
-            http_connect_timeout=settings.http_connect_timeout,
-        )
-        return CustomOpenAIProvider(config)
-    logger.error(
-        "Unknown provider_type: '{}'. Supported: 'nvidia_nim', 'open_router', 'lmstudio', 'llamacpp', 'custom_openai'",
-        provider_type,
-    )
-    raise ValueError(
-        f"Unknown provider_type: '{provider_type}'. "
-        f"Supported: 'nvidia_nim', 'open_router', 'lmstudio', 'llamacpp', 'custom_openai'"
-    )
+        raise
+    if should_log_init:
+        logger.info("Provider initialized: {}", provider_type)
+    return provider
 
 
 def get_provider_for_type(provider_type: str) -> BaseProvider:
-    """Get or create a provider for the given provider type.
+    """Get or create a provider in the process-level cache (no ``app``/Request).
 
-    Providers are cached in the registry and reused across requests.
+    HTTP route handlers should call :func:`resolve_provider` with the active
+    :attr:`request.app` (via :class:`~api.runtime.AppRuntime`) instead of this
+    process-wide cache.
     """
-    if provider_type not in _providers:
-        try:
-            _providers[provider_type] = _create_provider_for_type(
-                provider_type, get_settings()
-            )
-        except AuthenticationError as e:
-            raise HTTPException(
-                status_code=503, detail=get_user_facing_error_message(e)
-            ) from e
-        logger.info("Provider initialized: {}", provider_type)
-    return _providers[provider_type]
+    return resolve_provider(provider_type, app=None, settings=get_settings())
+
+
+def require_api_key(
+    request: Request, settings: Settings = Depends(get_settings)
+) -> None:
+    """Require a server API key (Anthropic-style).
+
+    Checks `x-api-key` header or `Authorization: Bearer ...` against
+    `Settings.anthropic_auth_token`. If `ANTHROPIC_AUTH_TOKEN` is empty, this is a no-op.
+    """
+    anthropic_auth_token = settings.anthropic_auth_token
+    if not anthropic_auth_token:
+        # No API key configured -> allow
+        return
+
+    header = (
+        request.headers.get("x-api-key")
+        or request.headers.get("authorization")
+        or request.headers.get("anthropic-auth-token")
+    )
+    if not header:
+        raise HTTPException(status_code=401, detail="Missing API key")
+
+    # Support both raw key in X-API-Key and Bearer token in Authorization
+    token = header
+    if header.lower().startswith("bearer "):
+        token = header.split(" ", 1)[1]
+
+    # Strip anything after the first colon to handle tokens with appended model names
+    if token and ":" in token:
+        token = token.split(":", 1)[0]
+
+    # Constant-time comparison to avoid leaking the configured token via
+    # response-time differences on a per-byte mismatch (CWE-208).
+    if not secrets.compare_digest(
+        token.encode("utf-8"), anthropic_auth_token.encode("utf-8")
+    ):
+        raise HTTPException(status_code=401, detail="Invalid API key")
 
 
 def get_provider() -> BaseProvider:
-    """Get or create the default provider (based on MODEL env var).
+    """Get or create the default provider (``MODEL`` / ``provider_type``).
 
-    Backward-compatible convenience for health/root endpoints and tests.
+    Process-cache helper for scripts, unit tests, and non-FastAPI callers. HTTP
+    handlers must use :func:`resolve_provider` with :attr:`request.app` so the
+    app-scoped :class:`~providers.registry.ProviderRegistry` is used.
     """
     return get_provider_for_type(get_settings().provider_type)
 
@@ -149,7 +139,6 @@ def get_provider() -> BaseProvider:
 async def cleanup_provider():
     """Cleanup all provider resources."""
     global _providers
-    for provider in _providers.values():
-        await provider.cleanup()
+    await ProviderRegistry(_providers).cleanup()
     _providers = {}
     logger.debug("Provider cleanup completed")

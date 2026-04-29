@@ -5,8 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from config.constants import ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS
 from providers.base import ProviderConfig
 from providers.llamacpp import LlamaCppProvider
+from tests.stream_contract import assert_canonical_stream_error_envelope
 
 
 class MockMessage:
@@ -55,8 +57,8 @@ def llamacpp_config():
 @pytest.fixture(autouse=True)
 def mock_rate_limiter():
     """Mock the global rate limiter to prevent waiting."""
-    with patch("providers.llamacpp.client.GlobalRateLimiter") as mock:
-        instance = mock.get_instance.return_value
+    with patch("providers.anthropic_messages.GlobalRateLimiter") as mock:
+        instance = mock.get_scoped_instance.return_value
         instance.wait_if_blocked = AsyncMock(return_value=False)
 
         async def _passthrough(fn, *args, **kwargs):
@@ -108,6 +110,37 @@ def test_init_base_url_strips_trailing_slash():
     with patch("httpx.AsyncClient"):
         provider = LlamaCppProvider(config)
         assert provider._base_url == "http://localhost:8080/v1"
+
+
+@pytest.mark.asyncio
+async def test_stream_response_omits_thinking_when_globally_disabled(llamacpp_config):
+    provider = LlamaCppProvider(
+        llamacpp_config.model_copy(update={"enable_thinking": False})
+    )
+    req = MockRequest()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+
+    async def empty_aiter():
+        if False:
+            yield ""
+
+    mock_response.aiter_lines = empty_aiter
+
+    with (
+        patch.object(provider._client, "build_request") as mock_build,
+        patch.object(
+            provider._client,
+            "send",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ),
+    ):
+        [e async for e in provider.stream_response(req)]
+
+    _, kwargs = mock_build.call_args
+    assert "thinking" not in kwargs["json"]
 
 
 @pytest.mark.asyncio
@@ -190,7 +223,7 @@ async def test_stream_response_adds_max_tokens_if_missing(llamacpp_provider):
         [e async for e in llamacpp_provider.stream_response(req)]
 
         _, kwargs = mock_build.call_args
-        assert kwargs["json"]["max_tokens"] == 81920
+        assert kwargs["json"]["max_tokens"] == ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS
 
 
 @pytest.mark.asyncio
@@ -223,10 +256,10 @@ async def test_stream_error_status_code(llamacpp_provider):
             async for e in llamacpp_provider.stream_response(req, request_id="TEST_ID")
         ]
 
-        assert len(events) == 1
-        assert events[0].startswith("event: error\ndata: {")
-        assert "Internal Server Error" in events[0]
-        assert "TEST_ID" in events[0]
+        assert_canonical_stream_error_envelope(
+            events, user_message_substr="Provider API request failed"
+        )
+        assert "TEST_ID" in "".join(events)
 
 
 @pytest.mark.asyncio
@@ -250,7 +283,71 @@ async def test_stream_network_error(llamacpp_provider):
             async for e in llamacpp_provider.stream_response(req, request_id="TEST_ID2")
         ]
 
-        assert len(events) == 1
-        assert events[0].startswith("event: error\ndata: {")
-        assert "Connection refused" in events[0]
-        assert "TEST_ID2" in events[0]
+        blob = "".join(events)
+        assert_canonical_stream_error_envelope(
+            events, user_message_substr="Connection refused"
+        )
+        assert "TEST_ID2" in blob
+
+
+@pytest.mark.asyncio
+async def test_stream_error_405_mentions_upstream_provider(llamacpp_provider):
+    req = MockRequest()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 405
+    mock_response.aread = AsyncMock(return_value=b"Method Not Allowed")
+    mock_response.raise_for_status = MagicMock(
+        side_effect=httpx.HTTPStatusError(
+            "Method Not Allowed", request=MagicMock(), response=mock_response
+        )
+    )
+
+    with (
+        patch.object(
+            llamacpp_provider._client, "build_request", return_value=MagicMock()
+        ),
+        patch.object(
+            llamacpp_provider._client,
+            "send",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ),
+    ):
+        events = [
+            e async for e in llamacpp_provider.stream_response(req, request_id="REQ405")
+        ]
+
+    blob = "".join(events)
+    assert (
+        "Upstream provider LLAMACPP rejected the request method or endpoint (HTTP 405)."
+        in blob
+    )
+    assert "REQ405" in blob
+
+
+def test_build_request_body_disabled_thinking_strips_native_thinking_history(
+    llamacpp_config,
+):
+    """With thinking disabled, prior assistant thinking/redacted blocks are omitted."""
+    config = llamacpp_config.model_copy(update={"enable_thinking": False})
+    provider = LlamaCppProvider(config)
+    messages = [
+        MockMessage("user", "Hi"),
+        MockMessage(
+            "assistant",
+            [
+                {"type": "thinking", "thinking": "p"},
+                {"type": "redacted_thinking", "data": "ZGF0YQ=="},
+            ],
+        ),
+    ]
+    req = MockRequest(
+        system=None,
+        messages=messages,
+    )
+    body = provider._build_request_body(req, thinking_enabled=False)
+    asst = body["messages"][1]
+    assert asst["content"] == ""
+    assert "thinking" not in str(body)
+    assert "redacted_thinking" not in str(body)

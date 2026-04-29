@@ -17,19 +17,21 @@ def telegram_platform():
 
 
 @pytest.mark.asyncio
-async def test_telegram_voice_disabled_sends_reply(telegram_platform):
+async def test_telegram_voice_disabled_sends_reply():
     """When voice_note_enabled is False, reply with disabled message."""
+    with patch("messaging.platforms.telegram.TELEGRAM_AVAILABLE", True):
+        telegram_platform = TelegramPlatform(
+            bot_token="test_token",
+            allowed_user_id="12345",
+            voice_note_enabled=False,
+        )
     mock_update = MagicMock()
     mock_update.message.voice = MagicMock(file_id="f1", mime_type="audio/ogg")
     mock_update.effective_user.id = 12345
     mock_update.effective_chat.id = 6789
     mock_update.message.reply_text = AsyncMock()
 
-    with patch(
-        "config.settings.get_settings",
-        return_value=MagicMock(voice_note_enabled=False),
-    ):
-        await telegram_platform._on_telegram_voice(mock_update, MagicMock())
+    await telegram_platform._on_telegram_voice(mock_update, MagicMock())
 
     mock_update.message.reply_text.assert_called_once_with("Voice notes are disabled.")
 
@@ -42,11 +44,7 @@ async def test_telegram_voice_unauthorized_ignored(telegram_platform):
     mock_update.effective_user.id = 99999  # Not 12345
     mock_update.message.reply_text = AsyncMock()
 
-    with patch(
-        "config.settings.get_settings",
-        return_value=MagicMock(voice_note_enabled=True),
-    ):
-        await telegram_platform._on_telegram_voice(mock_update, MagicMock())
+    await telegram_platform._on_telegram_voice(mock_update, MagicMock())
 
     mock_update.message.reply_text.assert_not_called()
 
@@ -82,17 +80,8 @@ async def test_telegram_voice_success_invokes_handler(telegram_platform):
 
         mock_file.download_to_drive = fake_download
 
-        mock_settings = MagicMock(
-            voice_note_enabled=True,
-            whisper_model="base",
-        )
-
         mock_queue_send = AsyncMock(return_value="999")
         with (
-            patch(
-                "config.settings.get_settings",
-                return_value=mock_settings,
-            ),
             patch(
                 "messaging.transcription.transcribe_audio",
                 return_value="Hello from voice",
@@ -164,7 +153,11 @@ class TestDiscordGetAudioAttachment:
 @pytest.mark.asyncio
 async def test_discord_voice_disabled_sends_reply():
     """When voice_note_enabled is False, reply with disabled message."""
-    platform = DiscordPlatform(bot_token="token", allowed_channel_ids="123")
+    platform = DiscordPlatform(
+        bot_token="token",
+        allowed_channel_ids="123",
+        voice_note_enabled=False,
+    )
     platform._message_handler = None
 
     mock_message = MagicMock()
@@ -178,10 +171,6 @@ async def test_discord_voice_disabled_sends_reply():
     mock_att.filename = "voice.ogg"
     mock_message.attachments = [mock_att]
 
-    with patch(
-        "config.settings.get_settings",
-        return_value=MagicMock(voice_note_enabled=False),
-    ):
-        await platform._on_discord_message(mock_message)
+    await platform._on_discord_message(mock_message)
 
     mock_message.reply.assert_called_once_with("Voice notes are disabled.")

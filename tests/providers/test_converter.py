@@ -2,15 +2,22 @@ import json
 
 import pytest
 
-from providers.common.message_converter import AnthropicToOpenAIConverter
+from api.models.anthropic import MessagesRequest
+from core.anthropic import (
+    AnthropicToOpenAIConverter,
+    OpenAIConversionError,
+    ReasoningReplayMode,
+    build_base_request_body,
+)
 
 # --- Mock Classes ---
 
 
 class MockMessage:
-    def __init__(self, role, content):
+    def __init__(self, role, content, reasoning_content=None):
         self.role = role
         self.content = content
+        self.reasoning_content = reasoning_content
 
 
 class MockBlock:
@@ -24,7 +31,7 @@ class MockBlock:
 
 
 class MockTool:
-    def __init__(self, name, description, input_schema):
+    def __init__(self, name, description, input_schema=None):
         self.name = name
         self.description = description
         self.input_schema = input_schema
@@ -77,6 +84,44 @@ def test_convert_tools():
 
     assert result[1]["function"]["name"] == "calculator"
     assert result[1]["function"]["description"] == ""  # Check default empty string
+
+
+def test_convert_tool_without_input_schema_uses_empty_object_schema():
+    tools = [MockTool("web_search", None)]
+
+    result = AnthropicToOpenAIConverter.convert_tools(tools)
+
+    assert result == [
+        {
+            "type": "function",
+            "function": {
+                "name": "web_search",
+                "description": "",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "tool_choice,expected",
+    [
+        (
+            {"type": "tool", "name": "echo_smoke"},
+            {"type": "function", "function": {"name": "echo_smoke"}},
+        ),
+        ({"type": "any"}, "required"),
+        ({"type": "auto"}, "auto"),
+        ({"type": "none"}, "none"),
+        (
+            {"type": "function", "function": {"name": "already_openai"}},
+            {"type": "function", "function": {"name": "already_openai"}},
+        ),
+    ],
+)
+def test_convert_tool_choice(tool_choice, expected):
+    result = AnthropicToOpenAIConverter.convert_tool_choice(tool_choice)
+    assert result == expected
 
 
 # --- Message Conversion Tests: User ---
@@ -183,20 +228,96 @@ def test_convert_assistant_message_thinking():
     assert "reasoning_content" not in result[0]
 
 
-def test_convert_assistant_message_thinking_include_reasoning_for_openrouter():
-    """When include_reasoning_for_openrouter=True, reasoning_content is added."""
+def test_convert_assistant_message_thinking_replays_reasoning_content():
+    """Top-level reasoning replay avoids duplicating thinking into content."""
     content = [
         MockBlock(type="thinking", thinking="I need to calculate this."),
         MockBlock(type="text", text="The answer is 4."),
     ]
     messages = [MockMessage("assistant", content)]
     result = AnthropicToOpenAIConverter.convert_messages(
-        messages, include_reasoning_for_openrouter=True
+        messages, reasoning_replay=ReasoningReplayMode.REASONING_CONTENT
     )
 
     assert len(result) == 1
     assert result[0]["reasoning_content"] == "I need to calculate this."
-    assert "<think>" in result[0]["content"]
+    assert result[0]["content"] == "The answer is 4."
+    assert "<think>" not in result[0]["content"]
+
+
+def test_convert_assistant_top_level_reasoning_content_is_preserved():
+    messages = [
+        MockMessage(
+            "assistant",
+            "The answer is 4.",
+            reasoning_content="I need to calculate this.",
+        )
+    ]
+    result = AnthropicToOpenAIConverter.convert_messages(
+        messages, reasoning_replay=ReasoningReplayMode.REASONING_CONTENT
+    )
+
+    assert result == [
+        {
+            "role": "assistant",
+            "content": "The answer is 4.",
+            "reasoning_content": "I need to calculate this.",
+        }
+    ]
+
+
+def test_convert_assistant_thinking_tool_use_replays_top_level_reasoning():
+    content = [
+        MockBlock(type="thinking", thinking="I should call the tool."),
+        MockBlock(
+            type="tool_use",
+            id="call_reasoning",
+            name="search",
+            input={"query": "python"},
+        ),
+    ]
+    messages = [MockMessage("assistant", content)]
+    result = AnthropicToOpenAIConverter.convert_messages(
+        messages, reasoning_replay=ReasoningReplayMode.REASONING_CONTENT
+    )
+
+    assert len(result) == 1
+    assert result[0]["content"] == ""
+    assert result[0]["reasoning_content"] == "I should call the tool."
+    assert "<think>" not in result[0]["content"]
+    assert result[0]["tool_calls"][0]["id"] == "call_reasoning"
+
+
+def test_convert_assistant_message_thinking_removed_when_disabled():
+    content = [
+        MockBlock(type="thinking", thinking="I need to calculate this."),
+        MockBlock(type="text", text="The answer is 4."),
+    ]
+    messages = [MockMessage("assistant", content)]
+    result = AnthropicToOpenAIConverter.convert_messages(
+        messages,
+        reasoning_replay=ReasoningReplayMode.DISABLED,
+    )
+
+    assert len(result) == 1
+    assert "reasoning_content" not in result[0]
+    assert "<think>" not in result[0]["content"]
+    assert result[0]["content"] == "The answer is 4."
+
+
+def test_convert_assistant_top_level_reasoning_stripped_when_disabled():
+    messages = [
+        MockMessage(
+            "assistant",
+            "The answer is 4.",
+            reasoning_content="I need to calculate this.",
+        )
+    ]
+    result = AnthropicToOpenAIConverter.convert_messages(
+        messages, reasoning_replay=ReasoningReplayMode.DISABLED
+    )
+
+    assert result == [{"role": "assistant", "content": "The answer is 4."}]
 
 
 def test_convert_assistant_message_tool_use():
@@ -275,7 +396,7 @@ def test_convert_mixed_blocks_and_types_and_roles():
 
 def test_get_block_attr_defaults():
     # Test helper directly
-    from providers.common.message_converter import get_block_attr
+    from core.anthropic import get_block_attr
 
     assert get_block_attr({}, "missing", "default") == "default"
     assert get_block_attr(object(), "missing", "default") == "default"
@@ -412,3 +533,132 @@ def test_convert_multiple_tool_results():
     assert len(result) == 2
     assert result[0]["tool_call_id"] == "t1"
     assert result[1]["tool_call_id"] == "t2"
+
+
+def test_convert_user_message_tool_result_dict_as_json():
+    content = [
+        MockBlock(
+            type="tool_result",
+            tool_use_id="t_dict",
+            content={"ok": True, "count": 2},
+        ),
+    ]
+    messages = [MockMessage("user", content)]
+    result = AnthropicToOpenAIConverter.convert_messages(messages)
+    assert result[0]["role"] == "tool"
+    assert result[0]["content"] == '{"ok": true, "count": 2}'
+
+
+def test_assistant_redacted_thinking_omitted_from_openai_chat():
+    """Opaque redacted_thinking is not materialized as content or reasoning_content."""
+    content = [
+        MockBlock(type="redacted_thinking", data="secret-opaque"),
+        MockBlock(type="text", text="Visible."),
+    ]
+    messages = [MockMessage("assistant", content)]
+    result = AnthropicToOpenAIConverter.convert_messages(
+        messages, reasoning_replay=ReasoningReplayMode.REASONING_CONTENT
+    )
+    assert result[0]["content"] == "Visible."
+    assert "secret-opaque" not in result[0]["content"]
+    assert "reasoning_content" not in result[0]
+
+
+def test_convert_user_message_image_raises():
+    content = [
+        MockBlock(type="image", source={"type": "url", "url": "https://example.com/x"})
+    ]
+    messages = [MockMessage("user", content)]
+    with pytest.raises(OpenAIConversionError):
+        AnthropicToOpenAIConverter.convert_messages(messages)
+
+
+def test_convert_assistant_text_after_tool_use_splits_for_openai_chat():
+    """Post-tool_use assistant text is replayed as a second assistant turn (issue 206)."""
+    content = [
+        MockBlock(type="tool_use", id="call_z", name="Read", input={}),
+        MockBlock(type="text", text="After tool"),
+    ]
+    messages = [MockMessage("assistant", content)]
+    result = AnthropicToOpenAIConverter.convert_messages(messages)
+    assert len(result) == 2
+    assert result[0]["role"] == "assistant"
+    assert result[0]["tool_calls"][0]["id"] == "call_z"
+    assert result[1] == {"role": "assistant", "content": "After tool"}
+
+
+def test_convert_assistant_text_after_tool_use_inserts_after_tool_results():
+    messages = [
+        MockMessage(
+            "assistant",
+            [
+                MockBlock(type="tool_use", id="call_z", name="Read", input={}),
+                MockBlock(type="text", text="Post-tool commentary"),
+            ],
+        ),
+        MockMessage(
+            "user",
+            [
+                MockBlock(
+                    type="tool_result",
+                    tool_use_id="call_z",
+                    content="file contents",
+                )
+            ],
+        ),
+    ]
+    result = AnthropicToOpenAIConverter.convert_messages(messages)
+    assert result[0]["role"] == "assistant" and "tool_calls" in result[0]
+    assert result[1]["role"] == "tool" and result[1]["tool_call_id"] == "call_z"
+    assert result[2] == {"role": "assistant", "content": "Post-tool commentary"}
+
+
+def test_openai_build_accepts_declared_native_top_level_hints() -> None:
+    """OpenAI conversion ignores known non-OpenAI hints (e.g. context_management) without 400."""
+    req = MessagesRequest.model_validate(
+        {
+            "model": "m",
+            "messages": [{"role": "user", "content": "h"}],
+            "context_management": {"edits": []},
+            "output_config": {"foo": 1},
+            "mcp_servers": [{"type": "url", "url": "https://x.com"}],
+        }
+    )
+    body = build_base_request_body(req, default_max_tokens=100)
+    assert "context_management" not in body
+    assert "output_config" not in body
+    assert "mcp_servers" not in body
+    assert body["model"] == "m"
+
+
+def test_openai_build_rejects_unknown_top_level_extras() -> None:
+    """Truly unknown keys must still be rejected (not dropped silently)."""
+    req = MessagesRequest.model_validate(
+        {
+            "model": "m",
+            "messages": [{"role": "user", "content": "h"}],
+            "experimental_client_only_passthrough": True,
+        }
+    )
+    with pytest.raises(OpenAIConversionError, match="top-level request fields"):
+        build_base_request_body(req)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        [MockBlock(type="server_tool_use", id="1", name="web_search", input={})],
+        [MockBlock(type="web_search_tool_result", tool_use_id="1", content=[])],
+        [
+            MockBlock(
+                type="web_fetch_tool_result",
+                tool_use_id="1",
+                content={"type": "web_fetch_result", "url": "https://a.com/x"},
+            )
+        ],
+    ],
+)
+def test_convert_assistant_server_tool_blocks_raise(content) -> None:
+    messages = [MockMessage("assistant", content)]
+    with pytest.raises(OpenAIConversionError, match="server tool"):
+        AnthropicToOpenAIConverter.convert_messages(messages)

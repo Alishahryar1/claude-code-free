@@ -4,11 +4,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from providers.common.text import extract_text_from_content
+from core.anthropic import extract_text_from_content
 
 
 class TestExtractTextFromContent:
-    """Tests for providers.common.text.extract_text_from_content."""
+    """Tests for core.anthropic.extract_text_from_content."""
 
     def test_string_content(self):
         """Return string content as-is."""

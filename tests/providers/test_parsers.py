@@ -1,6 +1,6 @@
 import pytest
 
-from providers.common import ContentType, HeuristicToolParser, ThinkTagParser
+from core.anthropic import ContentType, HeuristicToolParser, ThinkTagParser
 
 
 def test_think_tag_parser_basic():
@@ -447,6 +447,40 @@ def test_heuristic_tool_parser_flush_no_tool():
     parser.feed("plain text")
     tools = parser.flush()
     assert tools == []
+
+
+def test_heuristic_tool_parser_json_style_web_fetch_tool_call():
+    parser = HeuristicToolParser()
+    text = (
+        "Use WebFetch on the article.\n\n"
+        "{\n"
+        '  "url": "https://example.com/article",\n'
+        '  "prompt": "Summarize it."\n'
+        "}\n"
+    )
+
+    filtered, tools = parser.feed(text)
+    tools.extend(parser.flush())
+
+    assert filtered == ""
+    assert len(tools) == 1
+    assert tools[0]["name"] == "WebFetch"
+    assert tools[0]["input"] == {
+        "url": "https://example.com/article",
+        "prompt": "Summarize it.",
+    }
+
+
+def test_heuristic_tool_parser_json_style_web_search_tool_call():
+    parser = HeuristicToolParser()
+
+    filtered, tools = parser.feed('Use WebSearch {"query": "DeepSeek V4"}')
+    tools.extend(parser.flush())
+
+    assert filtered == ""
+    assert len(tools) == 1
+    assert tools[0]["name"] == "WebSearch"
+    assert tools[0]["input"] == {"query": "DeepSeek V4"}
 
 
 def test_heuristic_tool_parser_unicode_function_name():

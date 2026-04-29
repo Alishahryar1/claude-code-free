@@ -8,6 +8,7 @@ included at top level for easy grep/filter.
 
 import json
 import logging
+import re
 from pathlib import Path
 
 from loguru import logger
@@ -16,6 +17,22 @@ _configured = False
 
 # Context keys we promote to top-level JSON for traceability
 _CONTEXT_KEYS = ("request_id", "node_id", "chat_id")
+
+_TELEGRAM_BOT_RE = re.compile(
+    r"(https?://api\.telegram\.org/)bot([0-9]+:[A-Za-z0-9_-]+)(/?)",
+    re.IGNORECASE,
+)
+# Authorization: Bearer <token> (HTTP client / proxy debug lines)
+_AUTH_BEARER_RE = re.compile(
+    r"(\bAuthorization\s*:\s*Bearer\s+)([^\s'\"]+)",
+    re.IGNORECASE,
+)
+
+
+def _redact_sensitive_substrings(message: str) -> str:
+    """Remove obvious API tokens and secrets before JSON log line emission."""
+    text = _TELEGRAM_BOT_RE.sub(r"\1bot<redacted>\3", message)
+    return _AUTH_BEARER_RE.sub(r"\1<redacted>", text)
 
 
 def _serialize_with_context(record) -> str:
@@ -26,7 +43,7 @@ def _serialize_with_context(record) -> str:
     out = {
         "time": str(record["time"]),
         "level": record["level"].name,
-        "message": record["message"],
+        "message": _redact_sensitive_substrings(str(record["message"])),
         "module": record["name"],
         "function": record["function"],
         "line": record["line"],
@@ -57,11 +74,16 @@ class InterceptHandler(logging.Handler):
         )
 
 
-def configure_logging(log_file: str, *, force: bool = False) -> None:
+def configure_logging(
+    log_file: str, *, force: bool = False, verbose_third_party: bool = False
+) -> None:
     """Configure loguru with JSON output to log_file and intercept stdlib logging.
 
     Idempotent: skips if already configured (e.g. hot reload).
     Use force=True to reconfigure (e.g. in tests with a different log path).
+
+    When ``verbose_third_party`` is false, noisy HTTP and Telegram loggers are capped
+    at WARNING unless explicitly configured otherwise.
     """
     global _configured
     if _configured and not force:
@@ -88,3 +110,16 @@ def configure_logging(log_file: str, *, force: bool = False) -> None:
     intercept = InterceptHandler()
     logging.root.handlers = [intercept]
     logging.root.setLevel(logging.DEBUG)
+
+    third_party = (
+        "httpx",
+        "httpcore",
+        "httpcore.http11",
+        "httpcore.connection",
+        "telegram",
+        "telegram.ext",
+    )
+    for name in third_party:
+        logging.getLogger(name).setLevel(
+            logging.WARNING if not verbose_third_party else logging.NOTSET
+        )

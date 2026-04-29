@@ -1,13 +1,19 @@
 """Tests for Custom OpenAI provider."""
 
-import json
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.anthropic import SSEBuilder
+from core.anthropic.stream_contracts import (
+    assert_anthropic_stream_contract,
+    parse_sse_text,
+    text_content,
+)
 from providers.base import ProviderConfig
 from providers.custom_openai import CustomOpenAIProvider
-from providers.exceptions import AuthenticationError
+from providers.exceptions import InvalidRequestError
 
 
 class MockMessage:
@@ -46,14 +52,19 @@ def custom_openai_config():
 @pytest.fixture(autouse=True)
 def mock_rate_limiter():
     """Mock the global rate limiter to prevent waiting."""
+
+    @asynccontextmanager
+    async def _slot():
+        yield
+
     with patch("providers.openai_compat.GlobalRateLimiter") as mock:
-        instance = mock.get_instance.return_value
-        instance.wait_if_blocked = AsyncMock(return_value=False)
+        instance = mock.get_scoped_instance.return_value
 
         async def _passthrough(fn, *args, **kwargs):
             return await fn(*args, **kwargs)
 
         instance.execute_with_retry = AsyncMock(side_effect=_passthrough)
+        instance.concurrency_slot.side_effect = _slot
         yield instance
 
 
@@ -86,7 +97,7 @@ def test_init_with_custom_base_url():
 def test_build_request_body(custom_openai_provider):
     """Test request body building."""
     req = MockRequest()
-    body = custom_openai_provider._build_request_body(req)
+    body = custom_openai_provider._build_request_body(req, thinking_enabled=True)
 
     assert body["model"] == "custom_openai/gpt-4"
     assert body["temperature"] == 0.5
@@ -103,7 +114,7 @@ def test_build_request_body_with_tools(custom_openai_provider):
     mock_tool.input_schema = {"type": "object"}
 
     req = MockRequest(tools=[mock_tool])
-    body = custom_openai_provider._build_request_body(req)
+    body = custom_openai_provider._build_request_body(req, thinking_enabled=True)
 
     assert "tools" in body
     assert len(body["tools"]) == 1
@@ -111,13 +122,30 @@ def test_build_request_body_with_tools(custom_openai_provider):
     assert body["tools"][0]["function"]["name"] == "test_tool"
 
 
+def test_build_request_body_passes_extra_body_through(custom_openai_provider):
+    req = MockRequest(extra_body={"provider_hint": "custom"})
+
+    body = custom_openai_provider._build_request_body(req, thinking_enabled=True)
+
+    assert body["extra_body"] == {"provider_hint": "custom"}
+
+
+def test_build_request_body_rejects_reserved_extra_body_keys(custom_openai_provider):
+    req = MockRequest(extra_body={"model": "hijack"})
+
+    with pytest.raises(InvalidRequestError, match="model"):
+        custom_openai_provider._build_request_body(req, thinking_enabled=True)
+
+
 def test_handle_extra_reasoning(custom_openai_provider):
     """Test that extra reasoning handler returns empty iterator."""
-    from providers.common import SSEBuilder
-
     sse = SSEBuilder("msg_id", "model", 0)
     delta = MagicMock()
-    result = list(custom_openai_provider._handle_extra_reasoning(delta, sse))
+    result = list(
+        custom_openai_provider._handle_extra_reasoning(
+            delta, sse, thinking_enabled=True
+        )
+    )
     assert result == []
 
 
@@ -157,19 +185,9 @@ async def test_stream_response_text(custom_openai_provider):
 
         events = [e async for e in custom_openai_provider.stream_response(req)]
 
-        assert len(events) > 0
-        assert "event: message_start" in events[0]
-
-        text_content = ""
-        for e in events:
-            if "event: content_block_delta" in e and '"text_delta"' in e:
-                for line in e.splitlines():
-                    if line.startswith("data: "):
-                        data = json.loads(line[6:])
-                        if "delta" in data and "text" in data["delta"]:
-                            text_content += data["delta"]["text"]
-
-        assert "Hello World" in text_content
+    parsed = parse_sse_text("".join(events))
+    assert_anthropic_stream_contract(parsed)
+    assert text_content(parsed) == "Hello World"
 
 
 @pytest.mark.asyncio
@@ -188,73 +206,8 @@ async def test_stream_response_error_path(custom_openai_provider):
     ) as mock_create:
         mock_create.return_value = mock_stream()
         events = [e async for e in custom_openai_provider.stream_response(req)]
-        # Error is emitted; message_stop/done indicates stream completed
-        assert any("API failed" in e for e in events)
-        assert any("message_stop" in e for e in events)
 
-
-# Tests for provider registration and validation
-
-
-def test_provider_requires_api_key():
-    """Test that provider raises AuthenticationError when API key is missing."""
-
-    from api.dependencies import _create_provider_for_type
-
-    # Create a mock settings with empty API key
-    mock_settings = Mock()
-    mock_settings.custom_openai_api_key = ""
-    mock_settings.custom_openai_base_url = "https://api.example.com/v1"
-    mock_settings.provider_rate_limit = 10
-    mock_settings.provider_rate_window = 60
-    mock_settings.provider_max_concurrency = 5
-    mock_settings.http_read_timeout = 300.0
-    mock_settings.http_write_timeout = 10.0
-    mock_settings.http_connect_timeout = 2.0
-
-    with pytest.raises(AuthenticationError) as exc_info:
-        _create_provider_for_type("custom_openai", mock_settings)
-    assert "CUSTOM_OPENAI_API_KEY is not set" in str(exc_info.value)
-
-
-def test_provider_requires_base_url():
-    """Test that provider raises error when base URL is missing."""
-    from api.dependencies import _create_provider_for_type
-
-    # Create a mock settings with empty base URL
-    mock_settings = Mock()
-    mock_settings.custom_openai_api_key = "test_key"
-    mock_settings.custom_openai_base_url = ""
-    mock_settings.provider_rate_limit = 10
-    mock_settings.provider_rate_window = 60
-    mock_settings.provider_max_concurrency = 5
-    mock_settings.http_read_timeout = 300.0
-    mock_settings.http_write_timeout = 10.0
-    mock_settings.http_connect_timeout = 2.0
-
-    with pytest.raises(ValueError) as exc_info:
-        _create_provider_for_type("custom_openai", mock_settings)
-    assert "CUSTOM_OPENAI_BASE_URL is not set" in str(exc_info.value)
-
-
-def test_provider_initialization_with_valid_config():
-    """Test successful provider initialization with valid configuration."""
-    from api.dependencies import _create_provider_for_type
-    from providers.custom_openai import CustomOpenAIProvider
-
-    # Create a mock settings with valid config
-    mock_settings = Mock()
-    mock_settings.custom_openai_api_key = "test_key"
-    mock_settings.custom_openai_base_url = "https://api.example.com/v1"
-    mock_settings.provider_rate_limit = 10
-    mock_settings.provider_rate_window = 60
-    mock_settings.provider_max_concurrency = 5
-    mock_settings.http_read_timeout = 300.0
-    mock_settings.http_write_timeout = 10.0
-    mock_settings.http_connect_timeout = 2.0
-
-    with patch("providers.openai_compat.AsyncOpenAI"):
-        provider = _create_provider_for_type("custom_openai", mock_settings)
-        assert isinstance(provider, CustomOpenAIProvider)
-        assert provider._api_key == "test_key"
-        assert provider._base_url == "https://api.example.com/v1"
+    parsed = parse_sse_text("".join(events))
+    assert_anthropic_stream_contract(parsed, allow_error=True)
+    assert not any(event.event == "error" for event in parsed)
+    assert any("API failed" in event.raw for event in parsed)

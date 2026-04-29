@@ -1,42 +1,37 @@
-"""Request builder for OpenRouter provider."""
+"""Native Anthropic Messages request builder for OpenRouter."""
+
+from __future__ import annotations
 
 from typing import Any
 
 from loguru import logger
 
-from providers.common.message_converter import build_base_request_body
+from config.constants import (
+    ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS as OPENROUTER_DEFAULT_MAX_TOKENS,
+)
+from core.anthropic.native_messages_request import (
+    OpenRouterExtraBodyError,
+    build_openrouter_native_request_body,
+)
+from providers.exceptions import InvalidRequestError
 
-OPENROUTER_DEFAULT_MAX_TOKENS = 81920
 
-
-def build_request_body(request_data: Any) -> dict:
-    """Build OpenAI-format request body from Anthropic request for OpenRouter."""
+def build_request_body(request_data: Any, *, thinking_enabled: bool) -> dict:
+    """Build an Anthropic-format request body for OpenRouter's messages API."""
     logger.debug(
         "OPENROUTER_REQUEST: conversion start model={} msgs={}",
         getattr(request_data, "model", "?"),
         len(getattr(request_data, "messages", [])),
     )
-    body = build_base_request_body(
-        request_data,
-        default_max_tokens=OPENROUTER_DEFAULT_MAX_TOKENS,
-        include_reasoning_for_openrouter=True,
-    )
 
-    # OpenRouter reasoning: extra_body={"reasoning": {"enabled": True}}
-    extra_body: dict[str, Any] = {}
-    request_extra = getattr(request_data, "extra_body", None)
-    if request_extra:
-        extra_body.update(request_extra)
-
-    thinking = getattr(request_data, "thinking", None)
-    thinking_enabled = (
-        thinking.enabled if thinking and hasattr(thinking, "enabled") else True
-    )
-    if thinking_enabled:
-        extra_body.setdefault("reasoning", {"enabled": True})
-
-    if extra_body:
-        body["extra_body"] = extra_body
+    try:
+        body = build_openrouter_native_request_body(
+            request_data,
+            thinking_enabled=thinking_enabled,
+            default_max_tokens=OPENROUTER_DEFAULT_MAX_TOKENS,
+        )
+    except OpenRouterExtraBodyError as exc:
+        raise InvalidRequestError(str(exc)) from exc
 
     logger.debug(
         "OPENROUTER_REQUEST: conversion done model={} msgs={} tools={}",

@@ -9,7 +9,6 @@ the transcript grows over time and older content must be truncated.
 from __future__ import annotations
 
 import json
-import os
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable, Iterable
@@ -210,7 +209,12 @@ class RenderCtx:
 class TranscriptBuffer:
     """Maintains an ordered, truncatable transcript of events."""
 
-    def __init__(self, *, show_tool_results: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        show_tool_results: bool = True,
+        debug_subagent_stack: bool = False,
+    ) -> None:
         self._segments: list[Segment] = []
         self._open_thinking_by_index: dict[int, ThinkingSegment] = {}
         self._open_text_by_index: dict[int, TextSegment] = {}
@@ -227,7 +231,7 @@ class TranscriptBuffer:
         self._subagent_stack: list[str] = []
         # Parallel stack of segments for rendering nested subagents.
         self._subagent_segments: list[SubagentSegment] = []
-        self._debug_subagent_stack = os.getenv("DEBUG_SUBAGENT_STACK") == "1"
+        self._debug_subagent_stack = debug_subagent_stack
 
     def _in_subagent(self) -> bool:
         return bool(self._subagent_stack)

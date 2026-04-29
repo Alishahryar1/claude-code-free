@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -300,7 +301,7 @@ class TestCLISession:
 
         mock_process = AsyncMock()
         mock_process.stdout.read.side_effect = [b""]  # No stdout
-        mock_process.stderr.read.return_value = b"Fatal error"
+        mock_process.stderr.read.side_effect = [b"Fatal error", b""]
         mock_process.wait.return_value = 1
 
         with patch(
@@ -318,6 +319,62 @@ class TestCLISession:
             assert events[1]["type"] == "exit"
             assert events[1]["code"] == 1
             assert events[1]["stderr"] == "Fatal error"
+
+    @pytest.mark.asyncio
+    async def test_start_task_stderr_while_stdout_streams(self):
+        """Stderr is drained concurrently so stdout streaming is not blocked."""
+        from cli.session import CLISession
+
+        session = CLISession("/tmp", "http://localhost:8082/v1")
+
+        mock_process = AsyncMock()
+        mock_process.stdout.read.side_effect = [
+            b'{"type": "message", "content": "Hi"}\n',
+            b"",
+        ]
+        mock_process.stderr.read.side_effect = [b"warning on stderr\n", b""]
+        mock_process.wait.return_value = 0
+
+        with patch(
+            "asyncio.create_subprocess_exec", new_callable=AsyncMock
+        ) as mock_exec:
+            mock_exec.return_value = mock_process
+
+            events = [e async for e in session.start_task("Hello")]
+
+        assert mock_process.stderr.read.await_count >= 2
+        err_events = [e for e in events if e.get("type") == "error"]
+        assert len(err_events) == 1
+        assert "warning on stderr" in err_events[0]["error"]["message"]
+        assert events[-1]["type"] == "exit"
+        assert events[-1]["code"] == 0
+
+    @pytest.mark.asyncio
+    async def test_drain_stderr_bounded_retains_cap_but_drains_to_eof(self):
+        """Oversized stderr is fully drained so the pipe cannot deadlock; capture is bounded."""
+        from cli.session import _MAX_STDERR_CAPTURE_BYTES, CLISession
+
+        total_len = _MAX_STDERR_CAPTURE_BYTES + 100_000
+        remaining: dict[str, int] = {"n": total_len}
+
+        class _FakeStderr:
+            async def read(self, n: int = 65536) -> bytes:
+                left = remaining["n"]
+                if left <= 0:
+                    return b""
+                take = min(n, left)
+                remaining["n"] = left - take
+                return b"y" * take
+
+        class _FakeProcess:
+            stderr = _FakeStderr()
+
+        out = await CLISession._drain_stderr_bounded(
+            cast(asyncio.subprocess.Process, _FakeProcess())
+        )
+        assert len(out) == _MAX_STDERR_CAPTURE_BYTES
+        assert out == b"y" * _MAX_STDERR_CAPTURE_BYTES
+        assert remaining["n"] == 0
 
     @pytest.mark.asyncio
     async def test_stop_session(self):

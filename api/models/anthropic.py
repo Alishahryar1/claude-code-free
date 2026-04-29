@@ -3,10 +3,7 @@
 from enum import StrEnum
 from typing import Any, Literal
 
-from loguru import logger
-from pydantic import BaseModel, field_validator, model_validator
-
-from config.settings import Settings, get_settings
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # =============================================================================
@@ -18,35 +15,68 @@ class Role(StrEnum):
     system = "system"
 
 
-class ContentBlockText(BaseModel):
+class _AnthropicBlockBase(BaseModel):
+    """Pass through provider fields (e.g. ``cache_control``) for native transports."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ContentBlockText(_AnthropicBlockBase):
     type: Literal["text"]
     text: str
 
 
-class ContentBlockImage(BaseModel):
+class ContentBlockImage(_AnthropicBlockBase):
     type: Literal["image"]
     source: dict[str, Any]
 
 
-class ContentBlockToolUse(BaseModel):
+class ContentBlockToolUse(_AnthropicBlockBase):
     type: Literal["tool_use"]
     id: str
     name: str
     input: dict[str, Any]
 
 
-class ContentBlockToolResult(BaseModel):
+class ContentBlockToolResult(_AnthropicBlockBase):
     type: Literal["tool_result"]
     tool_use_id: str
     content: str | list[Any] | dict[str, Any]
 
 
-class ContentBlockThinking(BaseModel):
+class ContentBlockThinking(_AnthropicBlockBase):
     type: Literal["thinking"]
     thinking: str
+    signature: str | None = None
 
 
-class SystemContent(BaseModel):
+class ContentBlockRedactedThinking(_AnthropicBlockBase):
+    type: Literal["redacted_thinking"]
+    data: str
+
+
+class ContentBlockServerToolUse(_AnthropicBlockBase):
+    """Anthropic server-side tool invocation (e.g. ``web_search``, ``web_fetch``)."""
+
+    type: Literal["server_tool_use"]
+    id: str
+    name: str
+    input: dict[str, Any]
+
+
+class ContentBlockWebSearchToolResult(_AnthropicBlockBase):
+    type: Literal["web_search_tool_result"]
+    tool_use_id: str
+    content: Any
+
+
+class ContentBlockWebFetchToolResult(_AnthropicBlockBase):
+    type: Literal["web_fetch_tool_result"]
+    tool_use_id: str
+    content: Any
+
+
+class SystemContent(_AnthropicBlockBase):
     type: Literal["text"]
     text: str
 
@@ -64,26 +94,40 @@ class Message(BaseModel):
             | ContentBlockToolUse
             | ContentBlockToolResult
             | ContentBlockThinking
+            | ContentBlockRedactedThinking
+            | ContentBlockServerToolUse
+            | ContentBlockWebSearchToolResult
+            | ContentBlockWebFetchToolResult
         ]
     )
     reasoning_content: str | None = None
 
 
-class Tool(BaseModel):
+class Tool(_AnthropicBlockBase):
     name: str
+    # Anthropic server tools (e.g. web_search beta tools) include a ``type`` and
+    # may omit ``input_schema`` because the provider owns the schema.
+    type: str | None = None
     description: str | None = None
-    input_schema: dict[str, Any]
+    input_schema: dict[str, Any] | None = None
 
 
 class ThinkingConfig(BaseModel):
-    enabled: bool = True
+    enabled: bool | None = True
+    type: str | None = None
+    budget_tokens: int | None = None
 
 
 # =============================================================================
 # Request Models
 # =============================================================================
 class MessagesRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     model: str
+    # Internal routing / debug: accepted on parse but not serialized to providers.
+    original_model: str | None = Field(default=None, exclude=True)
+    resolved_provider_model: str | None = Field(default=None, exclude=True)
     max_tokens: int | None = None
     messages: list[Message]
     system: str | list[SystemContent] | None = None
@@ -96,39 +140,24 @@ class MessagesRequest(BaseModel):
     tools: list[Tool] | None = None
     tool_choice: dict[str, Any] | None = None
     thinking: ThinkingConfig | None = None
+    # Native Anthropic / SDK client hints: ignored (not forwarded) for OpenAI Chat conversion.
+    context_management: dict[str, Any] | None = None
+    output_config: dict[str, Any] | None = None
+    mcp_servers: list[dict[str, Any]] | None = None
     extra_body: dict[str, Any] | None = None
-    original_model: str | None = None
-    resolved_provider_model: str | None = None
-
-    @model_validator(mode="after")
-    def map_model(self) -> MessagesRequest:
-        """Map any Claude model name to the configured model (model-aware)."""
-        settings = get_settings()
-        if self.original_model is None:
-            self.original_model = self.model
-
-        resolved_full = settings.resolve_model(self.original_model)
-        self.resolved_provider_model = resolved_full
-        self.model = Settings.parse_model_name(resolved_full)
-
-        if self.model != self.original_model:
-            logger.debug(f"MODEL MAPPING: '{self.original_model}' -> '{self.model}'")
-
-        return self
 
 
 class TokenCountRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     model: str
+    original_model: str | None = Field(default=None, exclude=True)
+    resolved_provider_model: str | None = Field(default=None, exclude=True)
     messages: list[Message]
     system: str | list[SystemContent] | None = None
     tools: list[Tool] | None = None
     thinking: ThinkingConfig | None = None
     tool_choice: dict[str, Any] | None = None
-
-    @field_validator("model")
-    @classmethod
-    def validate_model_field(cls, v: str, info) -> str:
-        """Map any Claude model name to the configured model (model-aware)."""
-        settings = get_settings()
-        resolved_full = settings.resolve_model(v)
-        return Settings.parse_model_name(resolved_full)
+    context_management: dict[str, Any] | None = None
+    output_config: dict[str, Any] | None = None
+    mcp_servers: list[dict[str, Any]] | None = None

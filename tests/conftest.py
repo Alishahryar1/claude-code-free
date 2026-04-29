@@ -2,34 +2,27 @@ import asyncio
 import contextlib
 import logging
 import os
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+from config.settings import Settings
 
 # Set mock environment BEFORE any imports that use Settings
 os.environ.setdefault("NVIDIA_NIM_API_KEY", "test_key")
 os.environ.setdefault("MODEL", "nvidia_nim/test-model")
 os.environ["PTB_TIMEDELTA"] = "1"
+# Ensure tests don't pick up a server API key from the repo .env
+# (tests expect endpoints to be unauthenticated by default)
+os.environ["ANTHROPIC_AUTH_TOKEN"] = ""
 
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
-
-from config.nim import NimSettings
-from messaging.models import IncomingMessage
-from messaging.platforms.base import (
-    CLISession,
-    MessagingPlatform,
-    SessionManagerInterface,
-)
-from messaging.session import SessionStore
-from providers.base import ProviderConfig
-from providers.nvidia_nim import NvidiaNimProvider
+Settings.model_config = {**Settings.model_config, "env_file": None}
 
 
 @pytest.fixture(autouse=True)
 def _isolate_from_dotenv(monkeypatch):
     """Prevent Pydantic BaseSettings from reading the .env file during tests."""
-    from config.settings import Settings
-
     monkeypatch.setattr(
         Settings, "model_config", {**Settings.model_config, "env_file": None}
     )
@@ -37,6 +30,8 @@ def _isolate_from_dotenv(monkeypatch):
 
 @pytest.fixture
 def provider_config():
+    from providers.base import ProviderConfig
+
     return ProviderConfig(
         api_key="test_key",
         base_url="https://test.api.nvidia.com/v1",
@@ -47,6 +42,9 @@ def provider_config():
 
 @pytest.fixture
 def nim_provider(provider_config):
+    from config.nim import NimSettings
+    from providers.nvidia_nim import NvidiaNimProvider
+
     return NvidiaNimProvider(provider_config, nim_settings=NimSettings())
 
 
@@ -59,6 +57,7 @@ def open_router_provider(provider_config):
 
 @pytest.fixture
 def lmstudio_provider(provider_config):
+    from providers.base import ProviderConfig
     from providers.lmstudio import LMStudioProvider
 
     lmstudio_config = ProviderConfig(
@@ -72,6 +71,7 @@ def lmstudio_provider(provider_config):
 
 @pytest.fixture
 def llamacpp_provider(provider_config):
+    from providers.base import ProviderConfig
     from providers.llamacpp import LlamaCppProvider
 
     llamacpp_config = ProviderConfig(
@@ -85,6 +85,8 @@ def llamacpp_provider(provider_config):
 
 @pytest.fixture
 def mock_cli_session():
+    from messaging.platforms.base import CLISession
+
     session = MagicMock(spec=CLISession)
     session.start_task = MagicMock()  # This will return an async generator
     session.is_busy = False
@@ -93,6 +95,8 @@ def mock_cli_session():
 
 @pytest.fixture
 def mock_cli_manager():
+    from messaging.platforms.base import SessionManagerInterface
+
     manager = MagicMock(spec=SessionManagerInterface)
     manager.get_or_create_session = AsyncMock()
     manager.register_real_session_id = AsyncMock(return_value=True)
@@ -104,6 +108,8 @@ def mock_cli_manager():
 
 @pytest.fixture
 def mock_platform():
+    from messaging.platforms.base import MessagingPlatform
+
     platform = MagicMock(spec=MessagingPlatform)
     platform.send_message = AsyncMock(return_value="msg_123")
     platform.edit_message = AsyncMock()
@@ -111,6 +117,15 @@ def mock_platform():
     platform.queue_send_message = AsyncMock(return_value="msg_123")
     platform.queue_edit_message = AsyncMock()
     platform.queue_delete_message = AsyncMock()
+
+    async def _queue_delete_messages(
+        chat_id: str, message_ids: list[str], *, fire_and_forget: bool = True
+    ) -> None:
+        qdm = platform.queue_delete_message
+        for mid in message_ids:
+            await qdm(chat_id, mid, fire_and_forget=fire_and_forget)
+
+    platform.queue_delete_messages = AsyncMock(side_effect=_queue_delete_messages)
 
     def _fire_and_forget(task):
         if asyncio.iscoroutine(task):
@@ -124,6 +139,8 @@ def mock_platform():
 
 @pytest.fixture
 def mock_session_store():
+    from messaging.session import SessionStore
+
     store = MagicMock(spec=SessionStore)
     store.save_tree = MagicMock()
     store.get_tree = MagicMock(return_value=None)
@@ -153,6 +170,8 @@ def incoming_message_factory():
     )
 
     def _create(**kwargs):
+        from messaging.models import IncomingMessage
+
         defaults: dict[str, Any] = {
             "text": "hello",
             "chat_id": "chat_1",

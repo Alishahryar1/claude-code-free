@@ -3,13 +3,15 @@
 import asyncio
 import random
 import time
-from collections import deque
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any, ClassVar, TypeVar
 
+import httpx
 import openai
 from loguru import logger
+
+from core.rate_limit import StrictSlidingWindowLimiter
 
 T = TypeVar("T")
 
@@ -29,12 +31,7 @@ class GlobalRateLimiter:
     """
 
     _instance: ClassVar[GlobalRateLimiter | None] = None
-
-    def __new__(cls, *args: Any, **kwargs: Any) -> GlobalRateLimiter:
-        if cls._instance is not None:
-            return cls._instance
-        instance = super().__new__(cls)
-        return instance
+    _scoped_instances: ClassVar[dict[str, GlobalRateLimiter]] = {}
 
     def __init__(
         self,
@@ -55,10 +52,11 @@ class GlobalRateLimiter:
 
         self._rate_limit = rate_limit
         self._rate_window = float(rate_window)
-        # Monotonic timestamps of the last granted slots.
-        self._request_times: deque[float] = deque()
+        self._max_concurrency = max_concurrency
+        self._proactive_limiter = StrictSlidingWindowLimiter(
+            self._rate_limit, self._rate_window
+        )
         self._blocked_until: float = 0
-        self._lock = asyncio.Lock()
         self._concurrency_sem = asyncio.Semaphore(max_concurrency)
         self._initialized = True
 
@@ -89,9 +87,40 @@ class GlobalRateLimiter:
         return cls._instance
 
     @classmethod
+    def get_scoped_instance(
+        cls,
+        scope: str,
+        *,
+        rate_limit: int | None = None,
+        rate_window: float | None = None,
+        max_concurrency: int = 5,
+    ) -> GlobalRateLimiter:
+        """Get or create a provider-scoped limiter instance."""
+        if not scope:
+            raise ValueError("scope must be non-empty")
+        desired_rate_limit = rate_limit or 40
+        desired_rate_window = float(rate_window or 60.0)
+        existing = cls._scoped_instances.get(scope)
+        if existing and existing.matches_config(
+            desired_rate_limit, desired_rate_window, max_concurrency
+        ):
+            return existing
+        if existing:
+            logger.info(
+                "Rebuilding provider rate limiter for updated scope '{}'", scope
+            )
+        cls._scoped_instances[scope] = cls(
+            rate_limit=desired_rate_limit,
+            rate_window=desired_rate_window,
+            max_concurrency=max_concurrency,
+        )
+        return cls._scoped_instances[scope]
+
+    @classmethod
     def reset_instance(cls) -> None:
         """Reset singleton (for testing)."""
         cls._instance = None
+        cls._scoped_instances = {}
 
     async def wait_if_blocked(self) -> bool:
         """
@@ -122,27 +151,7 @@ class GlobalRateLimiter:
         Guarantees: at most `self._rate_limit` acquisitions in any interval of length
         `self._rate_window` (seconds).
         """
-        while True:
-            wait_time = 0.0
-            async with self._lock:
-                now = time.monotonic()
-                cutoff = now - self._rate_window
-
-                while self._request_times and self._request_times[0] <= cutoff:
-                    self._request_times.popleft()
-
-                if len(self._request_times) < self._rate_limit:
-                    self._request_times.append(now)
-                    return
-
-                oldest = self._request_times[0]
-                wait_time = max(0.0, (oldest + self._rate_window) - now)
-
-            # Sleep outside the lock so other tasks can continue to queue.
-            if wait_time > 0:
-                await asyncio.sleep(wait_time)
-            else:
-                await asyncio.sleep(0)
+        await self._proactive_limiter.acquire()
 
     def set_blocked(self, seconds: float = 60) -> None:
         """
@@ -157,6 +166,16 @@ class GlobalRateLimiter:
     def is_blocked(self) -> bool:
         """Check if currently reactively blocked."""
         return time.monotonic() < self._blocked_until
+
+    def matches_config(
+        self, rate_limit: int, rate_window: float, max_concurrency: int
+    ) -> bool:
+        """Return whether this limiter matches the requested runtime config."""
+        return (
+            self._rate_limit == rate_limit
+            and self._rate_window == float(rate_window)
+            and self._max_concurrency == max_concurrency
+        )
 
     def remaining_wait(self) -> float:
         """Get remaining reactive wait time in seconds."""
@@ -221,6 +240,24 @@ class GlobalRateLimiter:
                 delay += random.uniform(0, jitter)
                 logger.warning(
                     f"Rate limited (429), attempt {attempt + 1}/{max_retries + 1}. "
+                    f"Retrying in {delay:.1f}s..."
+                )
+                self.set_blocked(delay)
+                await asyncio.sleep(delay)
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code != 429:
+                    raise
+                last_exc = e
+                if attempt >= max_retries:
+                    logger.warning(
+                        f"HTTP 429 retry exhausted after {max_retries} retries"
+                    )
+                    break
+
+                delay = min(base_delay * (2**attempt), max_delay)
+                delay += random.uniform(0, jitter)
+                logger.warning(
+                    f"HTTP 429 from upstream, attempt {attempt + 1}/{max_retries + 1}. "
                     f"Retrying in {delay:.1f}s..."
                 )
                 self.set_blocked(delay)

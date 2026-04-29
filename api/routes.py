@@ -1,23 +1,76 @@
 """FastAPI route handlers."""
 
-import traceback
-import uuid
-
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from loguru import logger
 
 from config.settings import Settings
-from providers.common import get_user_facing_error_message
-from providers.exceptions import InvalidRequestError, ProviderError
+from core.anthropic import get_token_count
 
-from .dependencies import get_provider_for_type, get_settings
+from . import dependencies
+from .dependencies import get_settings, require_api_key
 from .models.anthropic import MessagesRequest, TokenCountRequest
-from .models.responses import TokenCountResponse
-from .optimization_handlers import try_optimizations
-from .request_utils import get_token_count
+from .models.responses import ModelResponse, ModelsListResponse
+from .services import ClaudeProxyService
 
 router = APIRouter()
+
+
+SUPPORTED_CLAUDE_MODELS = [
+    ModelResponse(
+        id="claude-opus-4-20250514",
+        display_name="Claude Opus 4",
+        created_at="2025-05-14T00:00:00Z",
+    ),
+    ModelResponse(
+        id="claude-sonnet-4-20250514",
+        display_name="Claude Sonnet 4",
+        created_at="2025-05-14T00:00:00Z",
+    ),
+    ModelResponse(
+        id="claude-haiku-4-20250514",
+        display_name="Claude Haiku 4",
+        created_at="2025-05-14T00:00:00Z",
+    ),
+    ModelResponse(
+        id="claude-3-opus-20240229",
+        display_name="Claude 3 Opus",
+        created_at="2024-02-29T00:00:00Z",
+    ),
+    ModelResponse(
+        id="claude-3-5-sonnet-20241022",
+        display_name="Claude 3.5 Sonnet",
+        created_at="2024-10-22T00:00:00Z",
+    ),
+    ModelResponse(
+        id="claude-3-haiku-20240307",
+        display_name="Claude 3 Haiku",
+        created_at="2024-03-07T00:00:00Z",
+    ),
+    ModelResponse(
+        id="claude-3-5-haiku-20241022",
+        display_name="Claude 3.5 Haiku",
+        created_at="2024-10-22T00:00:00Z",
+    ),
+]
+
+
+def get_proxy_service(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+) -> ClaudeProxyService:
+    """Build the request service for route handlers."""
+    return ClaudeProxyService(
+        settings,
+        provider_getter=lambda provider_type: dependencies.resolve_provider(
+            provider_type, app=request.app, settings=settings
+        ),
+        token_counter=get_token_count,
+    )
+
+
+def _probe_response(allow: str) -> Response:
+    """Return an empty success response for compatibility probes."""
+    return Response(status_code=204, headers={"Allow": allow})
 
 
 # =============================================================================
@@ -26,93 +79,39 @@ router = APIRouter()
 @router.post("/v1/messages")
 async def create_message(
     request_data: MessagesRequest,
-    raw_request: Request,
-    settings: Settings = Depends(get_settings),
+    service: ClaudeProxyService = Depends(get_proxy_service),
+    _auth=Depends(require_api_key),
 ):
     """Create a message (always streaming)."""
+    return service.create_message(request_data)
 
-    try:
-        if not request_data.messages:
-            raise InvalidRequestError("messages cannot be empty")
 
-        optimized = try_optimizations(request_data, settings)
-        if optimized is not None:
-            return optimized
-        logger.debug("No optimization matched, routing to provider")
-
-        # Resolve provider from the model-aware mapping
-        provider_type = Settings.parse_provider_type(
-            request_data.resolved_provider_model or settings.model
-        )
-        provider = get_provider_for_type(provider_type)
-
-        request_id = f"req_{uuid.uuid4().hex[:12]}"
-        logger.info(
-            "API_REQUEST: request_id={} model={} messages={}",
-            request_id,
-            request_data.model,
-            len(request_data.messages),
-        )
-        logger.debug("FULL_PAYLOAD [{}]: {}", request_id, request_data.model_dump())
-
-        input_tokens = get_token_count(
-            request_data.messages, request_data.system, request_data.tools
-        )
-        return StreamingResponse(
-            provider.stream_response(
-                request_data,
-                input_tokens=input_tokens,
-                request_id=request_id,
-            ),
-            media_type="text/event-stream",
-            headers={
-                "X-Accel-Buffering": "no",
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
-        )
-
-    except ProviderError:
-        raise
-    except Exception as e:
-        logger.error(f"Error: {e!s}\n{traceback.format_exc()}")
-        raise HTTPException(
-            status_code=getattr(e, "status_code", 500),
-            detail=get_user_facing_error_message(e),
-        ) from e
+@router.api_route("/v1/messages", methods=["HEAD", "OPTIONS"])
+async def probe_messages(_auth=Depends(require_api_key)):
+    """Respond to Claude compatibility probes for the messages endpoint."""
+    return _probe_response("POST, HEAD, OPTIONS")
 
 
 @router.post("/v1/messages/count_tokens")
-async def count_tokens(request_data: TokenCountRequest):
+async def count_tokens(
+    request_data: TokenCountRequest,
+    service: ClaudeProxyService = Depends(get_proxy_service),
+    _auth=Depends(require_api_key),
+):
     """Count tokens for a request."""
-    request_id = f"req_{uuid.uuid4().hex[:12]}"
-    with logger.contextualize(request_id=request_id):
-        try:
-            tokens = get_token_count(
-                request_data.messages, request_data.system, request_data.tools
-            )
-            logger.info(
-                "COUNT_TOKENS: request_id={} model={} messages={} input_tokens={}",
-                request_id,
-                getattr(request_data, "model", "unknown"),
-                len(request_data.messages),
-                tokens,
-            )
-            return TokenCountResponse(input_tokens=tokens)
-        except Exception as e:
-            logger.error(
-                "COUNT_TOKENS_ERROR: request_id={} error={}\n{}",
-                request_id,
-                get_user_facing_error_message(e),
-                traceback.format_exc(),
-            )
-            raise HTTPException(
-                status_code=500, detail=get_user_facing_error_message(e)
-            ) from e
+    return service.count_tokens(request_data)
+
+
+@router.api_route("/v1/messages/count_tokens", methods=["HEAD", "OPTIONS"])
+async def probe_count_tokens(_auth=Depends(require_api_key)):
+    """Respond to Claude compatibility probes for the token count endpoint."""
+    return _probe_response("POST, HEAD, OPTIONS")
 
 
 @router.get("/")
-async def root(settings: Settings = Depends(get_settings)):
+async def root(
+    settings: Settings = Depends(get_settings), _auth=Depends(require_api_key)
+):
     """Root endpoint."""
     return {
         "status": "ok",
@@ -121,14 +120,37 @@ async def root(settings: Settings = Depends(get_settings)):
     }
 
 
+@router.api_route("/", methods=["HEAD", "OPTIONS"])
+async def probe_root(_auth=Depends(require_api_key)):
+    """Respond to compatibility probes for the root endpoint."""
+    return _probe_response("GET, HEAD, OPTIONS")
+
+
 @router.get("/health")
 async def health():
     """Health check endpoint."""
     return {"status": "healthy"}
 
 
+@router.api_route("/health", methods=["HEAD", "OPTIONS"])
+async def probe_health():
+    """Respond to compatibility probes for the health endpoint."""
+    return _probe_response("GET, HEAD, OPTIONS")
+
+
+@router.get("/v1/models", response_model=ModelsListResponse)
+async def list_models(_auth=Depends(require_api_key)):
+    """List the Claude model ids this proxy advertises for compatibility."""
+    return ModelsListResponse(
+        data=SUPPORTED_CLAUDE_MODELS,
+        first_id=SUPPORTED_CLAUDE_MODELS[0].id if SUPPORTED_CLAUDE_MODELS else None,
+        has_more=False,
+        last_id=SUPPORTED_CLAUDE_MODELS[-1].id if SUPPORTED_CLAUDE_MODELS else None,
+    )
+
+
 @router.post("/stop")
-async def stop_cli(request: Request):
+async def stop_cli(request: Request, _auth=Depends(require_api_key)):
     """Stop all CLI sessions and pending tasks."""
     handler = getattr(request.app.state, "message_handler", None)
     if not handler:

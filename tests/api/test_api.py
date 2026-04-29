@@ -1,15 +1,18 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
-from api.app import app
+from api.app import create_app
 from providers.nvidia_nim import NvidiaNimProvider
+
+app = create_app()
 
 # Mock provider
 mock_provider = MagicMock(spec=NvidiaNimProvider)
 
 # Track stream_response calls for test_model_mapping
-_stream_response_calls = []
+_stream_response_calls: list = []
 
 
 async def _mock_stream_response(*args, **kwargs):
@@ -21,26 +24,58 @@ async def _mock_stream_response(*args, **kwargs):
 
 mock_provider.stream_response = _mock_stream_response
 
-# Patch get_provider_for_type to always return mock_provider
-_patcher = patch("api.routes.get_provider_for_type", return_value=mock_provider)
-_patcher.start()
 
-client = TestClient(app)
+@pytest.fixture(scope="module")
+def client():
+    """HTTP client with provider resolution stubbed; patch only for this file."""
+    with (
+        patch("api.dependencies.resolve_provider", return_value=mock_provider),
+        TestClient(app) as test_client,
+    ):
+        yield test_client
 
 
-def test_root():
+def test_root(client: TestClient):
     response = client.get("/")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
 
 
-def test_health():
+def test_health(client: TestClient):
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
 
 
-def test_create_message_stream():
+def test_models_list(client: TestClient):
+    response = client.get("/v1/models")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["has_more"] is False
+    ids = [item["id"] for item in data["data"]]
+    assert "claude-sonnet-4-20250514" in ids
+    assert data["first_id"] == ids[0]
+    assert data["last_id"] == ids[-1]
+
+
+def test_probe_endpoints_return_204_with_allow_headers(client: TestClient):
+    responses = [
+        client.head("/"),
+        client.options("/"),
+        client.head("/health"),
+        client.options("/health"),
+        client.head("/v1/messages"),
+        client.options("/v1/messages"),
+        client.head("/v1/messages/count_tokens"),
+        client.options("/v1/messages/count_tokens"),
+    ]
+
+    for response in responses:
+        assert response.status_code == 204
+        assert "Allow" in response.headers
+
+
+def test_create_message_stream(client: TestClient):
     """Create message returns streaming response."""
     payload = {
         "model": "claude-3-sonnet",
@@ -55,7 +90,7 @@ def test_create_message_stream():
     assert b"message_start" in content or b"event:" in content
 
 
-def test_model_mapping():
+def test_model_mapping(client: TestClient):
     # Test Haiku mapping
     _stream_response_calls.clear()
     payload_haiku = {
@@ -67,11 +102,12 @@ def test_model_mapping():
     client.post("/v1/messages", json=payload_haiku)
     assert len(_stream_response_calls) == 1
     args = _stream_response_calls[0][0]
+    kwargs = _stream_response_calls[0][1]
     assert args[0].model != "claude-3-haiku-20240307"
-    assert args[0].original_model == "claude-3-haiku-20240307"
+    assert kwargs["thinking_enabled"] is True
 
 
-def test_error_fallbacks():
+def test_error_fallbacks(client: TestClient):
     from providers.exceptions import (
         AuthenticationError,
         OverloadedError,
@@ -116,7 +152,7 @@ def test_error_fallbacks():
     mock_provider.stream_response = _mock_stream_response
 
 
-def test_generic_exception_returns_500():
+def test_generic_exception_returns_500(client: TestClient):
     """Non-ProviderError exceptions are caught and returned as HTTPException(500)."""
 
     def _raise_runtime(*args, **kwargs):
@@ -136,8 +172,8 @@ def test_generic_exception_returns_500():
     mock_provider.stream_response = _mock_stream_response
 
 
-def test_generic_exception_with_status_code():
-    """Generic exception with status_code attribute uses that status (getattr fallback)."""
+def test_generic_exception_with_status_code(client: TestClient):
+    """Unexpected errors always map to HTTP 500 (ignore ad-hoc status_code attrs)."""
 
     class ExceptionWithStatus(RuntimeError):
         def __init__(self, msg: str, status_code: int = 500):
@@ -157,11 +193,11 @@ def test_generic_exception_with_status_code():
             "stream": True,
         },
     )
-    assert response.status_code == 502
+    assert response.status_code == 500
     mock_provider.stream_response = _mock_stream_response
 
 
-def test_generic_exception_empty_message_returns_non_empty_detail():
+def test_generic_exception_empty_message_returns_non_empty_detail(client: TestClient):
     """Exceptions with empty __str__ still return a readable HTTP detail."""
 
     class SilentError(RuntimeError):
@@ -186,7 +222,7 @@ def test_generic_exception_empty_message_returns_non_empty_detail():
     mock_provider.stream_response = _mock_stream_response
 
 
-def test_count_tokens_endpoint():
+def test_count_tokens_endpoint(client: TestClient):
     """count_tokens endpoint returns token count."""
     response = client.post(
         "/v1/messages/count_tokens",
@@ -196,7 +232,7 @@ def test_count_tokens_endpoint():
     assert "input_tokens" in response.json()
 
 
-def test_stop_endpoint_no_handler_no_cli_503():
+def test_stop_endpoint_no_handler_no_cli_503(client: TestClient):
     """POST /stop without handler or cli_manager returns 503."""
     # Ensure no handler or cli_manager on app state
     if hasattr(app.state, "message_handler"):

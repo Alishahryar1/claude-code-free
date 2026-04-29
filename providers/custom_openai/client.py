@@ -3,18 +3,17 @@
 from collections.abc import Iterator
 from typing import Any
 
+from core.anthropic import SSEBuilder
 from providers.base import ProviderConfig
-from providers.common import SSEBuilder
-from providers.openai_compat import OpenAICompatibleProvider
+from providers.openai_compat import OpenAIChatTransport
 
 from .request import build_request_body
 
 
-class CustomOpenAIProvider(OpenAICompatibleProvider):
+class CustomOpenAIProvider(OpenAIChatTransport):
     """Custom OpenAI-compatible provider for user-specified endpoints."""
 
     def __init__(self, config: ProviderConfig):
-        # base_url is guaranteed to be non-None by validation in dependencies.py
         super().__init__(
             config,
             provider_name="CUSTOM_OPENAI",
@@ -22,10 +21,17 @@ class CustomOpenAIProvider(OpenAICompatibleProvider):
             api_key=config.api_key,
         )
 
-    def _build_request_body(self, request: Any) -> dict:
+    def _build_request_body(
+        self, request: Any, thinking_enabled: bool | None = None
+    ) -> dict:
         """Build request body using standard OpenAI format."""
-        return build_request_body(request)
+        return build_request_body(
+            request,
+            thinking_enabled=self._is_thinking_enabled(request, thinking_enabled),
+        )
 
-    def _handle_extra_reasoning(self, delta: Any, sse: SSEBuilder) -> Iterator[str]:
+    def _handle_extra_reasoning(
+        self, delta: Any, sse: SSEBuilder, *, thinking_enabled: bool
+    ) -> Iterator[str]:
         """No provider-specific reasoning handling for custom OpenAI."""
         return iter(())

@@ -22,6 +22,22 @@ from .models.anthropic import MessagesRequest
 from .models.responses import MessagesResponse, Usage
 
 
+def _text_response(
+    request_data: MessagesRequest,
+    text: str,
+    *,
+    input_tokens: int,
+    output_tokens: int,
+) -> MessagesResponse:
+    return MessagesResponse(
+        id=f"msg_{uuid.uuid4()}",
+        model=request_data.model,
+        content=[{"type": "text", "text": text}],
+        stop_reason="end_turn",
+        usage=Usage(input_tokens=input_tokens, output_tokens=output_tokens),
+    )
+
+
 def try_prefix_detection(
     request_data: MessagesRequest, settings: Settings
 ) -> MessagesResponse | None:
@@ -34,12 +50,11 @@ def try_prefix_detection(
         return None
 
     logger.info("Optimization: Fast prefix detection request")
-    return MessagesResponse(
-        id=f"msg_{uuid.uuid4()}",
-        model=request_data.model,
-        content=[{"type": "text", "text": extract_command_prefix(command)}],
-        stop_reason="end_turn",
-        usage=Usage(input_tokens=100, output_tokens=5),
+    return _text_response(
+        request_data,
+        extract_command_prefix(command),
+        input_tokens=100,
+        output_tokens=5,
     )
 
 
@@ -53,13 +68,11 @@ def try_quota_mock(
         return None
 
     logger.info("Optimization: Intercepted and mocked quota probe")
-    return MessagesResponse(
-        id=f"msg_{uuid.uuid4()}",
-        model=request_data.model,
-        role="assistant",
-        content=[{"type": "text", "text": "Quota check passed."}],
-        stop_reason="end_turn",
-        usage=Usage(input_tokens=10, output_tokens=5),
+    return _text_response(
+        request_data,
+        "Quota check passed.",
+        input_tokens=10,
+        output_tokens=5,
     )
 
 
@@ -73,13 +86,11 @@ def try_title_skip(
         return None
 
     logger.info("Optimization: Skipped title generation request")
-    return MessagesResponse(
-        id=f"msg_{uuid.uuid4()}",
-        model=request_data.model,
-        role="assistant",
-        content=[{"type": "text", "text": "Conversation"}],
-        stop_reason="end_turn",
-        usage=Usage(input_tokens=100, output_tokens=5),
+    return _text_response(
+        request_data,
+        "Conversation",
+        input_tokens=100,
+        output_tokens=5,
     )
 
 
@@ -93,13 +104,11 @@ def try_suggestion_skip(
         return None
 
     logger.info("Optimization: Skipped suggestion mode request")
-    return MessagesResponse(
-        id=f"msg_{uuid.uuid4()}",
-        model=request_data.model,
-        role="assistant",
-        content=[{"type": "text", "text": ""}],
-        stop_reason="end_turn",
-        usage=Usage(input_tokens=100, output_tokens=1),
+    return _text_response(
+        request_data,
+        "",
+        input_tokens=100,
+        output_tokens=1,
     )
 
 
@@ -116,13 +125,11 @@ def try_filepath_mock(
 
     filepaths = extract_filepaths_from_command(cmd, output)
     logger.info("Optimization: Mocked filepath extraction")
-    return MessagesResponse(
-        id=f"msg_{uuid.uuid4()}",
-        model=request_data.model,
-        role="assistant",
-        content=[{"type": "text", "text": filepaths}],
-        stop_reason="end_turn",
-        usage=Usage(input_tokens=100, output_tokens=10),
+    return _text_response(
+        request_data,
+        filepaths,
+        input_tokens=100,
+        output_tokens=10,
     )
 
 

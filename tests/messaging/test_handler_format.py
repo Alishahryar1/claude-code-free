@@ -17,7 +17,6 @@ def handler():
     platform = MagicMock()
     cli = MagicMock()
     store = MagicMock()
-    # Kept for backwards test structure; transcript rendering is now separate.
     return (platform, cli, store)
 
 

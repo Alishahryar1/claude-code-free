@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from providers.common import get_user_facing_error_message
+from core.anthropic import format_user_error_preview
 
 if TYPE_CHECKING:
     from telegram import Update
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 from ..models import IncomingMessage
 from ..rendering.telegram_markdown import escape_md_v2, format_status
+from ..voice import PendingVoiceRegistry, VoiceTranscriptionService
 from .base import MessagingPlatform
 
 # Optional import - python-telegram-bot may not be installed
@@ -61,14 +62,24 @@ class TelegramPlatform(MessagingPlatform):
         self,
         bot_token: str | None = None,
         allowed_user_id: str | None = None,
+        *,
+        voice_note_enabled: bool = True,
+        whisper_model: str = "base",
+        whisper_device: str = "cpu",
+        hf_token: str = "",
+        nvidia_nim_api_key: str = "",
+        messaging_rate_limit: int = 1,
+        messaging_rate_window: float = 1.0,
+        log_raw_messaging_content: bool = False,
+        log_api_error_tracebacks: bool = False,
     ):
         if not TELEGRAM_AVAILABLE:
             raise ImportError(
                 "python-telegram-bot is required. Install with: pip install python-telegram-bot"
             )
 
-        self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
-        self.allowed_user_id = allowed_user_id or os.getenv("ALLOWED_TELEGRAM_USER_ID")
+        self.bot_token = bot_token
+        self.allowed_user_id = allowed_user_id
 
         if not self.bot_token:
             # We don't raise here to allow instantiation for testing/conditional logic,
@@ -82,37 +93,34 @@ class TelegramPlatform(MessagingPlatform):
         self._connected = False
         self._limiter: Any | None = None  # Will be MessagingRateLimiter
         # Pending voice transcriptions: (chat_id, msg_id) -> (voice_msg_id, status_msg_id)
-        self._pending_voice: dict[tuple[str, str], tuple[str, str]] = {}
-        self._pending_voice_lock = asyncio.Lock()
+        self._pending_voice = PendingVoiceRegistry()
+        self._voice_transcription = VoiceTranscriptionService(
+            hf_token=hf_token,
+            nvidia_nim_api_key=nvidia_nim_api_key,
+        )
+        self._voice_note_enabled = voice_note_enabled
+        self._whisper_model = whisper_model
+        self._whisper_device = whisper_device
+        self._messaging_rate_limit = messaging_rate_limit
+        self._messaging_rate_window = messaging_rate_window
+        self._log_raw_messaging_content = log_raw_messaging_content
+        self._log_api_error_tracebacks = log_api_error_tracebacks
 
     async def _register_pending_voice(
         self, chat_id: str, voice_msg_id: str, status_msg_id: str
     ) -> None:
         """Register a voice note as pending transcription (for /clear reply during transcription)."""
-        async with self._pending_voice_lock:
-            self._pending_voice[(chat_id, voice_msg_id)] = (voice_msg_id, status_msg_id)
-            self._pending_voice[(chat_id, status_msg_id)] = (
-                voice_msg_id,
-                status_msg_id,
-            )
+        await self._pending_voice.register(chat_id, voice_msg_id, status_msg_id)
 
     async def cancel_pending_voice(
         self, chat_id: str, reply_id: str
     ) -> tuple[str, str] | None:
         """Cancel a pending voice transcription. Returns (voice_msg_id, status_msg_id) if found."""
-        async with self._pending_voice_lock:
-            entry = self._pending_voice.pop((chat_id, reply_id), None)
-            if entry is None:
-                return None
-            voice_msg_id, status_msg_id = entry
-            self._pending_voice.pop((chat_id, voice_msg_id), None)
-            self._pending_voice.pop((chat_id, status_msg_id), None)
-            return (voice_msg_id, status_msg_id)
+        return await self._pending_voice.cancel(chat_id, reply_id)
 
     async def _is_voice_still_pending(self, chat_id: str, voice_msg_id: str) -> bool:
         """Check if a voice note is still pending (not cancelled)."""
-        async with self._pending_voice_lock:
-            return (chat_id, voice_msg_id) in self._pending_voice
+        return await self._pending_voice.is_pending(chat_id, voice_msg_id)
 
     async def start(self) -> None:
         """Initialize and connect to Telegram."""
@@ -172,7 +180,10 @@ class TelegramPlatform(MessagingPlatform):
         # Initialize rate limiter
         from ..limiter import MessagingRateLimiter
 
-        self._limiter = await MessagingRateLimiter.get_instance()
+        self._limiter = await MessagingRateLimiter.get_instance(
+            rate_limit=self._messaging_rate_limit,
+            rate_window=self._messaging_rate_window,
+        )
 
         # Send startup notification
         try:
@@ -187,7 +198,13 @@ class TelegramPlatform(MessagingPlatform):
                     startup_text,
                 )
         except Exception as e:
-            logger.warning(f"Could not send startup message: {e}")
+            if self._log_api_error_tracebacks:
+                logger.warning("Could not send startup message: {}", e)
+            else:
+                logger.warning(
+                    "Could not send startup message: exc_type={}",
+                    type(e).__name__,
+                )
 
         logger.info("Telegram platform started (Bot API)")
 
@@ -506,16 +523,26 @@ class TelegramPlatform(MessagingPlatform):
             if getattr(update.message, "message_thread_id", None) is not None
             else None
         )
-        text_preview = (update.message.text or "")[:80]
-        if len(update.message.text or "") > 80:
-            text_preview += "..."
-        logger.info(
-            "TELEGRAM_MSG: chat_id={} message_id={} reply_to={} text_preview={!r}",
-            chat_id,
-            message_id,
-            reply_to,
-            text_preview,
-        )
+        raw_text = update.message.text or ""
+        if self._log_raw_messaging_content:
+            text_preview = raw_text[:80]
+            if len(raw_text) > 80:
+                text_preview += "..."
+            logger.info(
+                "TELEGRAM_MSG: chat_id={} message_id={} reply_to={} text_preview={!r}",
+                chat_id,
+                message_id,
+                reply_to,
+                text_preview,
+            )
+        else:
+            logger.info(
+                "TELEGRAM_MSG: chat_id={} message_id={} reply_to={} text_len={}",
+                chat_id,
+                message_id,
+                reply_to,
+                len(raw_text),
+            )
 
         if not self._message_handler:
             return
@@ -534,11 +561,14 @@ class TelegramPlatform(MessagingPlatform):
         try:
             await self._message_handler(incoming)
         except Exception as e:
-            logger.error(f"Error handling message: {e}")
+            if self._log_api_error_tracebacks:
+                logger.error("Error handling message: {}", e)
+            else:
+                logger.error("Error handling message: exc_type={}", type(e).__name__)
             with contextlib.suppress(Exception):
                 await self.send_message(
                     chat_id,
-                    f"❌ *{escape_md_v2('Error:')}* {escape_md_v2(get_user_facing_error_message(e)[:200])}",
+                    f"❌ *{escape_md_v2('Error:')}* {escape_md_v2(format_user_error_preview(e))}",
                     reply_to=incoming.message_id,
                     message_thread_id=thread_id,
                     parse_mode="MarkdownV2",
@@ -556,10 +586,7 @@ class TelegramPlatform(MessagingPlatform):
         ):
             return
 
-        from config.settings import get_settings
-
-        settings = get_settings()
-        if not settings.voice_note_enabled:
+        if not self._voice_note_enabled:
             await update.message.reply_text("Voice notes are disabled.")
             return
 
@@ -609,23 +636,18 @@ class TelegramPlatform(MessagingPlatform):
             tg_file = await context.bot.get_file(voice.file_id)
             await tg_file.download_to_drive(custom_path=str(tmp_path))
 
-            from ..transcription import transcribe_audio
-
-            transcribed = await asyncio.to_thread(
-                transcribe_audio,
+            transcribed = await self._voice_transcription.transcribe(
                 tmp_path,
                 voice.mime_type or "audio/ogg",
-                whisper_model=settings.whisper_model,
-                whisper_device=settings.whisper_device,
+                whisper_model=self._whisper_model,
+                whisper_device=self._whisper_device,
             )
 
             if not await self._is_voice_still_pending(chat_id, message_id):
                 await self.queue_delete_message(chat_id, str(status_msg_id))
                 return
 
-            async with self._pending_voice_lock:
-                self._pending_voice.pop((chat_id, message_id), None)
-                self._pending_voice.pop((chat_id, str(status_msg_id)), None)
+            await self._pending_voice.complete(chat_id, message_id, str(status_msg_id))
 
             incoming = IncomingMessage(
                 text=transcribed,
@@ -639,20 +661,37 @@ class TelegramPlatform(MessagingPlatform):
                 status_message_id=status_msg_id,
             )
 
-            logger.info(
-                "TELEGRAM_VOICE: chat_id={} message_id={} transcribed={!r}",
-                chat_id,
-                message_id,
-                (transcribed[:80] + "..." if len(transcribed) > 80 else transcribed),
-            )
+            if self._log_raw_messaging_content:
+                logger.info(
+                    "TELEGRAM_VOICE: chat_id={} message_id={} transcribed={!r}",
+                    chat_id,
+                    message_id,
+                    (
+                        transcribed[:80] + "..."
+                        if len(transcribed) > 80
+                        else transcribed
+                    ),
+                )
+            else:
+                logger.info(
+                    "TELEGRAM_VOICE: chat_id={} message_id={} transcribed_len={}",
+                    chat_id,
+                    message_id,
+                    len(transcribed),
+                )
 
             await self._message_handler(incoming)
         except ValueError as e:
-            await update.message.reply_text(get_user_facing_error_message(e)[:200])
+            await update.message.reply_text(format_user_error_preview(e))
         except ImportError as e:
-            await update.message.reply_text(get_user_facing_error_message(e)[:200])
+            await update.message.reply_text(format_user_error_preview(e))
         except Exception as e:
-            logger.error(f"Voice transcription failed: {e}")
+            if self._log_api_error_tracebacks:
+                logger.error("Voice transcription failed: {}", e)
+            else:
+                logger.error(
+                    "Voice transcription failed: exc_type={}", type(e).__name__
+                )
             await update.message.reply_text(
                 "Could not transcribe voice note. Please try again or send text."
             )

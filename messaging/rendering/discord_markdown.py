@@ -4,9 +4,9 @@ Discord uses standard markdown: **bold**, *italic*, `code`, ```code block```.
 Used by the message handler and Discord platform adapter.
 """
 
-import re
-
 from markdown_it import MarkdownIt
+
+from .markdown_tables import normalize_gfm_tables
 
 # Discord escapes: \ * _ ` ~ | >
 DISCORD_SPECIAL = set("\\*_`~|>")
@@ -14,53 +14,6 @@ DISCORD_SPECIAL = set("\\*_`~|>")
 _MD = MarkdownIt("commonmark", {"html": False, "breaks": False})
 _MD.enable("strikethrough")
 _MD.enable("table")
-
-_TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
-_FENCE_RE = re.compile(r"^\s*```")
-
-
-def _is_gfm_table_header_line(line: str) -> bool:
-    """Check if line is a GFM table header."""
-    if "|" not in line:
-        return False
-    if _TABLE_SEP_RE.match(line):
-        return False
-    stripped = line.strip()
-    parts = [p.strip() for p in stripped.strip("|").split("|")]
-    parts = [p for p in parts if p != ""]
-    return len(parts) >= 2
-
-
-def _normalize_gfm_tables(text: str) -> str:
-    """Insert blank line before detected tables outside code blocks."""
-    lines = text.splitlines()
-    if len(lines) < 2:
-        return text
-
-    out_lines: list[str] = []
-    in_fence = False
-
-    for idx, line in enumerate(lines):
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-            out_lines.append(line)
-            continue
-
-        if (
-            not in_fence
-            and idx + 1 < len(lines)
-            and _is_gfm_table_header_line(line)
-            and _TABLE_SEP_RE.match(lines[idx + 1])
-            and out_lines
-            and out_lines[-1].strip() != ""
-        ):
-            m = re.match(r"^(\s*)", line)
-            indent = m.group(1) if m else ""
-            out_lines.append(indent)
-
-        out_lines.append(line)
-
-    return "\n".join(out_lines)
 
 
 def escape_discord(text: str) -> str:
@@ -104,7 +57,7 @@ def render_markdown_to_discord(text: str) -> str:
     if not text:
         return ""
 
-    text = _normalize_gfm_tables(text)
+    text = normalize_gfm_tables(text)
     tokens = _MD.parse(text)
 
     def render_inline_table_plain(children) -> str:

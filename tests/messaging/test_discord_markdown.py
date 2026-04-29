@@ -1,8 +1,6 @@
 """Tests for messaging/rendering/discord_markdown.py."""
 
 from messaging.rendering.discord_markdown import (
-    _is_gfm_table_header_line,
-    _normalize_gfm_tables,
     discord_bold,
     discord_code_inline,
     escape_discord,
@@ -10,6 +8,10 @@ from messaging.rendering.discord_markdown import (
     format_status,
     format_status_discord,
     render_markdown_to_discord,
+)
+from messaging.rendering.markdown_tables import (
+    _is_gfm_table_header_line,
+    normalize_gfm_tables,
 )
 
 
@@ -114,20 +116,20 @@ class TestNormalizeGfmTables:
     """Tests for _normalize_gfm_tables."""
 
     def test_single_line_unchanged(self):
-        assert _normalize_gfm_tables("hello") == "hello"
+        assert normalize_gfm_tables("hello") == "hello"
 
     def test_two_lines_no_table_unchanged(self):
-        assert _normalize_gfm_tables("a\nb") == "a\nb"
+        assert normalize_gfm_tables("a\nb") == "a\nb"
 
     def test_table_gets_blank_line_before(self):
         text = "para\n| A | B |\n|---|\n| 1 | 2 |"
-        result = _normalize_gfm_tables(text)
+        result = normalize_gfm_tables(text)
         assert "para" in result
         assert "| A | B |" in result
 
     def test_table_inside_fence_unchanged(self):
         text = "```\n| A | B |\n|---|\n```"
-        result = _normalize_gfm_tables(text)
+        result = normalize_gfm_tables(text)
         assert result == text
 
 

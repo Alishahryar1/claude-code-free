@@ -6,7 +6,7 @@ import pytest
 
 from messaging.models import IncomingMessage
 from messaging.trees.data import MessageNode, MessageState, MessageTree
-from messaging.trees.processor import TreeQueueProcessor
+from messaging.trees.queue_manager import TreeQueueProcessor
 
 
 @pytest.fixture

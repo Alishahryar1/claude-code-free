@@ -4,9 +4,9 @@ Renders common Markdown into Telegram MarkdownV2 format.
 Used by the message handler and Telegram platform adapter.
 """
 
-import re
-
 from markdown_it import MarkdownIt
+
+from .markdown_tables import normalize_gfm_tables
 
 MDV2_SPECIAL_CHARS = set("\\_*[]()~`>#+-=|{}.!")
 MDV2_LINK_ESCAPE = set("\\)")
@@ -14,59 +14,6 @@ MDV2_LINK_ESCAPE = set("\\)")
 _MD = MarkdownIt("commonmark", {"html": False, "breaks": False})
 _MD.enable("strikethrough")
 _MD.enable("table")
-
-_TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
-_FENCE_RE = re.compile(r"^\s*```")
-
-
-def _is_gfm_table_header_line(line: str) -> bool:
-    """Check if line is a GFM table header (pipe-delimited, not separator)."""
-    if "|" not in line:
-        return False
-    if _TABLE_SEP_RE.match(line):
-        return False
-    stripped = line.strip()
-    parts = [p.strip() for p in stripped.strip("|").split("|")]
-    parts = [p for p in parts if p != ""]
-    return len(parts) >= 2
-
-
-def _normalize_gfm_tables(text: str) -> str:
-    """
-    Many LLMs emit tables immediately after a paragraph line (no blank line).
-    Markdown-it will treat that as a softbreak within the paragraph, so the
-    table extension won't trigger. Insert a blank line before detected tables.
-
-    We only do this outside fenced code blocks.
-    """
-    lines = text.splitlines()
-    if len(lines) < 2:
-        return text
-
-    out_lines: list[str] = []
-    in_fence = False
-
-    for idx, line in enumerate(lines):
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-            out_lines.append(line)
-            continue
-
-        if (
-            not in_fence
-            and idx + 1 < len(lines)
-            and _is_gfm_table_header_line(line)
-            and _TABLE_SEP_RE.match(lines[idx + 1])
-            and out_lines
-            and out_lines[-1].strip() != ""
-        ):
-            m = re.match(r"^(\s*)", line)
-            indent = m.group(1) if m else ""
-            out_lines.append(indent)
-
-        out_lines.append(line)
-
-    return "\n".join(out_lines)
 
 
 def escape_md_v2(text: str) -> str:
@@ -107,7 +54,7 @@ def render_markdown_to_mdv2(text: str) -> str:
     if not text:
         return ""
 
-    text = _normalize_gfm_tables(text)
+    text = normalize_gfm_tables(text)
     tokens = _MD.parse(text)
 
     def render_inline_table_plain(children) -> str:

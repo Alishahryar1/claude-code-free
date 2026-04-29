@@ -4,7 +4,7 @@ Detects quota checks, title generation, prefix detection, suggestion mode,
 and filepath extraction requests to enable fast-path responses.
 """
 
-from providers.common.text import extract_text_from_content
+from core.anthropic import extract_text_from_content
 
 from .models.anthropic import MessagesRequest
 
@@ -31,11 +31,20 @@ def is_title_generation_request(request_data: MessagesRequest) -> bool:
 
     Title generation requests are detected by a system prompt containing
     title extraction instructions, no tools, and a single user message.
+
+    Matches Claude Code session title prompts (sentence-case title, JSON
+    \"title\" field, etc.).
     """
     if not request_data.system or request_data.tools:
         return False
     system_text = extract_text_from_content(request_data.system).lower()
-    return "new conversation topic" in system_text and "title" in system_text
+    if "title" not in system_text:
+        return False
+    return "sentence-case title" in system_text or (
+        "return json" in system_text
+        and "field" in system_text
+        and ("coding session" in system_text or "this session" in system_text)
+    )
 
 
 def is_prefix_detection_request(request_data: MessagesRequest) -> tuple[bool, str]:
@@ -56,8 +65,8 @@ def is_prefix_detection_request(request_data: MessagesRequest) -> tuple[bool, st
         try:
             cmd_start = content.rfind("Command:") + len("Command:")
             return True, content[cmd_start:].strip()
-        except Exception:
-            pass
+        except TypeError:
+            return False, ""
 
     return False, ""
 
@@ -112,19 +121,16 @@ def is_filepath_extraction_request(
     if not user_has_filepaths and not system_has_extract:
         return False, "", ""
 
-    try:
-        cmd_start = content.find("Command:") + len("Command:")
-        output_marker = content.find("Output:", cmd_start)
-        if output_marker == -1:
-            return False, "", ""
-
-        command = content[cmd_start:output_marker].strip()
-        output = content[output_marker + len("Output:") :].strip()
-
-        for marker in ["<", "\n\n"]:
-            if marker in output:
-                output = output.split(marker)[0].strip()
-
-        return True, command, output
-    except Exception:
+    cmd_start = content.find("Command:") + len("Command:")
+    output_marker = content.find("Output:", cmd_start)
+    if output_marker == -1:
         return False, "", ""
+
+    command = content[cmd_start:output_marker].strip()
+    output = content[output_marker + len("Output:") :].strip()
+
+    for marker in ["<", "\n\n"]:
+        if marker in output:
+            output = output.split(marker)[0].strip()
+
+    return True, command, output
