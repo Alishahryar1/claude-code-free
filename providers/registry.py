@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, MutableMapping
+from typing import Any
 
 from config.provider_catalog import (
     PROVIDER_CATALOG,
@@ -12,6 +13,7 @@ from config.provider_catalog import (
 from config.settings import Settings
 from providers.base import BaseProvider, ProviderConfig
 from providers.exceptions import AuthenticationError, UnknownProviderTypeError
+from providers.rate_limit import GlobalRateLimiter
 
 ProviderFactory = Callable[[ProviderConfig, Settings], BaseProvider]
 
@@ -123,6 +125,18 @@ def build_provider_config(
         log_raw_sse_events=settings.log_raw_sse_events,
         log_api_error_tracebacks=settings.log_api_error_tracebacks,
     )
+
+
+def provider_rate_limit_snapshot(provider_id: str) -> dict[str, Any] | None:
+    """Return the scoped rate-limiter snapshot for ``provider_id`` or ``None``.
+
+    Public façade used by diagnostic endpoints (e.g. ``GET /health``) so the
+    HTTP layer does not need to import ``providers.rate_limit`` directly.
+    """
+    limiter = GlobalRateLimiter.get_existing_scoped_instance(provider_id)
+    if limiter is None:
+        return None
+    return limiter.snapshot()
 
 
 def create_provider(provider_id: str, settings: Settings) -> BaseProvider:

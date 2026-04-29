@@ -14,7 +14,7 @@ Use Claude Code CLI, VS Code, JetBrains ACP, or chat bots through your own Anthr
 
 Free Claude Code routes Anthropic Messages API traffic from Claude Code to NVIDIA NIM, OpenRouter, DeepSeek, LM Studio, llama.cpp, or Ollama. It keeps Claude Code's client-side protocol stable while letting you choose free, paid, or local models.
 
-[Quick Start](#quick-start) · [Providers](#choose-a-provider) · [Clients](#connect-claude-code) · [Troubleshooting](#troubleshooting) · [Development](#development)
+[Quick Start](#quick-start) · [AgentRouter (Hosted)](#alternative-agentrouter-hosted-no-proxy-setup) · [Providers](#choose-a-provider) · [Clients](#connect-claude-code) · [Troubleshooting](#troubleshooting) · [Development](#development)
 
 </div>
 
@@ -108,6 +108,81 @@ Bash:
 ```bash
 ANTHROPIC_AUTH_TOKEN="freecc" ANTHROPIC_BASE_URL="http://localhost:8082" claude
 ```
+
+## Alternative: AgentRouter (Hosted, No Proxy Setup)
+
+If you want to skip the local proxy setup entirely (no `uv`, no cloning, no `.env` editing), you can point Claude Code directly at [**AgentRouter**](https://agentrouter.org), a hosted Anthropic-compatible endpoint.
+
+This path is the fastest way to get started if you do not need the local provider routing, optimizations, or messaging bots that this proxy provides.
+
+### 1. Install Claude Code
+
+Make sure [Node.js](https://nodejs.org/) v18 or higher is installed, then install Claude Code globally:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+> Use `sudo` on Linux/macOS if you hit permission errors.
+
+### 2. Get An AgentRouter API Key
+
+1. Go to [agentrouter.org](https://agentrouter.org) and **log in** (or create an account).
+2. Open the **API Tokens** section in your dashboard.
+3. Click **Generate API Key** and copy the token (it starts with `sk-...`).
+
+> Keep this key private. Treat it like a password.
+
+### 3. Configure Environment Variables
+
+Set the four environment variables below, replacing the placeholder token with the key you just generated.
+
+#### 🪟 Windows (Command Prompt / PowerShell)
+
+```cmd
+setx ANTHROPIC_BASE_URL "https://agentrouter.org"
+setx ANTHROPIC_AUTH_TOKEN "sk-KUByfxxxxxxxxxxxxxxxxxxxxxxx"
+setx ANTHROPIC_MODEL "claude-opus-4-6"
+setx CLAUDE_CODE_USE_AUTH_TOKEN "true"
+```
+
+> Restart your terminal (or computer) for the changes to take effect.
+
+#### 🐧 Linux (Bash / Zsh)
+
+For **Zsh** (default on most modern distros):
+
+```bash
+echo 'export ANTHROPIC_BASE_URL="https://agentrouter.org"' >> ~/.zshrc
+echo 'export ANTHROPIC_AUTH_TOKEN="sk-KUByfxxxxxxxxxxxxxxxxxxxxxxx"' >> ~/.zshrc
+echo 'export ANTHROPIC_MODEL="claude-opus-4-6"' >> ~/.zshrc
+echo 'export CLAUDE_CODE_USE_AUTH_TOKEN="true"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+For **Bash**, replace `~/.zshrc` with `~/.bashrc` and run `source ~/.bashrc`.
+
+#### 🍎 macOS (Zsh)
+
+```bash
+echo 'export ANTHROPIC_BASE_URL="https://agentrouter.org"' >> ~/.zshrc
+echo 'export ANTHROPIC_AUTH_TOKEN="sk-KUByfxxxxxxxxxxxxxxxxxxxxxxx"' >> ~/.zshrc
+echo 'export ANTHROPIC_MODEL="claude-opus-4-6"' >> ~/.zshrc
+echo 'export CLAUDE_CODE_USE_AUTH_TOKEN="true"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+### 4. Launch Claude Code
+
+From any project directory:
+
+```bash
+claude
+```
+
+That's it — Claude Code now routes through AgentRouter.
+
+> **When to use this vs. the local proxy:** AgentRouter is a managed service. Use the local Free Claude Code proxy (the rest of this README) if you want to choose your own backend (NVIDIA NIM, OpenRouter, DeepSeek, local models), enable per-tier model routing, run a Discord/Telegram bot wrapper, or keep traffic on your own machine.
 
 ## Choose A Provider
 

@@ -122,6 +122,29 @@ class GlobalRateLimiter:
         cls._instance = None
         cls._scoped_instances = {}
 
+    @classmethod
+    def get_existing_scoped_instance(cls, scope: str) -> GlobalRateLimiter | None:
+        """Return an existing scoped limiter without creating one.
+
+        Used by diagnostic endpoints to inspect runtime state of providers
+        that have already streamed at least one request.
+        """
+        return cls._scoped_instances.get(scope)
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return a JSON-safe diagnostic snapshot of this limiter.
+
+        Exposes only public, non-sensitive values. Used by ``/health`` to
+        surface whether a provider is currently throttled or rate-limited.
+        """
+        return {
+            "limit": self._rate_limit,
+            "window_seconds": self._rate_window,
+            "concurrency_max": self._max_concurrency,
+            "reactive_blocked": self.is_blocked(),
+            "blocked_remaining_s": round(self.remaining_wait(), 2),
+        }
+
     async def wait_if_blocked(self) -> bool:
         """
         Wait if currently rate limited or throttle to meet quota.
