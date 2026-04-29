@@ -61,6 +61,17 @@ def warn_if_process_auth_token(settings: Settings) -> None:
         )
 
 
+def log_model_configuration(settings: Settings) -> None:
+    """Log the resolved Claude-to-provider model routing on startup."""
+    logger.info(
+        "Configured model routing: default={} opus={} sonnet={} haiku={}",
+        settings.model,
+        settings.model_opus or "<inherit default>",
+        settings.model_sonnet or "<inherit default>",
+        settings.model_haiku or "<inherit default>",
+    )
+
+
 @dataclass(slots=True)
 class AppRuntime:
     """Own optional messaging, CLI, session, and provider runtime resources."""
@@ -84,6 +95,7 @@ class AppRuntime:
         logger.info("Starting Claude Code Proxy...")
         self._provider_registry = ProviderRegistry()
         self.app.state.provider_registry = self._provider_registry
+        log_model_configuration(self.settings)
         warn_if_process_auth_token(self.settings)
         await self._start_messaging_if_configured()
         self._publish_state()
