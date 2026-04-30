@@ -1,0 +1,117 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "glm-5.1",
+      "object": "model",
+      "owned_by": "opencode-go",
+      "average_input_tokens": 700,
+      "average_cached_tokens": 52000,
+      "average_output_tokens": 150
+    },
+    {
+      "id": "glm-5",
+      "object": "model",
+      "owned_by": "opencode-go",
+      "average_input_tokens": 700,
+      "average_cached_tokens": 52000,
+      "average_output_tokens": 150
+    },
+    {
+      "id": "kimi-k2.5",
+      "object": "model",
+      "owned_by": "opencode-go",
+      "average_input_tokens": 870,
+      "average_cached_tokens": 55000,
+      "average_output_tokens": 200
+    },
+    {
+      "id": "kimi-k2.6",
+      "object": "model",
+      "owned_by": "opencode-go",
+      "average_input_tokens": 870,
+      "average_cached_tokens": 55000,
+      "average_output_tokens": 200
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "object": "model",
+      "owned_by": "opencode-go",
+      "average_input_tokens": 750,
+      "average_cached_tokens": 82000,
+      "average_output_tokens": 290
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "object": "model",
+      "owned_by": "opencode-go",
+      "average_input_tokens": 790,
+      "average_cached_tokens": 68000,
+      "average_output_tokens": 280
+    },
+    {
+      "id": "mimo-v2-pro",
+      "object": "model",
+      "owned_by": "opencode-go",
+      "average_input_tokens": 350,
+      "average_cached_tokens": 41000,
+      "average_output_tokens": 250
+    },
+    {
+      "id": "mimo-v2-omni",
+      "object": "model",
+      "owned_by": "opencode-go",
+      "average_input_tokens": 1000,
+      "average_cached_tokens": 60000,
+      "average_output_tokens": 140
+    },
+    {
+      "id": "mimo-v2.5-pro",
+      "object": "model",
+      "owned_by": "opencode-go",
+      "average_input_tokens": 350,
+      "average_cached_tokens": 41000,
+      "average_output_tokens": 250
+    },
+    {
+      "id": "mimo-v2.5",
+      "object": "model",
+      "owned_by": "opencode-go",
+      "average_input_tokens": 1000,
+      "average_cached_tokens": 60000,
+      "average_output_tokens": 140
+    },
+    {
+      "id": "minimax-m2.7",
+      "object": "model",
+      "owned_by": "opencode-go",
+      "average_input_tokens": 300,
+      "average_cached_tokens": 55000,
+      "average_output_tokens": 125
+    },
+    {
+      "id": "minimax-m2.5",
+      "object": "model",
+      "owned_by": "opencode-go",
+      "average_input_tokens": 300,
+      "average_cached_tokens": 55000,
+      "average_output_tokens": 125
+    },
+    {
+      "id": "qwen3.6-plus",
+      "object": "model",
+      "owned_by": "opencode-go",
+      "average_input_tokens": 500,
+      "average_cached_tokens": 57000,
+      "average_output_tokens": 190
+    },
+    {
+      "id": "qwen3.5-plus",
+      "object": "model",
+      "owned_by": "opencode-go",
+      "average_input_tokens": 410,
+      "average_cached_tokens": 47000,
+      "average_output_tokens": 140
+    }
+  ]
+}
