@@ -24,8 +24,10 @@ function Get-ProcessIdByPort {
     $procId = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue |
         Select-Object -ExpandProperty OwningProcess
     if (-not $procId) {
-        $line = netstat -ano | Select-String ":$Port\b"
-        if ($line) { $procId = ($line.Line -split '\s+')[-1] }
+        $lines = netstat -ano | Select-String ":$Port\b"
+        if ($lines) {
+            $procId = $lines | ForEach-Object { ($_.Line -split '\s+')[-1] } | Where-Object { $_ -match '^\d+$' } | Select-Object -First 1
+        }
     }
     return $procId
 }
@@ -37,7 +39,6 @@ function Start-Proxy {
         $existingPids | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
         Start-Sleep -Seconds 1
     }
-    Start-Sleep -Seconds 1
 
     Write-Host "🚀 Starting proxy server → $BaseUrl"
     Set-Location $ScriptDir
@@ -67,7 +68,21 @@ function Stop-Proxy {
     if ($procIds) {
         Write-Host "🛑 Stopping proxy (PID: $($procIds -join ','))..."
         $procIds | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
-        Write-Host "✅ Stopped"
+        Start-Sleep -Seconds 1
+        $remaining = Get-ProcessIdByPort -Port $Port
+        if ($remaining) {
+            Write-Host "⚠️  Process still bound to port $Port (PID: $($remaining -join ',')), forcing kill..."
+            $remaining | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+            Start-Sleep -Seconds 1
+            $remaining = Get-ProcessIdByPort -Port $Port
+            if ($remaining) {
+                Write-Host "⚠️  Warning: process(es) may still be running: $($remaining -join ',')"
+            } else {
+                Write-Host "✅ Stopped"
+            }
+        } else {
+            Write-Host "✅ Stopped"
+        }
     } else {
         Write-Host "ℹ️  Proxy is not running"
     }

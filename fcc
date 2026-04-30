@@ -18,13 +18,18 @@ AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-freecc}"
 LOG_FILE="/tmp/fcc-proxy.log"
 
 start_proxy() {
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "❌ uv not found, please install: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+        return 1
+    fi
+
     echo "🔧 Cleaning up port $PORT..."
     local pids
-    pids=$(lsof -ti ":$PORT" 2>/dev/null)
+    pids="$(lsof -ti ":$PORT" 2>/dev/null || true)"
     if [ -n "$pids" ]; then
         echo "$pids" | xargs kill 2>/dev/null || true
         sleep 2
-        pids=$(lsof -ti ":$PORT" 2>/dev/null)
+        pids="$(lsof -ti ":$PORT" 2>/dev/null || true)"
         [ -n "$pids" ] && echo "$pids" | xargs kill -9 2>/dev/null || true
         sleep 1
     fi
@@ -32,10 +37,11 @@ start_proxy() {
     echo "🚀 Starting proxy server → $BASE_URL"
     cd "$SCRIPT_DIR"
     uv run uvicorn server:app --host 0.0.0.0 --port "$PORT" > "$LOG_FILE" 2>&1 &
+    echo $! > /tmp/fcc-proxy.pid
 
     # Wait for proxy to be ready
     for _ in $(seq 1 10); do
-        if curl -sf -o /dev/null "$BASE_URL" 2>/dev/null; then
+        if curl -s -o /dev/null "$BASE_URL" 2>/dev/null; then
             echo "✅ Proxy is ready"
             return 0
         fi
@@ -43,15 +49,53 @@ start_proxy() {
     done
 
     echo "❌ Proxy failed to start, check log: $LOG_FILE" >&2
+    # Clean up orphaned background process
+    if [[ -f /tmp/fcc-proxy.pid ]]; then
+        local failed_pid
+        failed_pid="$(cat /tmp/fcc-proxy.pid 2>/dev/null || true)"
+        if [[ -n "$failed_pid" ]] && kill -0 "$failed_pid" 2>/dev/null; then
+            kill "$failed_pid" 2>/dev/null || true
+            rm -f /tmp/fcc-proxy.pid
+        fi
+    fi
     return 1
 }
 
 stop_proxy() {
     local pids
+    local pid_file="/tmp/fcc-proxy.pid"
+
+    # Try PID file first for targeted kill
+    if [[ -f "$pid_file" ]]; then
+        local saved_pid
+        saved_pid="$(cat "$pid_file" 2>/dev/null || true)"
+        if [[ -n "$saved_pid" ]] && kill -0 "$saved_pid" 2>/dev/null; then
+            echo "🛑 Stopping proxy (PID: $saved_pid)..."
+            kill "$saved_pid" 2>/dev/null || true
+            sleep 2
+            if kill -0 "$saved_pid" 2>/dev/null; then
+                kill -9 "$saved_pid" 2>/dev/null || true
+                sleep 1
+            fi
+            rm -f "$pid_file"
+            echo "✅ Stopped"
+            return 0
+        else
+            rm -f "$pid_file"
+        fi
+    fi
+
+    # Fall back to port-based lookup
     pids="$(lsof -ti ":$PORT" 2>/dev/null || true)"
     if [[ -n "$pids" ]]; then
         echo "🛑 Stopping proxy (PID: $(echo "$pids" | tr '\n' ' '))..."
         echo "$pids" | xargs kill 2>/dev/null || true
+        sleep 2
+        pids="$(lsof -ti ":$PORT" 2>/dev/null || true)"
+        if [[ -n "$pids" ]]; then
+            echo "$pids" | xargs kill -9 2>/dev/null || true
+            sleep 1
+        fi
         echo "✅ Stopped"
     else
         echo "ℹ️  Proxy is not running"
@@ -60,12 +104,12 @@ stop_proxy() {
 
 status_proxy() {
     local pids
-    pids=$(lsof -ti ":$PORT" 2>/dev/null)
+    pids="$(lsof -ti ":$PORT" 2>/dev/null || true)"
     if [ -n "$pids" ]; then
         echo "✅ Proxy is running (PID: $(echo "$pids" | tr '\n' ' '))"
         echo "   Port: $PORT"
         echo "   URL:  $BASE_URL"
-        if curl -sf -o /dev/null "$BASE_URL" 2>/dev/null; then
+        if curl -s -o /dev/null "$BASE_URL" 2>/dev/null; then
             echo "   Health: OK"
         else
             echo "   Health: port bound but not responding to HTTP"
