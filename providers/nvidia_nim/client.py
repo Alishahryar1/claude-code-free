@@ -14,6 +14,7 @@ from providers.openai_compat import OpenAIChatTransport
 from .request import (
     build_request_body,
     clone_body_without_chat_template,
+    clone_body_without_chat_template_kwargs,
     clone_body_without_reasoning_budget,
     clone_body_without_reasoning_content,
 )
@@ -30,6 +31,18 @@ class NvidiaNimProvider(OpenAIChatTransport):
             api_key=config.api_key,
         )
         self._nim_settings = nim_settings
+
+    def _is_thinking_enabled(
+        self, request: Any, thinking_enabled: bool | None = None
+    ) -> bool:
+        """Override to auto-disable thinking for known non-reasoning NIM models."""
+        base_enabled = super()._is_thinking_enabled(request, thinking_enabled)
+        if not base_enabled:
+            return False
+
+        model = getattr(request, "model", "").lower()
+        # DeepSeek R1 models natively support reasoning. Mistral/Llama/Nemotron do not.
+        return not ("mistral" in model or "llama" in model or "nemotron" in model)
 
     def _build_request_body(
         self, request: Any, thinking_enabled: bool | None = None
@@ -59,6 +72,15 @@ class NvidiaNimProvider(OpenAIChatTransport):
                 return None
             logger.warning(
                 "NIM_STREAM: retrying without reasoning_budget after 400 error"
+            )
+            return retry_body
+
+        if "chat_template_kwargs" in error_text:
+            retry_body = clone_body_without_chat_template_kwargs(body)
+            if retry_body is None:
+                return None
+            logger.warning(
+                "NIM_STREAM: retrying without chat_template_kwargs after 400 error"
             )
             return retry_body
 
