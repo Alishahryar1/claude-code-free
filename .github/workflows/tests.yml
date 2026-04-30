@@ -85,6 +85,21 @@ jobs:
       - name: Run tests
         run: uv run pytest -v --tb=short
 
+  # Telegram notification on failure.
+  notify:
+    name: telegram notify
+    runs-on: ubuntu-latest
+    needs: [fast, test]
+    if: always() && (needs.fast.result == 'failure' || needs.test.result == 'failure')
+    steps:
+      - uses: GokulDas027/TelegramBridge@master
+        with:
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat: ${{ secrets.TELEGRAM_CHAT_ID }}
+          status: failure
+          event: ${{ github.event_name }}
+          actor: ${{ github.actor }}
+
   # Usage summary — only on main push to avoid cost on every PR.
   usage:
     name: usage summary
