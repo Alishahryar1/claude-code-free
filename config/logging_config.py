@@ -9,6 +9,7 @@ included at top level for easy grep/filter.
 import json
 import logging
 import re
+import sys
 from pathlib import Path
 
 from loguru import logger
@@ -104,6 +105,12 @@ def configure_logging(
         encoding="utf-8",
         mode="a",
         rotation="50 MB",
+    )
+    logger.add(
+        sys.stderr,
+        level="INFO",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+        colorize=False,
     )
 
     # Intercept stdlib logging: route all root logger output to loguru
