@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# fcc — Free Claude Code one-click launcher
+# Usage:
+#   ./fcc          Start proxy in background, print status
+#   ./fcc claude   Start proxy + launch Claude Code
+#   ./fcc stop     Stop the proxy
+#
+# Requires: uv (for running uvicorn)
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PORT="${FCC_PORT:-8082}"
+BASE_URL="http://localhost:$PORT"
+AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-freecc}"
+LOG_FILE="/tmp/fcc-proxy.log"
+
+start_proxy() {
+    echo "🔧 清理端口 $PORT..."
+    lsof -ti ":$PORT" | xargs -r kill 2>/dev/null || true
+    sleep 1
+    lsof -ti ":$PORT" | xargs -r kill -9 2>/dev/null || true
+    sleep 1
+
+    echo "🚀 启动代理服务器 → $BASE_URL"
+    cd "$SCRIPT_DIR"
+    uv run uvicorn server:app --host 0.0.0.0 --port "$PORT" > "$LOG_FILE" 2>&1 &
+
+    # 等待代理就绪
+    for _ in $(seq 1 10); do
+        if lsof -ti ":$PORT" > /dev/null 2>&1; then
+            echo "✅ 代理已就绪"
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo "❌ 代理启动失败，查看日志: $LOG_FILE" >&2
+    return 1
+}
+
+stop_proxy() {
+    local pids
+    pids="$(lsof -ti ":$PORT" 2>/dev/null || true)"
+    if [[ -n "$pids" ]]; then
+        echo "🛑 停止代理 (PID: $(echo "$pids" | tr '\n' ' '))..."
+        echo "$pids" | xargs -r kill 2>/dev/null || true
+        echo "✅ 已停止"
+    else
+        echo "ℹ️  代理未运行"
+    fi
+}
+
+case "${1:-proxy}" in
+    proxy)
+        start_proxy
+        ;;
+    claude)
+        if ! command -v claude >/dev/null 2>&1; then
+            echo "❌ 未找到 claude 命令，请先安装 Claude Code" >&2
+            exit 1
+        fi
+        start_proxy
+        echo ""
+        echo "=============================================="
+        echo "  启动 Claude Code..."
+        echo "=============================================="
+        echo ""
+        ANTHROPIC_AUTH_TOKEN="$AUTH_TOKEN" ANTHROPIC_BASE_URL="$BASE_URL" exec claude
+        ;;
+    stop)
+        stop_proxy
+        ;;
+    *)
+        echo "用法: ./fcc [proxy|claude|stop]" >&2
+        echo "" >&2
+        echo "  ./fcc         后台启动代理" >&2
+        echo "  ./fcc claude  启动代理 + 启动 Claude Code" >&2
+        echo "  ./fcc stop    停止代理" >&2
+        exit 1
+        ;;
+esac
