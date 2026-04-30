@@ -305,17 +305,17 @@ class Settings(BaseSettings):
         mode="before",
     )
     @classmethod
-    def parse_optional_str(cls, v: Any) -> Any:
+    def parse_optional_str(cls, v: str | bool | None) -> str | bool | None:
         if v == "":
             return None
         return v
 
     @field_validator("max_message_log_entries_per_chat", mode="before")
     @classmethod
-    def parse_optional_log_cap(cls, v: Any) -> Any:
+    def parse_optional_log_cap(cls, v: str | int | None) -> int | None:
         if v == "" or v is None:
             return None
-        return v
+        return int(v) if isinstance(v, str) else v
 
     @field_validator("whisper_device")
     @classmethod
