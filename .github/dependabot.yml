@@ -1,13 +1,39 @@
 version: 2
+
 updates:
-  - package-ecosystem: "uv"
-    directory: "/"
+  # ── Python / uv ──────────────────────────────────────────────────────────
+  - package-ecosystem: uv
+    directory: /
     schedule:
-      interval: "weekly"
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Budapest
+    # Single weekly PR with all Python bumps — CI runs once, not per-package.
     groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "github-actions"
-    directory: "/"
+      python-all:
+        patterns: ["*"]
+    open-pull-requests-limit: 1
+    labels:
+      - dependencies
+      - python
+    commit-message:
+      prefix: "chore(deps)"
+
+  # ── GitHub Actions ────────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: "weekly"
+      interval: weekly
+      day: monday
+      time: "06:30"
+      timezone: Europe/Budapest
+    groups:
+      actions-all:
+        patterns: ["*"]
+    open-pull-requests-limit: 1
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "chore(ci)"
