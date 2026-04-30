@@ -156,6 +156,26 @@ class Settings(BaseSettings):
     model_sonnet: str | None = Field(default=None, validation_alias="MODEL_SONNET")
     model_haiku: str | None = Field(default=None, validation_alias="MODEL_HAIKU")
 
+    # ==================== Auto Routing ====================
+    # When enabled, automatically select the best model for each query type
+    enable_auto_routing: bool = Field(default=False, validation_alias="ENABLE_AUTO_ROUTING")
+    # Provider to use for auto-routing (default: nvidia_nim)
+    auto_routing_provider: str = Field(
+        default="nvidia_nim", validation_alias="AUTO_ROUTING_PROVIDER"
+    )
+    # Fallback model when auto-routing cannot find a suitable model
+    auto_routing_fallback_model: str | None = Field(
+        default=None, validation_alias="AUTO_ROUTING_FALLBACK_MODEL"
+    )
+    # Cache TTL for model catalog in seconds (default: 300 = 5 minutes)
+    auto_routing_cache_ttl: float = Field(
+        default=300.0, validation_alias="AUTO_ROUTING_CACHE_TTL"
+    )
+    # Minimum confidence threshold for auto-routing (0.0-1.0)
+    auto_routing_min_confidence: float = Field(
+        default=0.1, validation_alias="AUTO_ROUTING_MIN_CONFIDENCE"
+    )
+
     # ==================== Per-Provider Proxy ====================
     nvidia_nim_proxy: str = Field(default="", validation_alias="NVIDIA_NIM_PROXY")
     open_router_proxy: str = Field(default="", validation_alias="OPENROUTER_PROXY")
@@ -383,7 +403,7 @@ class Settings(BaseSettings):
             )
         return v
 
-    @field_validator("model", "model_opus", "model_sonnet", "model_haiku")
+    @field_validator("model", "model_opus", "model_sonnet", "model_haiku", "auto_routing_fallback_model")
     @classmethod
     def validate_model_format(cls, v: str | None) -> str | None:
         if v is None:
@@ -398,6 +418,30 @@ class Settings(BaseSettings):
         if provider not in SUPPORTED_PROVIDER_IDS:
             supported = ", ".join(f"'{p}'" for p in SUPPORTED_PROVIDER_IDS)
             raise ValueError(f"Invalid provider: '{provider}'. Supported: {supported}")
+        return v
+
+    @field_validator("auto_routing_provider")
+    @classmethod
+    def validate_auto_routing_provider(cls, v: str) -> str:
+        if v not in SUPPORTED_PROVIDER_IDS:
+            supported = ", ".join(f"'{p}'" for p in SUPPORTED_PROVIDER_IDS)
+            raise ValueError(
+                f"auto_routing_provider must be one of: {supported}, got {v!r}"
+            )
+        return v
+
+    @field_validator("auto_routing_cache_ttl")
+    @classmethod
+    def validate_auto_routing_cache_ttl(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("auto_routing_cache_ttl must be > 0")
+        return v
+
+    @field_validator("auto_routing_min_confidence")
+    @classmethod
+    def validate_auto_routing_min_confidence(cls, v: float) -> float:
+        if not 0.0 <= v <= 1.0:
+            raise ValueError("auto_routing_min_confidence must be between 0.0 and 1.0")
         return v
 
     @model_validator(mode="after")

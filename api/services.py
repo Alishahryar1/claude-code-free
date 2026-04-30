@@ -98,12 +98,18 @@ class ClaudeProxyService:
         self._model_router = model_router or ModelRouter(settings)
         self._token_counter = token_counter
 
-    def create_message(self, request_data: MessagesRequest) -> object:
+    async def create_message(self, request_data: MessagesRequest) -> object:
         """Create a message response or streaming response."""
         try:
             _require_non_empty_messages(request_data.messages)
 
-            routed = self._model_router.resolve_messages_request(request_data)
+            if self._settings.enable_auto_routing:
+                routed = await self._model_router.resolve_messages_request_with_auto_routing(
+                    request_data
+                )
+            else:
+                routed = self._model_router.resolve_messages_request(request_data)
+
             if routed.resolved.provider_id in _OPENAI_CHAT_UPSTREAM_IDS:
                 tool_err = openai_chat_upstream_server_tool_error(
                     routed.request,
@@ -145,10 +151,11 @@ class ClaudeProxyService:
 
             request_id = f"req_{uuid.uuid4().hex[:12]}"
             logger.info(
-                "API_REQUEST: request_id={} model={} messages={}",
+                "API_REQUEST: request_id={} model={} messages={} auto_routed={}",
                 request_id,
                 routed.request.model,
                 len(routed.request.messages),
+                routed.resolved.auto_routed,
             )
             if self._settings.log_raw_api_payloads:
                 logger.debug(

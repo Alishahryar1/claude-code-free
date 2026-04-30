@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from loguru import logger
 
@@ -10,6 +12,7 @@ from config.provider_ids import SUPPORTED_PROVIDER_IDS
 from config.settings import Settings
 
 from .gateway_model_ids import decode_gateway_model_id
+from . import auto_router
 from .models.anthropic import MessagesRequest, TokenCountRequest
 
 
@@ -20,6 +23,8 @@ class ResolvedModel:
     provider_model: str
     provider_model_ref: str
     thinking_enabled: bool
+    auto_routed: bool = False
+    routing_reasoning: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +44,7 @@ class ModelRouter:
 
     def __init__(self, settings: Settings):
         self._settings = settings
+        self._auto_router = auto_router.get_global_router()
 
     def resolve(self, claude_model_name: str) -> ResolvedModel:
         (
@@ -105,11 +111,131 @@ class ModelRouter:
             return None, None, None
         return provider_id, provider_model, None
 
+    async def resolve_with_auto_routing(
+        self,
+        claude_model_name: str,
+        messages: Sequence[Mapping[str, Any]] | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
+    ) -> ResolvedModel:
+        """Resolve model with optional auto-routing enabled."""
+        if not self._settings.enable_auto_routing:
+            return self.resolve(claude_model_name)
+
+        if messages is None:
+            return self.resolve(claude_model_name)
+
+        try:
+            from config.provider_catalog import PROVIDER_CATALOG
+            from providers.defaults import NVIDIA_NIM_DEFAULT_BASE
+
+            provider_descriptor = PROVIDER_CATALOG.get(
+                self._settings.auto_routing_provider
+            )
+            if provider_descriptor is None:
+                logger.warning(
+                    "AUTO_ROUTING: provider '{}' not found, using static model",
+                    self._settings.auto_routing_provider,
+                )
+                return self.resolve(claude_model_name)
+
+            base_url = (
+                getattr(self._settings, provider_descriptor.base_url_attr, None)
+                if provider_descriptor.base_url_attr
+                else None
+            ) or provider_descriptor.default_base_url or NVIDIA_NIM_DEFAULT_BASE
+
+            api_key = (
+                getattr(
+                    self._settings,
+                    provider_descriptor.credential_attr,
+                    None,
+                )
+                if provider_descriptor.credential_attr
+                else None
+            ) or ""
+
+            if not api_key:
+                logger.warning(
+                    "AUTO_ROUTING: no API key for provider '{}', using static model",
+                    self._settings.auto_routing_provider,
+                )
+                return self.resolve(claude_model_name)
+
+            await self._auto_router.ensure_catalog_loaded(api_key, base_url)
+
+            decision = await self._auto_router.route(
+                messages=messages,
+                tools=tools,
+                settings=self._settings,
+                fallback_model=self._settings.auto_routing_fallback_model,
+            )
+
+            if decision.confidence < self._settings.auto_routing_min_confidence:
+                logger.debug(
+                    "AUTO_ROUTER: confidence {:.2f} below threshold {:.2f}, using static model",
+                    decision.confidence,
+                    self._settings.auto_routing_min_confidence,
+                )
+                return self.resolve(claude_model_name)
+
+            thinking_enabled = self._settings.resolve_thinking(claude_model_name)
+
+            logger.info(
+                "AUTO_ROUTER: selected model={} for query_type={} (confidence={:.2f})",
+                decision.model_id,
+                decision.query_type,
+                decision.confidence,
+            )
+
+            return ResolvedModel(
+                original_model=claude_model_name,
+                provider_id=decision.provider_id,
+                provider_model=decision.model_id,
+                provider_model_ref=f"{decision.provider_id}/{decision.model_id}",
+                thinking_enabled=thinking_enabled,
+                auto_routed=True,
+                routing_reasoning=decision.reasoning,
+            )
+        except Exception as e:
+            logger.warning(
+                "AUTO_ROUTER: error during routing, using static model: {}",
+                str(e),
+            )
+            return self.resolve(claude_model_name)
+
     def resolve_messages_request(
         self, request: MessagesRequest
     ) -> RoutedMessagesRequest:
         """Return an internal routed request context."""
         resolved = self.resolve(request.model)
+        routed = request.model_copy(deep=True)
+        routed.model = resolved.provider_model
+        return RoutedMessagesRequest(request=routed, resolved=resolved)
+
+    async def resolve_messages_request_with_auto_routing(
+        self, request: MessagesRequest
+    ) -> RoutedMessagesRequest:
+        """Return an internal routed request context with auto-routing."""
+        messages_dict = [
+            {"role": m.role, "content": m.content, "reasoning_content": m.reasoning_content}
+            for m in request.messages
+        ]
+        tools_dict = (
+            [
+                {
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.input_schema,
+                }
+                for t in request.tools
+            ]
+            if request.tools
+            else None
+        )
+
+        resolved = await self.resolve_with_auto_routing(
+            request.model, messages_dict, tools_dict
+        )
         routed = request.model_copy(deep=True)
         routed.model = resolved.provider_model
         return RoutedMessagesRequest(request=routed, resolved=resolved)

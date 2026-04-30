@@ -94,7 +94,8 @@ def test_web_server_tool_not_detected_when_forced_name_missing_from_tools():
     assert not is_web_server_tool_request(request)
 
 
-def test_service_rejects_forced_server_tool_on_openai_when_disabled():
+@pytest.mark.asyncio
+async def test_service_rejects_forced_server_tool_on_openai_when_disabled():
     """OpenAI Chat upstreams cannot run forced server tools without the local handler."""
     settings = Settings()
     assert settings.enable_web_server_tools is False
@@ -116,7 +117,7 @@ def test_service_rejects_forced_server_tool_on_openai_when_disabled():
         tool_choice={"type": "tool", "name": "web_search"},
     )
     with pytest.raises(InvalidRequestError, match="ENABLE_WEB_SERVER_TOOLS"):
-        service.create_message(request)
+        await service.create_message(request)
 
 
 @pytest.mark.parametrize(
@@ -579,7 +580,8 @@ async def test_drain_response_body_capped_stops_after_first_chunk_when_oversized
     assert chunk_calls["n"] == 1
 
 
-def test_service_rejects_listed_server_tools_on_openai_chat() -> None:
+@pytest.mark.asyncio
+async def test_service_rejects_listed_server_tools_on_openai_chat() -> None:
     settings = Settings()
     service = ClaudeProxyService(
         settings,
@@ -593,10 +595,11 @@ def test_service_rejects_listed_server_tools_on_openai_chat() -> None:
         tools=[Tool(name="web_search", type="web_search_20250305")],
     )
     with pytest.raises(InvalidRequestError, match="OpenAI Chat upstreams"):
-        service.create_message(request)
+        await service.create_message(request)
 
 
-def test_listed_server_tools_routed_on_open_router() -> None:
+@pytest.mark.asyncio
+async def test_listed_server_tools_routed_on_open_router() -> None:
     """Native Anthropic transport may receive listed server tool definitions."""
     settings = Settings()
 
@@ -617,5 +620,5 @@ def test_listed_server_tools_routed_on_open_router() -> None:
         messages=[Message(role="user", content="q")],
         tools=[Tool(name="web_search", type="web_search_20250305")],
     )
-    service.create_message(request)
+    await service.create_message(request)
     mock_provider.preflight_stream.assert_called()
