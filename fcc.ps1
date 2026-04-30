@@ -3,6 +3,7 @@
 #   ./fcc.ps1           Start proxy in background
 #   ./fcc.ps1 claude    Start proxy + launch Claude Code
 #   ./fcc.ps1 stop      Stop the proxy
+#   ./fcc.ps1 status    Show proxy status
 #   ./fcc.ps1 shortcut  Create desktop shortcut
 #
 # Requires: uv, Claude Code CLI
@@ -23,7 +24,7 @@ function Get-ProcessIdByPort {
     $procId = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue |
         Select-Object -ExpandProperty OwningProcess
     if (-not $procId) {
-        $line = netstat -ano | Select-String ":$Port\s"
+        $line = netstat -ano | Select-String ":$Port\b"
         if ($line) { $procId = ($line.Line -split '\s+')[-1] }
     }
     return $procId
@@ -49,11 +50,11 @@ function Start-Proxy {
 
     # Wait for proxy to be ready
     for ($i = 0; $i -lt 10; $i++) {
-        $procId = Get-ProcessIdByPort -Port $Port
-        if ($procId) {
+        try {
+            $null = Invoke-WebRequest -Uri "$BaseUrl" -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop
             Write-Host "✅ Proxy is ready"
             return
-        }
+        } catch {}
         Start-Sleep -Seconds 1
     }
 
@@ -69,6 +70,24 @@ function Stop-Proxy {
         Write-Host "✅ Stopped"
     } else {
         Write-Host "ℹ️  Proxy is not running"
+    }
+}
+
+function Show-Status {
+    $procIds = Get-ProcessIdByPort -Port $Port
+    if ($procIds) {
+        Write-Host "✅ Proxy is running (PID: $($procIds -join ','))"
+        Write-Host "   Port: $Port"
+        Write-Host "   URL:  $BaseUrl"
+        try {
+            $null = Invoke-WebRequest -Uri "$BaseUrl" -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop
+            Write-Host "   Health: OK"
+        } catch {
+            Write-Host "   Health: port bound but not responding to HTTP"
+        }
+    } else {
+        Write-Host "ℹ️  Proxy is not running"
+        exit 1
     }
 }
 
@@ -172,15 +191,27 @@ switch ($Action) {
     "stop" {
         Stop-Proxy
     }
+    "status" {
+        Show-Status
+    }
     "shortcut" {
         Show-ShortcutMenu
     }
-    default {
-        Write-Host "Usage: .\fcc.ps1 [proxy|claude|stop|shortcut]"
+    { $_ -in "-h", "--help", "-?" } {
+        Write-Host "Usage: .\fcc.ps1 [proxy|claude|stop|status|shortcut]"
         Write-Host ""
         Write-Host "  .\fcc.ps1            Start proxy in background"
         Write-Host "  .\fcc.ps1 claude     Start proxy + launch Claude Code"
         Write-Host "  .\fcc.ps1 stop       Stop proxy"
+        Write-Host "  .\fcc.ps1 status     Show proxy status"
         Write-Host "  .\fcc.ps1 shortcut   Create desktop shortcut"
+        Write-Host ""
+        Write-Host "Environment variables:"
+        Write-Host "  FCC_PORT               Proxy port (default: 8082)"
+        Write-Host "  ANTHROPIC_AUTH_TOKEN   Auth token (default: freecc)"
+    }
+    default {
+        Write-Host "Usage: .\fcc.ps1 [proxy|claude|stop|status|shortcut]"
+        Write-Host "Try '.\fcc.ps1 --help' for more details."
     }
 }
