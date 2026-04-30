@@ -144,6 +144,9 @@ class Settings(BaseSettings):
         default="http://localhost:11434",
         validation_alias="OLLAMA_BASE_URL",
     )
+    # When routing through LiteLLM (container stack), set to LITELLM_MASTER_KEY.
+    # Default "ollama" is correct for direct ollama access (no auth required).
+    ollama_api_key: str = Field(default="ollama", validation_alias="OLLAMA_API_KEY")
 
     # ==================== Model ====================
     # All Claude model requests are mapped to this single model (fallback)
