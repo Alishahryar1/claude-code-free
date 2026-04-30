@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # fcc — Free Claude Code one-click launcher
 # Usage:
+#   ./fcc setup    One-click: install deps + create shortcuts
 #   ./fcc          Start proxy in background
 #   ./fcc claude   Start proxy + launch Claude Code
 #   ./fcc stop     Stop the proxy
 #   ./fcc status   Show proxy status
 #   ./fcc shortcut Create desktop shortcut
 #
-# Requires: uv (for running uvicorn)
+# Requires: uv (auto-installed by setup/shortcut if missing)
 
 set -euo pipefail
 
@@ -17,11 +18,30 @@ BASE_URL="http://localhost:$PORT"
 AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-freecc}"
 LOG_FILE="/tmp/fcc-proxy.log"
 
-start_proxy() {
-    if ! command -v uv >/dev/null 2>&1; then
-        echo "❌ uv not found, please install: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+ensure_uv() {
+    if command -v uv >/dev/null 2>&1; then
+        return 0
+    fi
+    echo "📦 uv is required but not found."
+    read -r -p "Install uv automatically? [Y/n] " answer
+    if [[ "$answer" == "n" || "$answer" == "N" ]]; then
+        echo "Please install uv first: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
         return 1
     fi
+    echo "Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    [[ -d "$HOME/.local/bin" ]] && export PATH="$HOME/.local/bin:$PATH"
+    if command -v uv >/dev/null 2>&1; then
+        echo "✅ uv installed"
+        return 0
+    fi
+    echo "❌ Failed to install uv. Please install manually:" >&2
+    echo "   curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+    return 1
+}
+
+start_proxy() {
+    ensure_uv || return 1
 
     echo "🔧 Cleaning up port $PORT..."
     local pids
@@ -185,8 +205,23 @@ if [[ -f /opt/homebrew/bin/brew ]]; then
 elif [[ -f /usr/local/bin/brew ]]; then
     eval "$(/usr/local/bin/brew shellenv)"
 fi
-# uv may be installed via standalone installer
 [[ -d "$HOME/.local/bin" ]] && export PATH="$HOME/.local/bin:$PATH"
+
+# Auto-install uv if missing
+if ! command -v uv >/dev/null 2>&1; then
+    echo "📦 uv is required but not found."
+    read -r -p "Install uv automatically? [Y/n] " answer
+    if [[ "$answer" != "n" && "$answer" != "N" ]]; then
+        echo "Installing uv..."
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        [[ -d "$HOME/.local/bin" ]] && export PATH="$HOME/.local/bin:$PATH"
+        echo ""
+    else
+        echo "Please install uv first: curl -LsSf https://astral.sh/uv/install.sh | sh"
+        read -p "Press Enter to close..."
+        exit 1
+    fi
+fi
 
 SHORTCUT_EOF
             {
@@ -225,6 +260,37 @@ DESKTOP_EOF
     echo "✅ Created: $filepath"
 }
 
+setup_cmd() {
+    echo "🔧 Free Claude Code — One-Click Setup"
+    echo "=============================================="
+    echo ""
+
+    # 1. Ensure uv is installed
+    ensure_uv || return 1
+
+    # 2. Install project dependencies
+    echo ""
+    echo "📦 Installing project dependencies..."
+    cd "$SCRIPT_DIR"
+    uv sync
+    echo "✅ Dependencies installed"
+
+    # 3. Create desktop shortcuts
+    echo ""
+    echo "📌 Creating desktop shortcuts..."
+    create_shortcut "proxy"
+    echo ""
+    create_shortcut "claude"
+
+    echo ""
+    echo "=============================================="
+    echo "  Setup complete!"
+    echo ""
+    echo "  Double-click ClaudeProxy(Full).command"
+    echo "  on your desktop to launch."
+    echo "=============================================="
+}
+
 shortcut_menu() {
     echo "Select shortcut type:"
     echo "  1) Proxy only — double-click to start proxy server in background"
@@ -249,6 +315,9 @@ shortcut_menu() {
 }
 
 case "${1:-proxy}" in
+    setup)
+        setup_cmd
+        ;;
     proxy)
         start_proxy
         ;;
@@ -275,20 +344,24 @@ case "${1:-proxy}" in
         shortcut_menu
         ;;
     -h|--help)
-        echo "Usage: ./fcc [proxy|claude|stop|status|shortcut]"
+        echo "Usage: ./fcc [setup|proxy|claude|stop|status|shortcut]"
         echo ""
-        echo "  ./fcc             Start proxy in background"
-        echo "  ./fcc claude      Start proxy + launch Claude Code"
-        echo "  ./fcc stop        Stop proxy"
-        echo "  ./fcc status      Show proxy status"
-        echo "  ./fcc shortcut    Create desktop shortcut"
+        echo "First time:"
+        echo "  ./fcc setup      Install deps + create desktop shortcuts"
+        echo ""
+        echo "Daily use:"
+        echo "  ./fcc            Start proxy in background"
+        echo "  ./fcc claude     Start proxy + launch Claude Code"
+        echo "  ./fcc stop       Stop proxy"
+        echo "  ./fcc status     Show proxy status"
+        echo "  ./fcc shortcut   Create desktop shortcut"
         echo ""
         echo "Environment variables:"
         echo "  FCC_PORT               Proxy port (default: 8082)"
         echo "  ANTHROPIC_AUTH_TOKEN   Auth token (default: freecc)"
         ;;
     *)
-        echo "Usage: ./fcc [proxy|claude|stop|status|shortcut]" >&2
+        echo "Usage: ./fcc [setup|proxy|claude|stop|status|shortcut]" >&2
         echo "Try './fcc --help' for more details." >&2
         exit 1
         ;;
