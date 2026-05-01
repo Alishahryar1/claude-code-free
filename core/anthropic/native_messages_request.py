@@ -109,6 +109,11 @@ def _dump_request_fields(request_data: Any) -> dict[str, Any]:
     return dumped
 
 
+def dump_raw_messages_request(request_data: Any) -> dict[str, Any]:
+    """Public JSON-ready dict of Anthropic public request fields (for native adapters)."""
+    return _dump_request_fields(request_data)
+
+
 def sanitize_native_messages_thinking_policy(
     messages: Any, *, thinking_enabled: bool
 ) -> Any:

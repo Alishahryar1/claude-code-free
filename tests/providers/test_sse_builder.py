@@ -1,5 +1,6 @@
 """Tests for core.anthropic.sse."""
 
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -108,6 +109,27 @@ class TestSSEBuilderMessageLifecycle:
         assert data["type"] == "message_delta"
         assert data["delta"]["stop_reason"] == "end_turn"
         assert data["usage"]["output_tokens"] == 42
+
+    def test_message_start_coerces_non_int_input_tokens(self):
+        builder = SSEBuilder("msg_1", "model", input_tokens=0)
+        builder.input_tokens = cast(Any, "not_an_int")
+        sse = builder.message_start()
+        data = _parse_sse(sse)
+        assert data["message"]["usage"]["input_tokens"] == 0
+        assert data["message"]["usage"]["output_tokens"] == 1
+
+    def test_message_delta_coerces_none_output_tokens(self):
+        builder = SSEBuilder("msg_1", "model", input_tokens=3)
+        sse = builder.message_delta("end_turn", None)
+        data = _parse_sse(sse)
+        assert data["usage"]["input_tokens"] == 3
+        assert data["usage"]["output_tokens"] == 0
+
+    def test_message_delta_preserves_zero_output_tokens(self):
+        builder = SSEBuilder("msg_1", "model")
+        sse = builder.message_delta("end_turn", 0)
+        data = _parse_sse(sse)
+        assert data["usage"]["output_tokens"] == 0
 
     def test_message_stop(self):
         builder = SSEBuilder("msg_1", "model")

@@ -657,3 +657,30 @@ class TestPerModelMapping:
         assert Settings.parse_model_name("lmstudio/qwen") == "qwen"
         assert Settings.parse_model_name("llamacpp/model") == "model"
         assert Settings.parse_model_name("ollama/llama3.1") == "llama3.1"
+
+    def test_configured_chat_model_refs_collects_unique_models_with_sources(
+        self, monkeypatch
+    ):
+        """Startup validation model collection is limited to configured chat refs."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("FCC_SMOKE_MODEL_NVIDIA_NIM", "nvidia_nim/smoke")
+        monkeypatch.setenv("WHISPER_MODEL", "openai/whisper-large-v3")
+        s = Settings()
+        s.model = "nvidia_nim/fallback"
+        s.model_opus = "open_router/anthropic/claude-opus"
+        s.model_sonnet = "nvidia_nim/fallback"
+        s.model_haiku = None
+
+        refs = s.configured_chat_model_refs()
+
+        assert [ref.model_ref for ref in refs] == [
+            "nvidia_nim/fallback",
+            "open_router/anthropic/claude-opus",
+        ]
+        assert refs[0].provider_id == "nvidia_nim"
+        assert refs[0].model_id == "fallback"
+        assert refs[0].sources == ("MODEL", "MODEL_SONNET")
+        assert refs[1].provider_id == "open_router"
+        assert refs[1].model_id == "anthropic/claude-opus"
+        assert refs[1].sources == ("MODEL_OPUS",)

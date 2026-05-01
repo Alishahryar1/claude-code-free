@@ -107,3 +107,7 @@ class ServiceUnavailableError(ProviderError):
             error_type="api_error",
             raw_error=raw_error,
         )
+
+
+class ModelListResponseError(ServiceUnavailableError):
+    """Raised when a provider model-list response cannot be parsed safely."""

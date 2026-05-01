@@ -9,13 +9,14 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from loguru import logger
+from starlette.types import Receive, Scope, Send
 
 from config.logging_config import configure_logging
 from config.settings import get_settings
 from providers.exceptions import ProviderError
 
 from .routes import router
-from .runtime import AppRuntime
+from .runtime import AppRuntime, startup_failure_message
 from .validation_log import summarize_request_validation_body
 
 
@@ -30,18 +31,68 @@ async def lifespan(app: FastAPI):
     await runtime.shutdown()
 
 
-def create_app() -> FastAPI:
+class GracefulLifespanApp:
+    """ASGI wrapper that reports startup failures without Starlette tracebacks."""
+
+    def __init__(self, app: FastAPI):
+        self.app = app
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.app, name)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "lifespan":
+            await self.app(scope, receive, send)
+            return
+        await self._lifespan(receive, send)
+
+    async def _lifespan(self, receive: Receive, send: Send) -> None:
+        settings = get_settings()
+        runtime = AppRuntime.for_app(self.app, settings=settings)
+        startup_complete = False
+        while True:
+            message = await receive()
+            if message["type"] == "lifespan.startup":
+                try:
+                    await runtime.startup()
+                except Exception as exc:
+                    await send(
+                        {
+                            "type": "lifespan.startup.failed",
+                            "message": startup_failure_message(settings, exc),
+                        }
+                    )
+                    return
+                startup_complete = True
+                await send({"type": "lifespan.startup.complete"})
+                continue
+
+            if message["type"] == "lifespan.shutdown":
+                if startup_complete:
+                    try:
+                        await runtime.shutdown()
+                    except Exception as exc:
+                        logger.error("Shutdown failed: exc_type={}", type(exc).__name__)
+                        await send({"type": "lifespan.shutdown.failed", "message": ""})
+                        return
+                await send({"type": "lifespan.shutdown.complete"})
+                return
+
+
+def create_app(*, lifespan_enabled: bool = True) -> FastAPI:
     """Create and configure the FastAPI application."""
     settings = get_settings()
     configure_logging(
         settings.log_file, verbose_third_party=settings.log_raw_api_payloads
     )
 
-    app = FastAPI(
-        title="Claude Code Proxy",
-        version="2.0.0",
-        lifespan=lifespan,
-    )
+    app_kwargs: dict[str, Any] = {
+        "title": "Claude Code Proxy",
+        "version": "2.0.0",
+    }
+    if lifespan_enabled:
+        app_kwargs["lifespan"] = lifespan
+    app = FastAPI(**app_kwargs)
 
     # Register routes
     app.include_router(router)
@@ -117,3 +168,8 @@ def create_app() -> FastAPI:
         )
 
     return app
+
+
+def create_asgi_app() -> GracefulLifespanApp:
+    """Create the server ASGI app with graceful lifespan failure reporting."""
+    return GracefulLifespanApp(create_app(lifespan_enabled=False))

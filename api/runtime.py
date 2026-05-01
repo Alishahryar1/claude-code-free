@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from loguru import logger
 
 from config.settings import Settings, get_settings
+from providers.exceptions import ServiceUnavailableError
 from providers.registry import ProviderRegistry
 
 if TYPE_CHECKING:
@@ -61,6 +62,23 @@ def warn_if_process_auth_token(settings: Settings) -> None:
         )
 
 
+def log_startup_failure(settings: Settings, exc: Exception) -> None:
+    """Log startup failures without traceback noise unless verbose diagnostics are enabled."""
+    message = startup_failure_message(settings, exc)
+    logger.error("Startup failed:\n{}", message)
+
+
+def startup_failure_message(settings: Settings, exc: Exception) -> str:
+    """Return a concise startup failure message for logs and ASGI lifespan failure."""
+    if isinstance(exc, ServiceUnavailableError):
+        return exc.message.strip() or "Server startup failed."
+
+    if settings.log_api_error_tracebacks:
+        return f"{type(exc).__name__}: {exc}"
+
+    return f"Server startup failed: exc_type={type(exc).__name__}"
+
+
 @dataclass(slots=True)
 class AppRuntime:
     """Own optional messaging, CLI, session, and provider runtime resources."""
@@ -84,9 +102,20 @@ class AppRuntime:
         logger.info("Starting Claude Code Proxy...")
         self._provider_registry = ProviderRegistry()
         self.app.state.provider_registry = self._provider_registry
-        warn_if_process_auth_token(self.settings)
-        await self._start_messaging_if_configured()
-        self._publish_state()
+        try:
+            warn_if_process_auth_token(self.settings)
+            await self._provider_registry.validate_configured_models(self.settings)
+            self._provider_registry.start_model_list_refresh(self.settings)
+            await self._start_messaging_if_configured()
+            self._publish_state()
+        except Exception as exc:
+            log_startup_failure(self.settings, exc)
+            await best_effort(
+                "provider_registry.cleanup",
+                self._provider_registry.cleanup(),
+                log_verbose_errors=self.settings.log_api_error_tracebacks,
+            )
+            raise
 
     async def shutdown(self) -> None:
         verbose = self.settings.log_api_error_tracebacks

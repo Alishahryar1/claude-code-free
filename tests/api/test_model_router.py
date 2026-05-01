@@ -93,6 +93,76 @@ def test_model_router_applies_sonnet_override(settings):
     )
 
 
+def test_model_router_routes_prefixed_provider_model_directly(settings):
+    routed = ModelRouter(settings).resolve_messages_request(
+        MessagesRequest(
+            model="deepseek/deepseek-chat",
+            max_tokens=100,
+            messages=[Message(role="user", content="hello")],
+        )
+    )
+
+    assert routed.request.model == "deepseek-chat"
+    assert routed.resolved.original_model == "deepseek/deepseek-chat"
+    assert routed.resolved.provider_id == "deepseek"
+    assert routed.resolved.provider_model == "deepseek-chat"
+    assert routed.resolved.provider_model_ref == "deepseek/deepseek-chat"
+
+
+def test_model_router_routes_gateway_encoded_provider_model_directly(settings):
+    routed = ModelRouter(settings).resolve_messages_request(
+        MessagesRequest(
+            model="anthropic/nvidia_nim/deepseek-ai/deepseek-v4-pro",
+            max_tokens=100,
+            messages=[Message(role="user", content="hello")],
+        )
+    )
+
+    assert routed.request.model == "deepseek-ai/deepseek-v4-pro"
+    assert (
+        routed.resolved.original_model
+        == "anthropic/nvidia_nim/deepseek-ai/deepseek-v4-pro"
+    )
+    assert routed.resolved.provider_id == "nvidia_nim"
+    assert routed.resolved.provider_model == "deepseek-ai/deepseek-v4-pro"
+    assert (
+        routed.resolved.provider_model_ref
+        == "anthropic/nvidia_nim/deepseek-ai/deepseek-v4-pro"
+    )
+
+
+def test_model_router_routes_no_thinking_gateway_model_directly(settings):
+    settings.enable_model_thinking = True
+
+    routed = ModelRouter(settings).resolve_messages_request(
+        MessagesRequest(
+            model="claude-3-freecc-no-thinking/nvidia_nim/deepseek-ai/deepseek-v4-pro",
+            max_tokens=100,
+            messages=[Message(role="user", content="hello")],
+        )
+    )
+
+    assert routed.request.model == "deepseek-ai/deepseek-v4-pro"
+    assert (
+        routed.resolved.original_model
+        == "claude-3-freecc-no-thinking/nvidia_nim/deepseek-ai/deepseek-v4-pro"
+    )
+    assert routed.resolved.provider_id == "nvidia_nim"
+    assert routed.resolved.provider_model == "deepseek-ai/deepseek-v4-pro"
+    assert routed.resolved.thinking_enabled is False
+
+
+def test_model_router_direct_prefixed_model_uses_provider_model_for_thinking(settings):
+    settings.enable_model_thinking = False
+    settings.enable_opus_thinking = True
+
+    resolved = ModelRouter(settings).resolve("open_router/anthropic/claude-opus-4")
+
+    assert resolved.provider_id == "open_router"
+    assert resolved.provider_model == "anthropic/claude-opus-4"
+    assert resolved.thinking_enabled is True
+
+
 def test_model_router_routes_token_count_request(settings):
     settings.model_haiku = "lmstudio/qwen2.5-7b"
 

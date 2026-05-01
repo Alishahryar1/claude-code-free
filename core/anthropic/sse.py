@@ -37,6 +37,11 @@ def map_stop_reason(openai_reason: str | None) -> str:
     )
 
 
+def _safe_usage_int(value: object) -> int:
+    """Coerce streamed usage counters to int; non-integers become 0."""
+    return value if isinstance(value, int) else 0
+
+
 def format_sse_event(event_type: str, data: dict) -> str:
     """Format one Anthropic-style SSE event (no logging)."""
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
@@ -120,6 +125,10 @@ class ContentBlockManager:
         state.task_arg_buffer = ""
         return args_json
 
+    def has_emitted_tool_block(self) -> bool:
+        """True when native OpenAI tool streaming has started a ``tool_use`` block."""
+        return any(s.started for s in self.tool_states.values())
+
     def flush_task_arg_buffers(self) -> list[tuple[int, str]]:
         results: list[tuple[int, str]] = []
         for tool_index, state in list(self.tool_states.items()):
@@ -187,7 +196,8 @@ class SSEBuilder:
         return event_str
 
     def message_start(self) -> str:
-        usage = {"input_tokens": self.input_tokens, "output_tokens": 1}
+        safe_input = _safe_usage_int(self.input_tokens)
+        usage = {"input_tokens": safe_input, "output_tokens": 1}
         return self._format_event(
             "message_start",
             {
@@ -205,15 +215,17 @@ class SSEBuilder:
             },
         )
 
-    def message_delta(self, stop_reason: str, output_tokens: int) -> str:
+    def message_delta(self, stop_reason: str, output_tokens: int | None) -> str:
+        safe_in = _safe_usage_int(self.input_tokens)
+        safe_out = output_tokens if isinstance(output_tokens, int) else 0
         return self._format_event(
             "message_delta",
             {
                 "type": "message_delta",
                 "delta": {"stop_reason": stop_reason, "stop_sequence": None},
                 "usage": {
-                    "input_tokens": self.input_tokens,
-                    "output_tokens": output_tokens,
+                    "input_tokens": safe_in,
+                    "output_tokens": safe_out,
                 },
             },
         )
@@ -352,6 +364,19 @@ class SSEBuilder:
         yield self.content_block_start(error_index, "text")
         yield self.content_block_delta(error_index, "text_delta", error_message)
         yield self.content_block_stop(error_index)
+
+    def emit_top_level_error(self, error_message: str) -> str:
+        """Emit a top-level ``event: error`` (not assistant text) for transport failures."""
+        return self._format_event(
+            "error",
+            {
+                "type": "error",
+                "error": {
+                    "type": "api_error",
+                    "message": error_message,
+                },
+            },
+        )
 
     @property
     def accumulated_text(self) -> str:

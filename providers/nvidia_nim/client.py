@@ -15,6 +15,7 @@ from .request import (
     build_request_body,
     clone_body_without_chat_template,
     clone_body_without_reasoning_budget,
+    clone_body_without_reasoning_content,
 )
 
 
@@ -66,6 +67,15 @@ class NvidiaNimProvider(OpenAIChatTransport):
             if retry_body is None:
                 return None
             logger.warning("NIM_STREAM: retrying without chat_template after 400 error")
+            return retry_body
+
+        if "reasoning_content" in error_text:
+            retry_body = clone_body_without_reasoning_content(body)
+            if retry_body is None:
+                return None
+            logger.warning(
+                "NIM_STREAM: retrying without reasoning_content after 400 error"
+            )
             return retry_body
 
         return None

@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from config.provider_catalog import PROVIDER_CATALOG, SUPPORTED_PROVIDER_IDS
 from config.settings import Settings, get_settings
 
 DEFAULT_TARGETS = frozenset(
@@ -36,6 +37,15 @@ TARGET_ALIASES = {
 }
 SECRET_KEY_PARTS = ("KEY", "TOKEN", "SECRET", "WEBHOOK", "AUTH")
 
+PROVIDER_SMOKE_DEFAULT_MODELS: dict[str, str] = {
+    "nvidia_nim": "nvidia_nim/z-ai/glm4.7",
+    "open_router": "open_router/stepfun/step-3.5-flash:free",
+    "deepseek": "deepseek/deepseek-v4-pro",
+    "lmstudio": "lmstudio/local-model",
+    "llamacpp": "llamacpp/local-model",
+    "ollama": "ollama/llama3.1",
+}
+
 
 TARGET_REQUIRED_ENV: dict[str, tuple[str, ...]] = {
     "api": (),
@@ -45,7 +55,7 @@ TARGET_REQUIRED_ENV: dict[str, tuple[str, ...]] = {
     "config": (),
     "extensibility": (),
     "messaging": (),
-    "providers": ("MODEL or MODEL_* with usable provider configuration",),
+    "providers": ("configured provider credentials/endpoints or FCC_SMOKE_MODEL_*",),
     "rate_limit": ("configured provider model",),
     "tools": ("configured tool-capable provider model",),
     "lmstudio": ("LM_STUDIO_BASE_URL with a running LM Studio server",),
@@ -133,6 +143,35 @@ class SmokeConfig:
             )
         return models
 
+    def provider_smoke_models(self) -> list[ProviderModel]:
+        """Return one smoke model per configured provider, independent of MODEL_*."""
+        models: list[ProviderModel] = []
+        mapped_providers = {model.provider for model in self.provider_models()}
+        for provider in SUPPORTED_PROVIDER_IDS:
+            if self.provider_matrix and provider not in self.provider_matrix:
+                continue
+            if not self.has_provider_configuration(provider):
+                continue
+            if not self._include_provider_in_smoke(provider, mapped_providers):
+                continue
+            full_model, source = _provider_smoke_model(provider)
+            models.append(
+                ProviderModel(provider=provider, full_model=full_model, source=source)
+            )
+        return models
+
+    def _include_provider_in_smoke(
+        self, provider: str, mapped_providers: set[str]
+    ) -> bool:
+        descriptor = PROVIDER_CATALOG[provider]
+        if "local" not in descriptor.capabilities:
+            return True
+        if provider in mapped_providers:
+            return True
+        if self.provider_matrix and provider in self.provider_matrix:
+            return True
+        return bool(os.getenv(f"FCC_SMOKE_MODEL_{provider.upper()}"))
+
     def has_provider_configuration(self, provider: str) -> bool:
         if provider == "nvidia_nim":
             return bool(self.settings.nvidia_nim_api_key.strip())
@@ -162,6 +201,37 @@ def _parse_targets(raw: str | None) -> frozenset[str]:
     if "all" in parsed:
         return ALL_TARGETS
     return frozenset(TARGET_ALIASES.get(target, target) for target in parsed)
+
+
+def _provider_smoke_model(provider: str) -> tuple[str, str]:
+    override_env = f"FCC_SMOKE_MODEL_{provider.upper()}"
+    if override := os.getenv(override_env):
+        return _normalize_provider_model(provider, override), override_env
+
+    default = PROVIDER_SMOKE_DEFAULT_MODELS.get(provider)
+    if default is None:
+        descriptor = PROVIDER_CATALOG[provider]
+        default = f"{descriptor.provider_id}/smoke-default"
+    return default, "provider_default"
+
+
+def _normalize_provider_model(provider: str, raw_model: str) -> str:
+    model = raw_model.strip()
+    if not model:
+        msg = f"FCC_SMOKE_MODEL_{provider.upper()} must not be empty"
+        raise ValueError(msg)
+    if "/" not in model:
+        return f"{provider}/{model}"
+    prefix = Settings.parse_provider_type(model)
+    if prefix == provider:
+        return model
+    if prefix in SUPPORTED_PROVIDER_IDS:
+        msg = (
+            f"FCC_SMOKE_MODEL_{provider.upper()} must use provider prefix "
+            f"{provider!r}, got {model!r}"
+        )
+        raise ValueError(msg)
+    return f"{provider}/{model}"
 
 
 def auth_headers(token: str | None = None) -> dict[str, str]:

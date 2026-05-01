@@ -584,7 +584,7 @@ def test_service_rejects_listed_server_tools_on_openai_chat() -> None:
     service = ClaudeProxyService(
         settings,
         provider_getter=lambda _: MagicMock(),
-        model_router=FixedProviderModelRouter(settings, "deepseek"),
+        model_router=FixedProviderModelRouter(settings, "nvidia_nim"),
     )
     request = MessagesRequest(
         model="m",

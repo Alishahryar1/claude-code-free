@@ -2,6 +2,7 @@
 
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from .constants import HTTP_CONNECT_TIMEOUT_DEFAULT
 from .nim import NimSettings
 from .provider_ids import SUPPORTED_PROVIDER_IDS
+
+
+@dataclass(frozen=True, slots=True)
+class ConfiguredChatModelRef:
+    """A unique configured chat model reference and the env keys that set it."""
+
+    model_ref: str
+    provider_id: str
+    model_id: str
+    sources: tuple[str, ...]
 
 
 def _env_files() -> tuple[Path, ...]:
@@ -440,6 +451,30 @@ class Settings(BaseSettings):
         if "sonnet" in name_lower and self.model_sonnet is not None:
             return self.model_sonnet
         return self.model
+
+    def configured_chat_model_refs(self) -> tuple[ConfiguredChatModelRef, ...]:
+        """Return unique configured chat provider/model refs with source env keys."""
+        candidates = (
+            ("MODEL", self.model),
+            ("MODEL_OPUS", self.model_opus),
+            ("MODEL_SONNET", self.model_sonnet),
+            ("MODEL_HAIKU", self.model_haiku),
+        )
+        sources_by_ref: dict[str, list[str]] = {}
+        for source, model_ref in candidates:
+            if model_ref is None:
+                continue
+            sources_by_ref.setdefault(model_ref, []).append(source)
+
+        return tuple(
+            ConfiguredChatModelRef(
+                model_ref=model_ref,
+                provider_id=Settings.parse_provider_type(model_ref),
+                model_id=Settings.parse_model_name(model_ref),
+                sources=tuple(sources),
+            )
+            for model_ref, sources in sources_by_ref.items()
+        )
 
     def resolve_thinking(self, claude_model_name: str) -> bool:
         """Resolve whether thinking is enabled for an incoming Claude model name."""

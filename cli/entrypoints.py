@@ -30,7 +30,7 @@ def serve() -> None:
     settings = get_settings()
     try:
         uvicorn.run(
-            "api.app:create_app",
+            "api.app:create_asgi_app",
             factory=True,
             host=settings.host,
             port=settings.port,

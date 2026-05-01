@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,6 +30,11 @@ def client():
     """HTTP client with provider resolution stubbed; patch only for this file."""
     with (
         patch("api.dependencies.resolve_provider", return_value=mock_provider),
+        patch(
+            "providers.registry.ProviderRegistry.validate_configured_models",
+            new_callable=AsyncMock,
+        ),
+        patch("providers.registry.ProviderRegistry.start_model_list_refresh"),
         TestClient(app) as test_client,
     ):
         yield test_client
