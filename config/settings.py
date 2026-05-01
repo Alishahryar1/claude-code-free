@@ -367,8 +367,8 @@ class Settings(BaseSettings):
     def validate_ollama_base_url(cls, v: str) -> str:
         if v.rstrip("/").endswith("/v1"):
             raise ValueError(
-                "OLLAMA_BASE_URL must be the Ollama root URL for native Anthropic "
-                "messages, e.g. http://localhost:11434 (without /v1)."
+                "OLLAMA_BASE_URL must be the Ollama root URL (e.g., http://localhost:11434). "
+                "Do not include '/v1' in the URL as this proxy uses native Anthropic messages."
             )
         return v
 
