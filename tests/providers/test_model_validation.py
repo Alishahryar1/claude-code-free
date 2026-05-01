@@ -348,6 +348,35 @@ async def test_registry_validation_succeeds_for_all_configured_models() -> None:
 
 
 @pytest.mark.asyncio
+async def test_registry_validation_accepts_openrouter_free_router_shorthand() -> None:
+    registry = ProviderRegistry(
+        {
+            "open_router": FakeProvider(frozenset({"openrouter/free"})),
+        }
+    )
+    settings = _settings(model="open_router/openrouter/free")
+
+    await registry.validate_configured_models(settings)
+
+
+@pytest.mark.asyncio
+async def test_registry_validation_accepts_deepseek_current_model_alias() -> None:
+    registry = ProviderRegistry(
+        {
+            "deepseek": FakeProvider(
+                frozenset({"deepseek-v4-flash", "deepseek-v4-pro"})
+            ),
+        }
+    )
+    settings = _settings(
+        model="deepseek/deepseek-v4-flash",
+        model_opus="deepseek/deepseek-v4-pro",
+    )
+
+    await registry.validate_configured_models(settings)
+
+
+@pytest.mark.asyncio
 async def test_registry_validation_reports_missing_model_with_sources() -> None:
     registry = ProviderRegistry(
         {"nvidia_nim": FakeProvider(frozenset({"different-model"}))}

@@ -506,7 +506,26 @@ class TestPerModelMapping:
                 "open_router/anthropic/claude-3-opus",
                 "open_router/anthropic/claude-3-haiku",
             ),
-            ({"MODEL": "deepseek/deepseek-chat"}, "deepseek/deepseek-chat", None),
+            (
+                {"MODEL": "openrouter/free"},
+                "open_router/openrouter/free",
+                None,
+            ),
+            (
+                {"MODEL": "open_router/free"},
+                "open_router/openrouter/free",
+                None,
+            ),
+            (
+                {"MODEL": "deepseek/deepseek-chat"},
+                "deepseek/deepseek-v4-flash",
+                None,
+            ),
+            (
+                {"MODEL": "deepseek/deepseek-reasoner"},
+                "deepseek/deepseek-v4-pro",
+                None,
+            ),
             ({"MODEL": "lmstudio/qwen2.5-7b"}, "lmstudio/qwen2.5-7b", None),
             ({"MODEL": "llamacpp/local-model"}, "llamacpp/local-model", None),
             ({"MODEL": "ollama/llama3.1"}, "ollama/llama3.1", None),
@@ -684,3 +703,36 @@ class TestPerModelMapping:
         assert refs[1].provider_id == "open_router"
         assert refs[1].model_id == "anthropic/claude-opus"
         assert refs[1].sources == ("MODEL_OPUS",)
+
+    def test_openrouter_free_shorthand_collects_upstream_router_model_id(
+        self, monkeypatch
+    ):
+        """OpenRouter router shorthand keeps openrouter/free as the upstream model."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("MODEL", "openrouter/free")
+
+        refs = Settings().configured_chat_model_refs()
+
+        assert len(refs) == 1
+        assert refs[0].model_ref == "open_router/openrouter/free"
+        assert refs[0].provider_id == "open_router"
+        assert refs[0].model_id == "openrouter/free"
+
+    def test_deepseek_legacy_alias_collects_current_model_id(self, monkeypatch):
+        """DeepSeek legacy aliases use currently advertised upstream model IDs."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("MODEL", "deepseek/deepseek-chat")
+        monkeypatch.setenv("MODEL_OPUS", "deepseek/deepseek-reasoner")
+
+        refs = Settings().configured_chat_model_refs()
+
+        assert [ref.model_ref for ref in refs] == [
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4-pro",
+        ]
+        assert [ref.model_id for ref in refs] == [
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+        ]
