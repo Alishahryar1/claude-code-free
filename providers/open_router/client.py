@@ -15,6 +15,11 @@ from core.anthropic.native_sse_block_policy import (
 from providers.anthropic_messages import AnthropicMessagesTransport, StreamChunkMode
 from providers.base import ProviderConfig
 from providers.defaults import OPENROUTER_DEFAULT_BASE
+from providers.model_listing import (
+    ProviderModelInfo,
+    extract_openrouter_tool_model_ids,
+    extract_openrouter_tool_model_infos,
+)
 
 from .request import build_request_body
 
@@ -50,6 +55,26 @@ class OpenRouterProvider(AnthropicMessagesTransport):
             "Content-Type": "application/json",
             "anthropic-version": _ANTHROPIC_VERSION,
         }
+
+    def _model_list_headers(self) -> dict[str, str]:
+        """Return OpenRouter's OpenAI-compatible model-list headers."""
+        return {"Authorization": f"Bearer {self._api_key}"}
+
+    def _extract_model_ids_from_model_list_payload(
+        self, payload: Any
+    ) -> frozenset[str]:
+        """Only advertise OpenRouter models that can run Claude Code tools."""
+        return extract_openrouter_tool_model_ids(
+            payload, provider_name=self._provider_name
+        )
+
+    def _extract_model_infos_from_model_list_payload(
+        self, payload: Any
+    ) -> frozenset[ProviderModelInfo]:
+        """Advertise OpenRouter tool models with reasoning capability metadata."""
+        return extract_openrouter_tool_model_infos(
+            payload, provider_name=self._provider_name
+        )
 
     def _new_stream_state(self, request: Any, *, thinking_enabled: bool) -> Any:
         """Create per-stream state for thinking block filtering."""

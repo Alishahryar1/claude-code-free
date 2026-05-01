@@ -161,6 +161,9 @@ class ProviderMatrixDriver:
         self.config = config
 
     def configured_models(self) -> list[ProviderModel]:
+        return self.config.provider_models()
+
+    def provider_smoke_models(self) -> list[ProviderModel]:
         selected = self.config.provider_matrix
         missing_selected = [
             provider
@@ -174,16 +177,16 @@ class ProviderMatrixDriver:
                 + ", ".join(sorted(missing_selected))
             )
 
-        models = self.config.provider_models()
+        models = self.config.provider_smoke_models()
         if not models and os.getenv("FCC_ALLOW_NO_PROVIDER_SMOKE") != "1":
             fail_missing_env(
-                "no configured provider models; set FCC_ALLOW_NO_PROVIDER_SMOKE=1 "
+                "no configured provider smoke models; set FCC_ALLOW_NO_PROVIDER_SMOKE=1 "
                 "only for no-provider smoke collection"
             )
         return models
 
     def first_model(self) -> ProviderModel:
-        models = self.configured_models()
+        models = self.provider_smoke_models()
         if not models:
             pytest.skip("missing_env: no configured provider model")
         return models[0]

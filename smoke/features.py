@@ -87,7 +87,7 @@ FEATURE_INVENTORY: tuple[FeatureCoverage, ...] = (
         ("test_configured_provider_models_stream_successfully",),
         ("test_provider_matrix_presence_e2e", "test_provider_text_multiturn_e2e"),
         ("providers",),
-        ("MODEL", "MODEL_OPUS", "MODEL_SONNET", "MODEL_HAIKU"),
+        ("configured provider credentials/endpoints", "optional FCC_SMOKE_MODEL_*"),
         "selected providers missing credentials are failing missing_env",
     ),
     FeatureCoverage(
@@ -123,6 +123,7 @@ FEATURE_INVENTORY: tuple[FeatureCoverage, ...] = (
         (),
         (
             "test_provider_adaptive_thinking_history_e2e",
+            "test_provider_reasoning_tool_continuation_e2e",
             "test_claude_cli_adaptive_thinking_e2e",
             "test_per_model_thinking_config_e2e",
         ),
@@ -139,6 +140,7 @@ FEATURE_INVENTORY: tuple[FeatureCoverage, ...] = (
         (
             "test_provider_interleaved_thinking_tool_e2e",
             "test_provider_tool_result_continuation_e2e",
+            "test_provider_reasoning_tool_continuation_e2e",
         ),
         ("tools", "providers"),
         ("configured tool-capable provider",),

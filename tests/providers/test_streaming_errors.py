@@ -81,6 +81,18 @@ def _make_chunk(
     return chunk
 
 
+def _make_tool_calls_chunk(*, name: str, arguments: str, tool_id: str, index: int = 0):
+    """Single OpenAI-style tool_calls delta (starts a native streamed tool block)."""
+    tc = MagicMock()
+    tc.index = index
+    tc.id = tool_id
+    fn = MagicMock()
+    fn.name = name
+    fn.arguments = arguments
+    tc.function = fn
+    return _make_chunk(tool_calls=[tc])
+
+
 async def _collect_stream(provider, request):
     """Collect all SSE events from a stream."""
     return [e async for e in provider.stream_response(request)]
@@ -107,6 +119,23 @@ def _assert_no_content_deltas_after_error_text(
             ev.event,
             ev.data,
         )
+
+
+def _assert_error_not_in_text_deltas_after_tool(
+    events: list[str], error_substr: str
+) -> None:
+    """Transport errors after a native tool call must not use assistant text_delta (issue #206)."""
+    blob = "".join(events)
+    for ev in parse_sse_text(blob):
+        if ev.event != "content_block_delta":
+            continue
+        delta = ev.data.get("delta", {})
+        if delta.get("type") == "text_delta" and error_substr in str(
+            delta.get("text", "")
+        ):
+            raise AssertionError(
+                f"error leaked as text_delta after tool_use: {ev.data!r} full={blob!r}"
+            )
 
 
 class TestStreamingExceptionHandling:
@@ -210,6 +239,41 @@ class TestStreamingExceptionHandling:
         _assert_no_content_deltas_after_error_text(events, "Connection lost")
 
     @pytest.mark.asyncio
+    async def test_error_after_native_tool_call_uses_top_level_error_event(self):
+        """After a streamed tool_call, do not append error text as a new assistant text block."""
+        provider = _make_provider()
+        request = _make_request()
+        tool_chunk = _make_tool_calls_chunk(
+            name="echo_smoke", arguments="{}", tool_id="call_206", index=0
+        )
+        stream_mock = AsyncStreamMock(
+            [tool_chunk], error=RuntimeError("Connection lost after tool")
+        )
+        with (
+            patch.object(
+                provider._client.chat.completions,
+                "create",
+                new_callable=AsyncMock,
+                return_value=stream_mock,
+            ),
+            patch.object(
+                provider._global_rate_limiter,
+                "wait_if_blocked",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+        ):
+            events = await _collect_stream(provider, request)
+        event_text = "".join(events)
+        assert "tool_use" in event_text
+        assert "Connection lost after tool" in event_text
+        assert "event: error\n" in event_text
+        assert "message_stop" in event_text
+        _assert_error_not_in_text_deltas_after_tool(
+            events, "Connection lost after tool"
+        )
+
+    @pytest.mark.asyncio
     async def test_empty_response_gets_space(self):
         """Empty response with no text/tools gets a single space text block."""
         provider = _make_provider()
@@ -235,6 +299,78 @@ class TestStreamingExceptionHandling:
             events = await _collect_stream(provider, request)
 
         event_text = "".join(events)
+        assert '"text_delta"' in event_text
+        assert "message_stop" in event_text
+
+    @pytest.mark.asyncio
+    async def test_upstream_completion_tokens_null_emits_int_usage(self):
+        """NIM/GLM may send usage.completion_tokens=null; final SSE must not use JSON null."""
+        provider = _make_provider()
+        request = _make_request()
+
+        delta = SimpleNamespace(
+            content="hello",
+            tool_calls=None,
+            reasoning_content=None,
+        )
+        choice = SimpleNamespace(delta=delta, finish_reason="stop")
+        usage = SimpleNamespace(completion_tokens=None, prompt_tokens=None)
+        chunk = SimpleNamespace(choices=[choice], usage=usage)
+        stream_mock = AsyncStreamMock([chunk])
+
+        with (
+            patch.object(
+                provider._client.chat.completions,
+                "create",
+                new_callable=AsyncMock,
+                return_value=stream_mock,
+            ),
+            patch.object(
+                provider._global_rate_limiter,
+                "wait_if_blocked",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+        ):
+            events = await _collect_stream(provider, request)
+
+        parsed = parse_sse_text("".join(events))
+        delta_events = [e for e in parsed if e.event == "message_delta"]
+        assert len(delta_events) == 1
+        usage_out = delta_events[0].data.get("usage", {})
+        assert isinstance(usage_out.get("output_tokens"), int)
+        assert usage_out["output_tokens"] is not None
+        assert '"output_tokens": null' not in "".join(events)
+
+    @pytest.mark.asyncio
+    async def test_reasoning_only_stream_emits_placeholder_text(self):
+        """When the model streams only ``reasoning_content`` (no ``content``), add text block.
+
+        NIM / some templates may emit no main ``content``; a minimal text block matches
+        the empty-body placeholder and helps clients that expect a text segment.
+        """
+        provider = _make_provider_with_thinking_enabled(True)
+        request = _make_request()
+        chunk1 = _make_chunk(reasoning_content="reasoning only from provider")
+        chunk2 = _make_chunk(finish_reason="stop")
+        stream_mock = AsyncStreamMock([chunk1, chunk2])
+        with (
+            patch.object(
+                provider._client.chat.completions,
+                "create",
+                new_callable=AsyncMock,
+                return_value=stream_mock,
+            ),
+            patch.object(
+                provider._global_rate_limiter,
+                "wait_if_blocked",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+        ):
+            events = await _collect_stream(provider, request)
+        event_text = "".join(events)
+        assert "thinking_delta" in event_text
         assert '"text_delta"' in event_text
         assert "message_stop" in event_text
 

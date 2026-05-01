@@ -5,6 +5,7 @@ import httpx
 from providers.anthropic_messages import AnthropicMessagesTransport
 from providers.base import ProviderConfig
 from providers.defaults import OLLAMA_DEFAULT_BASE
+from providers.model_listing import extract_ollama_model_ids
 
 
 class OllamaProvider(AnthropicMessagesTransport):
@@ -27,3 +28,12 @@ class OllamaProvider(AnthropicMessagesTransport):
             headers=self._request_headers(),
         )
         return await self._client.send(request, stream=True)
+
+    async def _send_model_list_request(self) -> httpx.Response:
+        """Query Ollama's native local model-list endpoint."""
+        return await self._client.get(f"{self._base_url}/api/tags")
+
+    def _extract_model_ids_from_model_list_payload(
+        self, payload: object
+    ) -> frozenset[str]:
+        return extract_ollama_model_ids(payload, provider_name=self._provider_name)

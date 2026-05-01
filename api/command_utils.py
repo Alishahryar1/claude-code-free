@@ -1,6 +1,25 @@
 """Command parsing utilities for API optimizations."""
 
+import re
 import shlex
+
+_ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
+
+
+def _is_env_assignment(part: str) -> bool:
+    """Return True when a token is a shell-style env assignment."""
+    return bool(_ENV_ASSIGNMENT_RE.match(part))
+
+
+def _strip_env_assignments(parts: list[str]) -> list[str]:
+    """Return command parts after leading shell-style env assignments."""
+    cmd_start = 0
+    for i, part in enumerate(parts):
+        if _is_env_assignment(part):
+            cmd_start = i + 1
+        else:
+            break
+    return parts[cmd_start:]
 
 
 def extract_command_prefix(command: str) -> str:
@@ -25,7 +44,7 @@ def extract_command_prefix(command: str) -> str:
         env_prefix = []
         cmd_start = 0
         for i, part in enumerate(parts):
-            if "=" in part and not part.startswith("-"):
+            if _is_env_assignment(part):
                 env_prefix.append(part)
                 cmd_start = i + 1
             else:
@@ -58,7 +77,11 @@ def extract_command_prefix(command: str) -> str:
         return first_word if not env_prefix else " ".join(env_prefix) + " " + first_word
 
     except ValueError:
-        return command.split()[0] if command.split() else "none"
+        parts = command.split()
+        if not parts:
+            return "none"
+        cmd_parts = _strip_env_assignments(parts)
+        return cmd_parts[0] if cmd_parts else "none"
 
 
 def extract_filepaths_from_command(command: str, output: str) -> str:
@@ -90,14 +113,18 @@ def extract_filepaths_from_command(command: str, output: str) -> str:
         if not parts:
             return "<filepaths>\n</filepaths>"
 
-        base_cmd = parts[0].split("/")[-1].split("\\")[-1].lower()
+        cmd_parts = _strip_env_assignments(parts)
+        if not cmd_parts:
+            return "<filepaths>\n</filepaths>"
+
+        base_cmd = cmd_parts[0].split("/")[-1].split("\\")[-1].lower()
 
         if base_cmd in listing_commands:
             return "<filepaths>\n</filepaths>"
 
         if base_cmd in reading_commands:
             filepaths = []
-            for part in parts[1:]:
+            for part in cmd_parts[1:]:
                 if part.startswith("-"):
                     continue
                 filepaths.append(part)
@@ -110,21 +137,19 @@ def extract_filepaths_from_command(command: str, output: str) -> str:
         if base_cmd == "grep":
             flags_with_args = {"-e", "-f", "-m", "-A", "-B", "-C"}
             pattern_provided_via_flag = False
-            positional: list[str] = []
+            positional = []
 
             skip_next = False
-            for part in parts[1:]:
+            for part in cmd_parts[1:]:
                 if skip_next:
                     skip_next = False
                     continue
-
                 if part.startswith("-"):
                     if part in flags_with_args:
                         if part in {"-e", "-f"}:
                             pattern_provided_via_flag = True
                         skip_next = True
                     continue
-
                 positional.append(part)
 
             filepaths = positional if pattern_provided_via_flag else positional[1:]

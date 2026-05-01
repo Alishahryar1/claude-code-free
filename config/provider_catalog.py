@@ -13,7 +13,10 @@ TransportType = Literal["openai_chat", "anthropic_messages"]
 
 # Default upstream base URLs (also re-exported via :mod:`providers.defaults`)
 NVIDIA_NIM_DEFAULT_BASE = "https://integrate.api.nvidia.com/v1"
-DEEPSEEK_DEFAULT_BASE = "https://api.deepseek.com"
+# DeepSeek Anthropic-compatible Messages API (not OpenAI ``/v1`` chat completions).
+DEEPSEEK_ANTHROPIC_DEFAULT_BASE = "https://api.deepseek.com/anthropic"
+# Historical export name: DeepSeek upstream is the native Anthropic path above.
+DEEPSEEK_DEFAULT_BASE = DEEPSEEK_ANTHROPIC_DEFAULT_BASE
 OPENROUTER_DEFAULT_BASE = "https://openrouter.ai/api/v1"
 LMSTUDIO_DEFAULT_BASE = "http://localhost:1234/v1"
 LLAMACPP_DEFAULT_BASE = "http://localhost:8080/v1"
@@ -59,12 +62,12 @@ PROVIDER_CATALOG: dict[str, ProviderDescriptor] = {
     ),
     "deepseek": ProviderDescriptor(
         provider_id="deepseek",
-        transport_type="openai_chat",
+        transport_type="anthropic_messages",
         credential_env="DEEPSEEK_API_KEY",
         credential_url="https://platform.deepseek.com/api_keys",
         credential_attr="deepseek_api_key",
-        default_base_url=DEEPSEEK_DEFAULT_BASE,
-        capabilities=("chat", "streaming", "thinking"),
+        default_base_url=DEEPSEEK_ANTHROPIC_DEFAULT_BASE,
+        capabilities=("chat", "streaming", "tools", "thinking", "native_anthropic"),
     ),
     "lmstudio": ProviderDescriptor(
         provider_id="lmstudio",

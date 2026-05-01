@@ -1,6 +1,6 @@
-"""OpenAI-style chat base for :class:`OpenAIChatTransport` (NIM, DeepSeek, etc.).
+"""OpenAI-style chat base for :class:`OpenAIChatTransport` (NIM, etc.).
 
-``AnthropicMessagesTransport``-based providers (OpenRouter, LM Studio, …) live
+``AnthropicMessagesTransport``-based providers (OpenRouter, LM Studio, DeepSeek, …) live
 in separate modules; do not list them as subclasses of this class.
 """
 
@@ -28,6 +28,7 @@ from providers.error_mapping import (
     map_error,
     user_visible_message_for_mapped_provider_error,
 )
+from providers.model_listing import extract_openai_model_ids
 from providers.rate_limit import GlobalRateLimiter
 
 
@@ -56,7 +57,7 @@ def _iter_heuristic_tool_use_sse(
 
 
 class OpenAIChatTransport(BaseProvider):
-    """Base for OpenAI-compatible ``/chat/completions`` adapters (NIM, DeepSeek, …)."""
+    """Base for OpenAI-compatible ``/chat/completions`` adapters (NIM, …)."""
 
     def __init__(
         self,
@@ -105,6 +106,11 @@ class OpenAIChatTransport(BaseProvider):
         client = getattr(self, "_client", None)
         if client is not None:
             await client.aclose()
+
+    async def list_model_ids(self) -> frozenset[str]:
+        """Return model ids from the provider's OpenAI-compatible models endpoint."""
+        payload = await self._client.models.list()
+        return extract_openai_model_ids(payload, provider_name=self._provider_name)
 
     @abstractmethod
     def _build_request_body(
@@ -351,8 +357,13 @@ class OpenAIChatTransport(BaseProvider):
                 )
                 for event in sse.close_all_blocks():
                     yield event
-                for event in sse.emit_error(error_message):
-                    yield event
+                if sse.blocks.has_emitted_tool_block():
+                    # Avoid a second assistant text block after an emitted tool_use, which
+                    # breaks OpenAI history replay (issue #206) when Claude Code stores it.
+                    yield sse.emit_top_level_error(error_message)
+                else:
+                    for event in sse.emit_error(error_message):
+                        yield event
                 yield sse.message_delta("end_turn", 1)
                 yield sse.message_stop()
                 return
@@ -386,6 +397,17 @@ class OpenAIChatTransport(BaseProvider):
             for event in sse.ensure_text_block():
                 yield event
             yield sse.emit_text_delta(" ")
+        elif (
+            not has_started_tool
+            and not sse.accumulated_text.strip()
+            and sse.accumulated_reasoning.strip()
+        ):
+            # Some OpenAI-compatible models (e.g. NIM reasoning templates) stream only
+            # ``reasoning_content`` with no ``content``; emit a minimal text block so
+            # clients and smoke ``text_content()`` see a completed assistant message.
+            for event in sse.ensure_text_block():
+                yield event
+            yield sse.emit_text_delta(" ")
 
         for event in self._flush_task_arg_buffers(sse):
             yield event
@@ -393,11 +415,15 @@ class OpenAIChatTransport(BaseProvider):
         for event in sse.close_all_blocks():
             yield event
 
-        output_tokens = (
-            usage_info.completion_tokens
-            if usage_info and hasattr(usage_info, "completion_tokens")
-            else sse.estimate_output_tokens()
+        completion = (
+            getattr(usage_info, "completion_tokens", None)
+            if usage_info is not None
+            else None
         )
+        if isinstance(completion, int):
+            output_tokens = completion
+        else:
+            output_tokens = sse.estimate_output_tokens()
         if usage_info and hasattr(usage_info, "prompt_tokens"):
             provider_input = usage_info.prompt_tokens
             if isinstance(provider_input, int):

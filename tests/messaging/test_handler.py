@@ -419,6 +419,54 @@ async def test_process_node_success_flow(handler, mock_cli_manager, mock_platfor
         assert "✅ *Complete*" in last_call[0][2]
         assert "Hello world" in last_call[0][2]
 
+    mock_cli_manager.get_or_create_session.assert_awaited_once_with(session_id=None)
+    mock_session.start_task.assert_called_once()
+    st_kw = mock_session.start_task.call_args
+    assert st_kw.kwargs.get("session_id") is None
+    assert st_kw.kwargs.get("fork_session") is False
+
+
+@pytest.mark.asyncio
+async def test_process_node_reply_uses_parent_session_for_manager_and_fork(
+    handler, mock_cli_manager, mock_platform
+):
+    """Telegram follow-ups must reuse parent Claude session (issue #233)."""
+    node_id = "child_1"
+    mock_node = MagicMock()
+    mock_node.incoming.chat_id = "chat_1"
+    mock_node.incoming.text = "follow up"
+    mock_node.status_message_id = "status_child"
+    mock_node.parent_id = "root_msg"
+
+    parent_claude_session = "claude_sess_parent"
+    mock_session = MagicMock()
+    mock_session.start_task.return_value = mock_async_gen([{"type": "exit", "code": 0}])
+    mock_cli_manager.get_or_create_session.return_value = (
+        mock_session,
+        parent_claude_session,
+        False,
+    )
+
+    mock_tree = MagicMock()
+    mock_tree.update_state = AsyncMock()
+    mock_tree.root_id = "root_msg"
+    mock_tree.to_dict.return_value = {}
+    mock_tree.get_parent_session_id = MagicMock(return_value=parent_claude_session)
+
+    with patch.object(
+        handler.tree_queue, "get_tree_for_node", MagicMock(return_value=mock_tree)
+    ):
+        await handler._process_node(node_id, mock_node)
+
+    mock_tree.get_parent_session_id.assert_called_once_with(node_id)
+    mock_cli_manager.get_or_create_session.assert_awaited_once_with(
+        session_id=parent_claude_session
+    )
+    mock_session.start_task.assert_called_once()
+    st_kw = mock_session.start_task.call_args
+    assert st_kw.kwargs.get("session_id") == parent_claude_session
+    assert st_kw.kwargs.get("fork_session") is True
+
 
 @pytest.mark.asyncio
 async def test_process_node_error_flow(handler, mock_cli_manager, mock_platform):

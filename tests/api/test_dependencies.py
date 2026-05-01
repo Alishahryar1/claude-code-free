@@ -154,7 +154,7 @@ async def test_get_provider_deepseek():
         provider = get_provider()
 
         assert isinstance(provider, DeepSeekProvider)
-        assert provider._base_url == "https://api.deepseek.com"
+        assert provider._base_url == "https://api.deepseek.com/anthropic"
         assert provider._api_key == "test_deepseek_key"
         assert provider._config.enable_thinking is True
 
@@ -170,7 +170,7 @@ async def test_get_provider_deepseek_uses_fixed_base_url():
         provider = get_provider()
 
         assert isinstance(provider, DeepSeekProvider)
-        assert provider._base_url == "https://api.deepseek.com"
+        assert provider._base_url == "https://api.deepseek.com/anthropic"
 
 
 @pytest.mark.asyncio

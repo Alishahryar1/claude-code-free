@@ -24,6 +24,12 @@ class MockTool:
         self.input_schema = input_schema
 
 
+class MockBlock:
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
 class MockRequest:
     def __init__(self, **kwargs):
         self.model = "test-model"
@@ -145,6 +151,44 @@ async def test_build_request_body_omits_reasoning_when_request_disables_thinking
     extra = body.get("extra_body", {})
     assert "chat_template_kwargs" not in extra
     assert "reasoning_budget" not in extra
+
+
+def test_preflight_and_build_request_issue_206_post_tool_text(nim_provider):
+    """Regression: assistant message with tool_use then text plus tool results (GitHub #206)."""
+    tool_id = "toolu_issue_206"
+    req = MockRequest(
+        messages=[
+            MockMessage("user", "Use echo once."),
+            MockMessage(
+                "assistant",
+                [
+                    MockBlock(
+                        type="tool_use",
+                        id=tool_id,
+                        name="echo_smoke",
+                        input={"value": "FCC_206"},
+                    ),
+                    MockBlock(
+                        type="text",
+                        text="Commentary after the tool row.",
+                    ),
+                ],
+            ),
+            MockMessage(
+                "user",
+                [
+                    MockBlock(
+                        type="tool_result", tool_use_id=tool_id, content="FCC_206"
+                    ),
+                    MockBlock(type="text", text="What was echoed?"),
+                ],
+            ),
+        ],
+    )
+    nim_provider.preflight_stream(req, thinking_enabled=False)
+    body = nim_provider._build_request_body(req, thinking_enabled=False)
+    assert "messages" in body
+    assert any(m.get("role") == "tool" for m in body["messages"])
 
 
 @pytest.mark.asyncio
@@ -425,6 +469,57 @@ async def test_stream_response_retries_without_reasoning_budget(nim_provider):
     assert "reasoning_budget" not in second_call["extra_body"]
     assert "reasoning_budget" not in second_call["extra_body"]["chat_template_kwargs"]
     assert second_call["extra_body"]["chat_template_kwargs"]["enable_thinking"] is True
+    assert any("Recovered" in event for event in events)
+    assert any("message_stop" in event for event in events)
+
+
+@pytest.mark.asyncio
+async def test_stream_response_retries_without_reasoning_content(nim_provider):
+    req = MockRequest(
+        system=None,
+        messages=[
+            MockMessage(
+                "assistant",
+                [
+                    MockBlock(type="thinking", thinking="Need the tool."),
+                    MockBlock(
+                        type="tool_use",
+                        id="toolu_reasoning",
+                        name="echo_smoke",
+                        input={"value": "FCC_TOOL"},
+                    ),
+                ],
+            )
+        ],
+    )
+
+    mock_chunk = MagicMock()
+    mock_chunk.choices = [
+        MagicMock(
+            delta=MagicMock(content="Recovered", reasoning_content=""),
+            finish_reason="stop",
+        )
+    ]
+    mock_chunk.usage = MagicMock(completion_tokens=5)
+
+    async def mock_stream():
+        yield mock_chunk
+
+    error = _make_bad_request_error("Unsupported field: reasoning_content")
+
+    with patch.object(
+        nim_provider._client.chat.completions, "create", new_callable=AsyncMock
+    ) as mock_create:
+        mock_create.side_effect = [error, mock_stream()]
+
+        events = [e async for e in nim_provider.stream_response(req)]
+
+    assert mock_create.await_count == 2
+    first_call = mock_create.await_args_list[0].kwargs
+    second_call = mock_create.await_args_list[1].kwargs
+    assert first_call["messages"][0]["reasoning_content"] == "Need the tool."
+    assert "reasoning_content" not in second_call["messages"][0]
+    assert second_call["messages"][0]["tool_calls"][0]["id"] == "toolu_reasoning"
     assert any("Recovered" in event for event in events)
     assert any("message_stop" in event for event in events)
 

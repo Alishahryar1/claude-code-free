@@ -31,9 +31,11 @@ $env:FCC_LIVE_SMOKE = "1"
 uv run pytest smoke -n 0 -s --tb=short
 ```
 
-Provider product E2E runs for every configured provider model from `MODEL`,
-`MODEL_OPUS`, `MODEL_SONNET`, and `MODEL_HAIKU`. If no provider is configured,
-live product smoke fails as `missing_env` unless you explicitly set
+Provider product E2E runs once per configured provider, independent of `MODEL`,
+`MODEL_OPUS`, `MODEL_SONNET`, and `MODEL_HAIKU`. Defaults come from the provider
+catalog/docs and can be overridden with `FCC_SMOKE_MODEL_<PROVIDER>`, for example
+`FCC_SMOKE_MODEL_DEEPSEEK=deepseek-v4-pro` (or `deepseek-v4-flash`). If no provider smoke model is
+configured, live product smoke fails as `missing_env` unless you explicitly set
 `FCC_ALLOW_NO_PROVIDER_SMOKE=1`.
 
 ## Targets
@@ -49,7 +51,7 @@ Default targets do not send real bot messages or load voice backends:
 | `config` | env precedence, removed-env migration, proxy/timeouts | none |
 | `extensibility` | provider registry and platform factory construction | none |
 | `messaging` | fake Discord/Telegram full flow, commands, trees, persistence, voice cancel | none |
-| `providers` | multi-turn text, adaptive thinking history, tools, disconnect, errors | configured provider models |
+| `providers` | multi-turn text, adaptive thinking history, tools, disconnect, errors | configured providers, optional `FCC_SMOKE_MODEL_*` |
 | `tools` | forced tool_use and tool_result continuation | tool-capable configured provider |
 | `rate_limit` | disconnect cleanup and follow-up request | configured provider |
 | `lmstudio` | local `/models` plus native `/messages` through proxy | running LM Studio server |
@@ -99,6 +101,11 @@ uv run pytest smoke/product -n 0 -s --tb=short
 - `FCC_ALLOW_NO_PROVIDER_SMOKE=1`: permits no-provider live smoke for harness work.
 - `FCC_SMOKE_TARGETS`: comma-separated targets, or `all`.
 - `FCC_SMOKE_PROVIDER_MATRIX`: comma-separated provider prefixes to require.
+- `FCC_SMOKE_MODEL_NVIDIA_NIM`, `FCC_SMOKE_MODEL_OPEN_ROUTER`,
+  `FCC_SMOKE_MODEL_DEEPSEEK`, `FCC_SMOKE_MODEL_LMSTUDIO`,
+  `FCC_SMOKE_MODEL_LLAMACPP`, `FCC_SMOKE_MODEL_OLLAMA`: optional per-provider
+  smoke model overrides. Values may include the provider prefix or just the model
+  name for that provider.
 - `FCC_SMOKE_TIMEOUT_S`: per-request/subprocess timeout, default `45`.
 - `FCC_SMOKE_CLAUDE_BIN`: Claude CLI executable name, default `claude`.
 - `FCC_SMOKE_TELEGRAM_CHAT_ID`: Telegram chat/user ID for send/edit/delete.

@@ -1,12 +1,15 @@
 import importlib
+from collections.abc import MutableMapping
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from config.settings import Settings
+from providers.exceptions import ServiceUnavailableError
 from providers.registry import ProviderRegistry
 
 _RUNTIME_EXTRAS = {
@@ -26,6 +29,7 @@ _RUNTIME_EXTRAS = {
     "log_raw_messaging_content": False,
     "log_raw_cli_diagnostics": False,
     "log_messaging_error_details": False,
+    "configured_chat_model_refs": lambda: (),
 }
 
 
@@ -346,6 +350,89 @@ def test_app_lifespan_cleanup_continues_if_platform_stop_raises(tmp_path):
     fake_platform.stop.assert_awaited_once()
     cli_manager.stop_all.assert_awaited_once()
     registry_cleanup.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_runtime_startup_validation_blocks_messaging_and_cleans_up(tmp_path):
+    import api.runtime as api_runtime_mod
+
+    settings = _app_settings(
+        messaging_platform="telegram",
+        telegram_bot_token="token",
+        allowed_telegram_user_id="123",
+        discord_bot_token=None,
+        allowed_discord_channels=None,
+        allowed_dir=str(tmp_path / "workspace"),
+        claude_workspace=str(tmp_path / "data"),
+        host="127.0.0.1",
+        port=8082,
+        log_file=str(tmp_path / "server.log"),
+    )
+    app = FastAPI()
+    runtime = api_runtime_mod.AppRuntime(
+        app=app,
+        settings=cast(Settings, settings),
+    )
+
+    validation = AsyncMock(side_effect=ServiceUnavailableError("bad model"))
+    cleanup = AsyncMock()
+    with (
+        patch.object(ProviderRegistry, "validate_configured_models", new=validation),
+        patch.object(ProviderRegistry, "cleanup", new=cleanup),
+        patch.object(api_runtime_mod.logger, "error") as log_error,
+        patch(
+            "messaging.platforms.factory.create_messaging_platform"
+        ) as create_platform,
+        pytest.raises(ServiceUnavailableError, match="bad model"),
+    ):
+        await runtime.startup()
+
+    validation.assert_awaited_once_with(settings)
+    cleanup.assert_awaited_once()
+    create_platform.assert_not_called()
+    logged = " ".join(
+        str(arg) for call in log_error.call_args_list for arg in call.args
+    )
+    assert "Startup failed" in logged
+    assert "bad model" in logged
+    assert "Traceback" not in logged
+
+
+@pytest.mark.asyncio
+async def test_graceful_asgi_lifespan_failure_sends_no_traceback(tmp_path):
+    import api.app as api_app_mod
+
+    settings = _app_settings(
+        messaging_platform="none",
+        telegram_bot_token=None,
+        allowed_telegram_user_id=None,
+        discord_bot_token=None,
+        allowed_discord_channels=None,
+        allowed_dir=str(tmp_path / "workspace"),
+        claude_workspace=str(tmp_path / "data"),
+        host="127.0.0.1",
+        port=8082,
+        log_file=str(tmp_path / "server.log"),
+    )
+    app = api_app_mod.GracefulLifespanApp(FastAPI())
+    sent: list[MutableMapping[str, Any]] = []
+
+    async def receive() -> MutableMapping[str, Any]:
+        return {"type": "lifespan.startup"}
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        sent.append(message)
+
+    validation = AsyncMock(side_effect=ServiceUnavailableError("bad model"))
+    cleanup = AsyncMock()
+    with (
+        patch.object(api_app_mod, "get_settings", return_value=settings),
+        patch.object(ProviderRegistry, "validate_configured_models", new=validation),
+        patch.object(ProviderRegistry, "cleanup", new=cleanup),
+    ):
+        await app({"type": "lifespan"}, receive, send)
+
+    assert sent == [{"type": "lifespan.startup.failed", "message": "bad model"}]
 
 
 def test_app_lifespan_messaging_import_error_no_crash(tmp_path, caplog):

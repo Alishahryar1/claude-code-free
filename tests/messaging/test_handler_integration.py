@@ -95,7 +95,7 @@ async def test_full_conversation_flow_single_user(
 
     assert tree.get_node("m2").state.value == MessageState.COMPLETED.value
     assert tree.get_node("m2").parent_id == "m1"
-    mock_cli_manager.get_or_create_session.assert_called_with(session_id=None)
+    mock_cli_manager.get_or_create_session.assert_called_with(session_id="sess1")
     mock_session2.start_task.assert_called_with(
         "message 2", session_id="sess1", fork_session=True
     )

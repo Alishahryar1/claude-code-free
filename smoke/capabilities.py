@@ -100,7 +100,10 @@ CAPABILITY_CONTRACTS: tuple[CapabilityContract, ...] = (
         "configured BaseProvider instance",
         "503 for missing credentials; invalid_request_error for unknown provider",
         ("tests/api/test_dependencies.py", "tests/providers/test_registry.py"),
-        ("test_configured_provider_models_stream_successfully",),
+        (
+            "test_configured_provider_models_stream_successfully",
+            "test_provider_matrix_presence_e2e",
+        ),
     ),
     CapabilityContract(
         "provider_routing",
@@ -168,9 +171,15 @@ CAPABILITY_CONTRACTS: tuple[CapabilityContract, ...] = (
         "thinking hidden when disabled",
         (
             "tests/contracts/test_stream_contracts.py",
+            "tests/providers/test_converter.py",
+            "tests/providers/test_deepseek.py",
+            "tests/providers/test_nvidia_nim_request.py",
             "tests/providers/test_open_router.py",
         ),
-        ("test_per_model_thinking_config_e2e",),
+        (
+            "test_per_model_thinking_config_e2e",
+            "test_provider_reasoning_tool_continuation_e2e",
+        ),
     ),
     CapabilityContract(
         "streaming_conversion",
@@ -181,7 +190,10 @@ CAPABILITY_CONTRACTS: tuple[CapabilityContract, ...] = (
         "structured Anthropic tool_use blocks",
         "text fallback when malformed",
         ("tests/providers/test_parsers.py", "tests/contracts/test_stream_contracts.py"),
-        ("test_live_tool_use_when_configured_model_supports_tools",),
+        (
+            "test_live_tool_use_when_configured_model_supports_tools",
+            "test_provider_reasoning_tool_continuation_e2e",
+        ),
     ),
     CapabilityContract(
         "streaming_conversion",

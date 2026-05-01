@@ -8,8 +8,10 @@ import pytest
 from core.anthropic.stream_contracts import (
     assert_anthropic_stream_contract,
     text_content,
+    thinking_content,
 )
 from smoke.lib.config import SmokeConfig, auth_headers
+from smoke.lib.e2e import ProviderMatrixDriver
 from smoke.lib.http import collect_message_stream, message_payload
 from smoke.lib.server import start_server
 from smoke.lib.skips import (
@@ -45,9 +47,7 @@ def test_mixed_provider_model_mapping_when_configured(
 def test_configured_provider_models_stream_successfully(
     smoke_config: SmokeConfig,
 ) -> None:
-    models = smoke_config.provider_models()
-    if not models:
-        pytest.skip("no configured provider models with usable credentials/base URLs")
+    models = ProviderMatrixDriver(smoke_config).provider_smoke_models()
 
     failures: list[str] = []
     for provider_model in models:
@@ -67,7 +67,11 @@ def test_configured_provider_models_stream_successfully(
                 )
                 skip_if_upstream_unavailable_events(events)
                 assert_anthropic_stream_contract(events)
-                assert text_content(events).strip(), "provider returned no text"
+                has_text = bool(text_content(events).strip())
+                has_thinking = bool(thinking_content(events).strip())
+                assert has_text or has_thinking, (
+                    "provider returned no visible text or thinking content"
+                )
         except Exception as exc:
             skip_if_upstream_unavailable_exception(exc)
             failures.append(
@@ -82,10 +86,7 @@ def test_configured_provider_models_stream_successfully(
 def test_client_disconnect_mid_stream_does_not_crash_server(
     smoke_config: SmokeConfig,
 ) -> None:
-    models = smoke_config.provider_models()
-    if not models:
-        pytest.skip("no configured provider model available for disconnect smoke")
-    provider_model = models[0]
+    provider_model = ProviderMatrixDriver(smoke_config).first_model()
 
     with start_server(
         smoke_config,
