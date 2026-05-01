@@ -26,6 +26,27 @@ class ConfiguredChatModelRef:
     sources: tuple[str, ...]
 
 
+_OPENROUTER_ROUTER_MODEL_IDS = frozenset({"free", "auto"})
+_DEEPSEEK_LEGACY_MODEL_ALIASES = {
+    "deepseek-chat": "deepseek-v4-flash",
+    "deepseek-reasoner": "deepseek-v4-pro",
+}
+
+
+def _normalize_model_ref(model_ref: str) -> str:
+    """Return the canonical provider-prefixed model reference."""
+    if model_ref.startswith("openrouter/"):
+        return f"open_router/{model_ref}"
+
+    provider, _, model_id = model_ref.partition("/")
+    if provider == "open_router" and model_id in _OPENROUTER_ROUTER_MODEL_IDS:
+        return f"open_router/openrouter/{model_id}"
+    if provider == "deepseek" and model_id in _DEEPSEEK_LEGACY_MODEL_ALIASES:
+        return f"deepseek/{_DEEPSEEK_LEGACY_MODEL_ALIASES[model_id]}"
+
+    return model_ref
+
+
 def _env_files() -> tuple[Path, ...]:
     """Return env file paths in priority order (later overrides earlier)."""
     files: list[Path] = [
@@ -388,6 +409,7 @@ class Settings(BaseSettings):
     def validate_model_format(cls, v: str | None) -> str | None:
         if v is None:
             return None
+        v = _normalize_model_ref(v)
         if "/" not in v:
             raise ValueError(
                 f"Model must be prefixed with provider type. "
