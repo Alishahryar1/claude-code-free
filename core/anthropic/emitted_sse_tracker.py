@@ -15,25 +15,37 @@ class EmittedNativeSseTracker:
     """Parse emitted SSE frames so mid-stream errors can close blocks and pick a fresh index."""
 
     def __init__(self) -> None:
-        self._buf = ""
+        self._chunks: list[str] = []
         self._open_stack: list[int] = []
         self._max_index = -1
         self.message_id: str | None = None
         self.model: str = ""
+        self._buf: str | None = None
 
     def feed(self, chunk: str) -> None:
         """Record SSE frames completed by ``chunk`` (handles splitting across reads)."""
-        self._buf += chunk
+        self._chunks.append(chunk)
+        self._buf = None  # invalidate cached join
         while True:
-            sep = self._buf.find("\n\n")
+            buf = self._get_buf()
+            sep = buf.find("\n\n")
             if sep < 0:
                 break
-            frame = self._buf[:sep]
-            self._buf = self._buf[sep + 2 :]
+            frame = buf[:sep]
+            self._set_buf(buf[sep + 2 :])
             if not frame.strip():
                 continue
             for event in parse_sse_lines(frame.splitlines()):
                 self._observe(event)
+
+    def _get_buf(self) -> str:
+        if self._buf is None:
+            self._buf = "".join(self._chunks)
+        return self._buf
+
+    def _set_buf(self, value: str) -> None:
+        self._buf = value
+        self._chunks = [value]
 
     def _observe(self, event: SSEEvent) -> None:
         if event.event == "message_start":
