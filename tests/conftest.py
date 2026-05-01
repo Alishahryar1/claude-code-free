@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from config.settings import Settings
+from core.typing_compat import patch_typing_eval_type_for_pydantic
 
 # Set mock environment BEFORE any imports that use Settings
 os.environ.setdefault("NVIDIA_NIM_API_KEY", "test_key")
@@ -18,6 +19,8 @@ os.environ["PTB_TIMEDELTA"] = "1"
 os.environ["ANTHROPIC_AUTH_TOKEN"] = ""
 
 Settings.model_config = {**Settings.model_config, "env_file": None}
+
+patch_typing_eval_type_for_pydantic()
 
 
 @pytest.fixture(autouse=True)

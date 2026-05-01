@@ -1,23 +1,28 @@
 """FastAPI application factory and configuration."""
 
+from __future__ import annotations
+
 import traceback
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from fastapi import FastAPI, Request
-from fastapi.exception_handlers import request_validation_exception_handler
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 from loguru import logger
 from starlette.types import Receive, Scope, Send
 
 from config.logging_config import configure_logging
 from config.settings import get_settings
+from core.typing_compat import patch_typing_eval_type_for_pydantic
 from providers.exceptions import ProviderError
 
 from .routes import router
 from .runtime import AppRuntime, startup_failure_message
 from .validation_log import summarize_request_validation_body
+
+patch_typing_eval_type_for_pydantic()
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI, Request
+    from fastapi.exceptions import RequestValidationError
 
 
 @asynccontextmanager
@@ -81,6 +86,11 @@ class GracefulLifespanApp:
 
 def create_app(*, lifespan_enabled: bool = True) -> FastAPI:
     """Create and configure the FastAPI application."""
+    from fastapi import FastAPI
+    from fastapi.exception_handlers import request_validation_exception_handler
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.responses import JSONResponse
+
     settings = get_settings()
     configure_logging(
         settings.log_file, verbose_third_party=settings.log_raw_api_payloads
