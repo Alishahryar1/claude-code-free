@@ -133,15 +133,15 @@ provider_id/model/name
 
 | Provider | Prefix | Transport | Key | Default base URL |
 | --- | --- | --- | --- | --- |
-| <img src="https://cdn.simpleicons.org/nvidia/76B900" alt="" width="18" height="18"> NVIDIA NIM | `nvidia_nim/...` | OpenAI chat translation | `NVIDIA_NIM_API_KEY` | `https://integrate.api.nvidia.com/v1` |
-| <img src="https://cdn.simpleicons.org/openrouter/6C47FF" alt="" width="18" height="18"> OpenRouter | `open_router/...` | Anthropic Messages | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
-| <img src="https://cdn.simpleicons.org/deepseek/4D6BFF" alt="" width="18" height="18"> DeepSeek | `deepseek/...` | Anthropic Messages | `DEEPSEEK_API_KEY` | `https://api.deepseek.com/anthropic` |
-| <img src="https://github.com/lmstudio-ai.png?size=64" alt="" width="18" height="18"> LM Studio | `lmstudio/...` | Anthropic Messages | none | `http://localhost:1234/v1` |
-| <img src="https://github.com/ggml-org.png?size=64" alt="" width="18" height="18"> llama.cpp | `llamacpp/...` | Anthropic Messages | none | `http://localhost:8080/v1` |
-| <img src="https://github.com/ollama.png?size=64" alt="" width="18" height="18"> Ollama | `ollama/...` | Anthropic Messages | none | `http://localhost:11434` |
+| <span style="white-space: nowrap;"><img src="https://cdn.simpleicons.org/nvidia/76B900" alt="" width="16" height="16"> NVIDIA NIM</span> | `nvidia_nim/...` | OpenAI chat translation | `NVIDIA_NIM_API_KEY` | `https://integrate.api.nvidia.com/v1` |
+| <span style="white-space: nowrap;"><img src="https://cdn.simpleicons.org/openrouter/6C47FF" alt="" width="16" height="16"> OpenRouter</span> | `open_router/...` | Anthropic Messages | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
+| <span style="white-space: nowrap;"><img src="https://cdn.simpleicons.org/deepseek/4D6BFF" alt="" width="16" height="16"> DeepSeek</span> | `deepseek/...` | Anthropic Messages | `DEEPSEEK_API_KEY` | `https://api.deepseek.com/anthropic` |
+| <span style="white-space: nowrap;"><img src="https://github.com/lmstudio-ai.png?size=64" alt="" width="16" height="16"> LM Studio</span> | `lmstudio/...` | Anthropic Messages | none | `http://localhost:1234/v1` |
+| <span style="white-space: nowrap;"><img src="https://github.com/ggml-org.png?size=64" alt="" width="16" height="16"> llama.cpp</span> | `llamacpp/...` | Anthropic Messages | none | `http://localhost:8080/v1` |
+| <span style="white-space: nowrap;"><img src="https://github.com/ollama.png?size=64" alt="" width="16" height="16"> Ollama</span> | `ollama/...` | Anthropic Messages | none | `http://localhost:11434` |
 
 <details>
-<summary><img src="https://cdn.simpleicons.org/nvidia/76B900" alt="" width="18" height="18"> <b>NVIDIA NIM</b></summary>
+<summary><span style="white-space: nowrap;"><img src="https://cdn.simpleicons.org/nvidia/76B900" alt="" width="16" height="16"> <b>NVIDIA NIM</b></span></summary>
 
 Get a key at [build.nvidia.com/settings/api-keys](https://build.nvidia.com/settings/api-keys).
 
@@ -162,7 +162,7 @@ Browse models at [build.nvidia.com](https://build.nvidia.com/explore/discover).
 </details>
 
 <details>
-<summary><img src="https://cdn.simpleicons.org/openrouter/6C47FF" alt="" width="18" height="18"> <b>OpenRouter</b></summary>
+<summary><span style="white-space: nowrap;"><img src="https://cdn.simpleicons.org/openrouter/6C47FF" alt="" width="16" height="16"> <b>OpenRouter</b></span></summary>
 
 Get a key at [openrouter.ai/keys](https://openrouter.ai/keys).
 
@@ -176,7 +176,7 @@ Browse [all models](https://openrouter.ai/models) or [free models](https://openr
 </details>
 
 <details>
-<summary><img src="https://cdn.simpleicons.org/deepseek/4D6BFF" alt="" width="18" height="18"> <b>DeepSeek</b></summary>
+<summary><span style="white-space: nowrap;"><img src="https://cdn.simpleicons.org/deepseek/4D6BFF" alt="" width="16" height="16"> <b>DeepSeek</b></span></summary>
 
 Get a key at [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys).
 
@@ -190,7 +190,7 @@ This provider uses DeepSeek's Anthropic-compatible endpoint, not the OpenAI chat
 </details>
 
 <details>
-<summary><img src="https://github.com/lmstudio-ai.png?size=64" alt="" width="18" height="18"> <b>LM Studio</b></summary>
+<summary><span style="white-space: nowrap;"><img src="https://github.com/lmstudio-ai.png?size=64" alt="" width="16" height="16"> <b>LM Studio</b></span></summary>
 
 Start LM Studio's local server, load a model, then configure:
 
@@ -204,7 +204,7 @@ Use the model identifier shown by LM Studio. Prefer models with tool-use support
 </details>
 
 <details>
-<summary><img src="https://github.com/ggml-org.png?size=64" alt="" width="18" height="18"> <b>llama.cpp</b></summary>
+<summary><span style="white-space: nowrap;"><img src="https://github.com/ggml-org.png?size=64" alt="" width="16" height="16"> <b>llama.cpp</b></span></summary>
 
 Start `llama-server` with an Anthropic-compatible `/v1/messages` endpoint and enough context for Claude Code requests.
 
@@ -218,7 +218,7 @@ For local coding models, context size matters. If llama.cpp returns HTTP 400 for
 </details>
 
 <details>
-<summary><img src="https://github.com/ollama.png?size=64" alt="" width="18" height="18"> <b>Ollama</b></summary>
+<summary><span style="white-space: nowrap;"><img src="https://github.com/ollama.png?size=64" alt="" width="16" height="16"> <b>Ollama</b></span></summary>
 
 Run Ollama and pull a model:
 

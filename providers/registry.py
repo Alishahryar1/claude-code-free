@@ -205,10 +205,20 @@ class ProviderRegistry:
         """Fail fast unless every configured chat model exists upstream."""
         refs = settings.configured_chat_model_refs()
         refs_by_provider: dict[str, list[ConfiguredChatModelRef]] = defaultdict(list)
-        for ref in refs:
-            refs_by_provider[ref.provider_id].append(ref)
-
         failures: list[str] = []
+        for ref in refs:
+            if ref.provider_id == "nvidia_nim" and "/" not in ref.model_id:
+                failures.append(
+                    _format_model_validation_failure(
+                        ref,
+                        f"NIM model names require a vendor prefix "
+                        f"(e.g. 'google/{ref.model_id}'). "
+                        f"Browse models at https://build.nvidia.com/explore/discover",
+                    )
+                )
+            else:
+                refs_by_provider[ref.provider_id].append(ref)
+
         tasks: dict[str, asyncio.Task[frozenset[str]]] = {}
         for provider_id, provider_refs in refs_by_provider.items():
             try:

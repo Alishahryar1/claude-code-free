@@ -22,7 +22,7 @@ from providers.registry import ProviderRegistry
 
 def _settings(
     *,
-    model: str = "nvidia_nim/nim-model",
+    model: str = "nvidia_nim/org/nim-model",
     model_opus: str | None = None,
     model_sonnet: str | None = None,
     model_haiku: str | None = None,
@@ -196,7 +196,7 @@ class FakeProvider(BaseProvider):
 async def test_registry_validation_succeeds_for_all_configured_models() -> None:
     registry = ProviderRegistry(
         {
-            "nvidia_nim": FakeProvider(frozenset({"nim-model"})),
+            "nvidia_nim": FakeProvider(frozenset({"org/nim-model"})),
             "open_router": FakeProvider(frozenset({"anthropic/claude-opus"})),
         }
     )
@@ -208,9 +208,9 @@ async def test_registry_validation_succeeds_for_all_configured_models() -> None:
 @pytest.mark.asyncio
 async def test_registry_validation_reports_missing_model_with_sources() -> None:
     registry = ProviderRegistry(
-        {"nvidia_nim": FakeProvider(frozenset({"different-model"}))}
+        {"nvidia_nim": FakeProvider(frozenset({"org/different-model"}))}
     )
-    settings = _settings(model_sonnet="nvidia_nim/nim-model")
+    settings = _settings(model_sonnet="nvidia_nim/org/nim-model")
 
     with pytest.raises(ServiceUnavailableError) as exc_info:
         await registry.validate_configured_models(settings)
@@ -218,7 +218,7 @@ async def test_registry_validation_reports_missing_model_with_sources() -> None:
     message = exc_info.value.message
     assert "sources=MODEL,MODEL_SONNET" in message
     assert "provider=nvidia_nim" in message
-    assert "model=nim-model" in message
+    assert "model=org/nim-model" in message
     assert "problem=missing model" in message
 
 
@@ -226,7 +226,7 @@ async def test_registry_validation_reports_missing_model_with_sources() -> None:
 async def test_registry_validation_aggregates_multiple_failures() -> None:
     registry = ProviderRegistry(
         {
-            "nvidia_nim": FakeProvider(frozenset({"different-model"})),
+            "nvidia_nim": FakeProvider(frozenset({"org/different-model"})),
             "open_router": FakeProvider(
                 error=ModelListResponseError("bad model-list shape")
             ),
@@ -238,7 +238,7 @@ async def test_registry_validation_aggregates_multiple_failures() -> None:
         await registry.validate_configured_models(settings)
 
     message = exc_info.value.message
-    assert "sources=MODEL provider=nvidia_nim model=nim-model" in message
+    assert "sources=MODEL provider=nvidia_nim model=org/nim-model" in message
     assert "problem=missing model" in message
     assert "sources=MODEL_OPUS provider=open_router model=anthropic/claude-opus" in (
         message
@@ -253,7 +253,7 @@ async def test_registry_validation_queries_providers_concurrently() -> None:
     registry = ProviderRegistry(
         {
             "nvidia_nim": FakeProvider(
-                frozenset({"nim-model"}),
+                frozenset({"org/nim-model"}),
                 started=nim_started,
                 peer_started=router_started,
             ),
@@ -267,3 +267,26 @@ async def test_registry_validation_queries_providers_concurrently() -> None:
     settings = _settings(model_opus="open_router/anthropic/claude-opus")
 
     await asyncio.wait_for(registry.validate_configured_models(settings), timeout=1.0)
+
+
+@pytest.mark.asyncio
+async def test_registry_validation_rejects_nim_model_without_vendor_prefix() -> None:
+    registry = ProviderRegistry({"nvidia_nim": FakeProvider(frozenset({"google/gemma-3-27b-it"}))})
+    settings = _settings(model="nvidia_nim/gemma-3-27b-it")
+
+    with pytest.raises(ServiceUnavailableError) as exc_info:
+        await registry.validate_configured_models(settings)
+
+    message = exc_info.value.message
+    assert "provider=nvidia_nim" in message
+    assert "model=gemma-3-27b-it" in message
+    assert "vendor prefix" in message
+    assert "build.nvidia.com" in message
+
+
+@pytest.mark.asyncio
+async def test_registry_validation_accepts_nim_model_with_vendor_prefix() -> None:
+    registry = ProviderRegistry({"nvidia_nim": FakeProvider(frozenset({"google/gemma-3-27b-it"}))})
+    settings = _settings(model="nvidia_nim/google/gemma-3-27b-it")
+
+    await registry.validate_configured_models(settings)
