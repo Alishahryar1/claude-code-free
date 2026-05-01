@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, AsyncIterator
 
 from loguru import logger
 
@@ -325,7 +325,7 @@ class MessageTree:
         return self._queue.remove_if_present(node_id)
 
     @asynccontextmanager
-    async def with_lock(self):
+    async def with_lock(self) -> AsyncIterator[None]:
         """Async context manager for tree lock. Use when multiple operations need atomicity."""
         async with self._lock:
             yield
