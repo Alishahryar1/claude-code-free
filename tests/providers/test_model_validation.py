@@ -271,7 +271,9 @@ async def test_registry_validation_queries_providers_concurrently() -> None:
 
 @pytest.mark.asyncio
 async def test_registry_validation_rejects_nim_model_without_vendor_prefix() -> None:
-    registry = ProviderRegistry({"nvidia_nim": FakeProvider(frozenset({"google/gemma-3-27b-it"}))})
+    registry = ProviderRegistry(
+        {"nvidia_nim": FakeProvider(frozenset({"google/gemma-3-27b-it"}))}
+    )
     settings = _settings(model="nvidia_nim/gemma-3-27b-it")
 
     with pytest.raises(ServiceUnavailableError) as exc_info:
@@ -286,7 +288,9 @@ async def test_registry_validation_rejects_nim_model_without_vendor_prefix() -> 
 
 @pytest.mark.asyncio
 async def test_registry_validation_accepts_nim_model_with_vendor_prefix() -> None:
-    registry = ProviderRegistry({"nvidia_nim": FakeProvider(frozenset({"google/gemma-3-27b-it"}))})
+    registry = ProviderRegistry(
+        {"nvidia_nim": FakeProvider(frozenset({"google/gemma-3-27b-it"}))}
+    )
     settings = _settings(model="nvidia_nim/google/gemma-3-27b-it")
 
     await registry.validate_configured_models(settings)
