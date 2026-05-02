@@ -30,8 +30,8 @@ class GlobalRateLimiter:
     Concurrency limit - caps simultaneously open streams.
     """
 
-    _instance: ClassVar[GlobalRateLimiter | None] = None
-    _scoped_instances: ClassVar[dict[str, GlobalRateLimiter]] = {}
+    _instance: ClassVar["GlobalRateLimiter | None"] = None
+    _scoped_instances: ClassVar[dict[str, "GlobalRateLimiter"]] = {}
 
     def __init__(
         self,
@@ -70,7 +70,7 @@ class GlobalRateLimiter:
         rate_limit: int | None = None,
         rate_window: float | None = None,
         max_concurrency: int = 5,
-    ) -> GlobalRateLimiter:
+    ) -> "GlobalRateLimiter":
         """Get or create the singleton instance.
 
         Args:
@@ -94,7 +94,7 @@ class GlobalRateLimiter:
         rate_limit: int | None = None,
         rate_window: float | None = None,
         max_concurrency: int = 5,
-    ) -> GlobalRateLimiter:
+    ) -> "GlobalRateLimiter":
         """Get or create a provider-scoped limiter instance."""
         if not scope:
             raise ValueError("scope must be non-empty")
@@ -265,3 +265,6 @@ class GlobalRateLimiter:
 
         assert last_exc is not None
         raise last_exc
+
+
+

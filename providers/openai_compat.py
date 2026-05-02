@@ -338,7 +338,7 @@ class OpenAIChatTransport(BaseProvider):
                             for event in self._process_tool_call(tc_info, sse):
                                 yield event
 
-            except asyncio.CancelledError, GeneratorExit:
+            except (asyncio.CancelledError, GeneratorExit):
                 raise
             except Exception as e:
                 self._log_stream_transport_error(tag, req_tag, e)
@@ -435,3 +435,5 @@ class OpenAIChatTransport(BaseProvider):
                 )
         yield sse.message_delta(map_stop_reason(finish_reason), output_tokens)
         yield sse.message_stop()
+
+
