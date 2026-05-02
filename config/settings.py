@@ -198,6 +198,12 @@ class Settings(BaseSettings):
     # ==================== Fast Prefix Detection ====================
     fast_prefix_detection: bool = True
 
+    # ==================== Message Truncation ====================
+    # When > 0, requests with more messages than this are trimmed to the last N before
+    # forwarding to the provider. Prevents timeouts on free-tier inference (e.g. NIM).
+    # 0 = disabled. Recommended: 120 for NVIDIA NIM free tier.
+    max_messages: int = Field(default=0, validation_alias="MAX_MESSAGES")
+
     # ==================== Optimizations ====================
     enable_network_probe_mock: bool = True
     enable_title_generation_skip: bool = True
