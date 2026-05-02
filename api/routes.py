@@ -5,6 +5,7 @@ from loguru import logger
 
 from config.settings import Settings
 from core.anthropic import get_token_count
+from core.metrics import get_metrics_service
 from providers.registry import ProviderRegistry
 
 from . import dependencies
@@ -252,3 +253,30 @@ async def stop_cli(request: Request, _auth=Depends(require_api_key)):
     count = await handler.stop_all_tasks()
     logger.info("STOP_CLI: source=handler cancelled_count={}", count)
     return {"status": "stopped", "cancelled_count": count}
+
+
+@router.get("/metrics")
+async def get_metrics_endpoint(hours: int = 24, _auth=Depends(require_api_key)):
+    """Get request metrics by model and hour.
+    
+    Query parameters:
+    - hours: Number of recent hours to include (default 24)
+    
+    Returns metrics grouped by model with request counts per hour.
+    """
+    metrics_service = get_metrics_service()
+    return metrics_service.get_metrics(hours=hours)
+
+
+@router.get("/metrics/summary")
+async def get_metrics_summary(_auth=Depends(require_api_key)):
+    """Get summary of request metrics by model (total requests per model)."""
+    metrics_service = get_metrics_service()
+    return metrics_service.get_model_summary()
+
+
+@router.get("/metrics/hourly")
+async def get_metrics_hourly(hours: int = 24, _auth=Depends(require_api_key)):
+    """Get hourly summary of request metrics across all models."""
+    metrics_service = get_metrics_service()
+    return metrics_service.get_hourly_summary(hours=hours)

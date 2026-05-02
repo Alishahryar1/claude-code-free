@@ -1,5 +1,6 @@
 """FastAPI application factory and configuration."""
 
+import json
 import traceback
 from contextlib import asynccontextmanager
 from typing import Any
@@ -13,6 +14,7 @@ from starlette.types import Receive, Scope, Send
 
 from config.logging_config import configure_logging
 from config.settings import get_settings
+from core.metrics import get_metrics_service
 from providers.exceptions import ProviderError
 
 from .routes import router
@@ -96,6 +98,33 @@ def create_app(*, lifespan_enabled: bool = True) -> FastAPI:
 
     # Register routes
     app.include_router(router)
+
+    # Middleware for metrics tracking
+    @app.middleware("http")
+    async def metrics_middleware(request: Request, call_next):
+        """Track API request metrics by model."""
+        if request.url.path == "/v1/messages" and request.method == "POST":
+            try:
+                # Receive and cache the body for later use
+                body = await request.body()
+                if body:
+                    try:
+                        body_dict = json.loads(body)
+                        model_id = body_dict.get("model", "unknown")
+                        get_metrics_service().record_request(model_id)
+                    except (json.JSONDecodeError, ValueError):
+                        logger.debug("Failed to parse request body for metrics")
+                
+                # Recreate the request so the route handler can read it
+                async def receive():
+                    return {"type": "http.request", "body": body, "more_body": False}
+                
+                request._receive = receive
+            except Exception as e:
+                logger.debug("Metrics middleware error: {}", e)
+        
+        response = await call_next(request)
+        return response
 
     # Exception handlers
     @app.exception_handler(RequestValidationError)
