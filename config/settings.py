@@ -401,7 +401,7 @@ class Settings(BaseSettings):
         return v
 
     @model_validator(mode="after")
-    def check_nvidia_nim_api_key(self) -> Settings:
+    def check_nvidia_nim_api_key(self) -> "Settings":
         if (
             self.voice_note_enabled
             and self.whisper_device == "nvidia_nim"
@@ -414,7 +414,7 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def prefer_dotenv_anthropic_auth_token(self) -> Settings:
+    def prefer_dotenv_anthropic_auth_token(self) -> "Settings":
         """Let explicit .env auth config override stale shell/client tokens."""
         dotenv_value = _env_file_override(self.model_config, "ANTHROPIC_AUTH_TOKEN")
         if dotenv_value is not None:
@@ -513,6 +513,6 @@ class Settings(BaseSettings):
 
 
 @lru_cache
-def get_settings() -> Settings:
+def get_settings() -> "Settings":
     """Get cached settings instance."""
     return Settings()

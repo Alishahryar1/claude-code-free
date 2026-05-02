@@ -1,0 +1,12 @@
+﻿uv : INFO:     Started server process [25752]
+At line:1 char:1
++ uv run uvicorn server:app --host 0.0.0.0 --port 8082 *>&1 | Out-File  ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (INFO:     Started server process [25752]:String) [], Re 
+   moteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8082 (Press CTRL+C to quit)
+INFO:     127.0.0.1:63582 - "POST /v1/messages HTTP/1.1" 500 Internal Server Error
