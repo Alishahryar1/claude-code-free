@@ -77,17 +77,25 @@ class OpenAIChatTransport(BaseProvider):
             rate_window=config.rate_window,
             max_concurrency=config.max_concurrency,
         )
-        http_client = None
-        if config.proxy:
-            http_client = httpx.AsyncClient(
-                proxy=config.proxy,
-                timeout=httpx.Timeout(
-                    config.http_read_timeout,
-                    connect=config.http_connect_timeout,
-                    read=config.http_read_timeout,
-                    write=config.http_write_timeout,
-                ),
-            )
+        # Always create an explicit httpx client so we control keepalive settings.
+        # Default httpx keepalive_expiry=5s causes a fresh TCP+TLS handshake for
+        # every request when models take >5s to respond (common with 120B models).
+        # 600s keeps connections alive across the typical inter-request gap.
+        _pool_size = max(20, config.max_concurrency * 4)
+        http_client = httpx.AsyncClient(
+            proxy=config.proxy or None,
+            timeout=httpx.Timeout(
+                config.http_read_timeout,
+                connect=config.http_connect_timeout,
+                read=config.http_read_timeout,
+                write=config.http_write_timeout,
+            ),
+            limits=httpx.Limits(
+                max_connections=_pool_size,
+                max_keepalive_connections=_pool_size,
+                keepalive_expiry=600.0,
+            ),
+        )
         self._client = AsyncOpenAI(
             api_key=self._api_key,
             base_url=self._base_url,
