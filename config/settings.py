@@ -198,12 +198,6 @@ class Settings(BaseSettings):
     # ==================== Fast Prefix Detection ====================
     fast_prefix_detection: bool = True
 
-    # ==================== Message Truncation ====================
-    # When > 0, requests with more messages than this are trimmed to the last N before
-    # forwarding to the provider. Prevents timeouts on free-tier inference (e.g. NIM).
-    # 0 = disabled. Recommended: 120 for NVIDIA NIM free tier.
-    max_messages: int = Field(default=0, validation_alias="MAX_MESSAGES")
-
     # ==================== Optimizations ====================
     enable_network_probe_mock: bool = True
     enable_title_generation_skip: bool = True
@@ -254,6 +248,10 @@ class Settings(BaseSettings):
     debug_subagent_stack: bool = Field(
         default=False, validation_alias="DEBUG_SUBAGENT_STACK"
     )
+
+    # ==================== Context Management ====================
+    max_messages: int = Field(default=0, validation_alias="MAX_MESSAGES")
+    context_max_tokens: int = Field(default=0, validation_alias="CONTEXT_MAX_TOKENS")
 
     # ==================== NIM Settings ====================
     nim: NimSettings = Field(default_factory=NimSettings)
@@ -407,7 +405,7 @@ class Settings(BaseSettings):
         return v
 
     @model_validator(mode="after")
-    def check_nvidia_nim_api_key(self) -> Settings:
+    def check_nvidia_nim_api_key(self) -> "Settings":
         if (
             self.voice_note_enabled
             and self.whisper_device == "nvidia_nim"
@@ -420,7 +418,7 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def prefer_dotenv_anthropic_auth_token(self) -> Settings:
+    def prefer_dotenv_anthropic_auth_token(self) -> "Settings":
         """Let explicit .env auth config override stale shell/client tokens."""
         dotenv_value = _env_file_override(self.model_config, "ANTHROPIC_AUTH_TOKEN")
         if dotenv_value is not None:
