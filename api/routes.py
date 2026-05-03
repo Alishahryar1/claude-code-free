@@ -20,6 +20,23 @@ DISCOVERED_MODEL_CREATED_AT = "1970-01-01T00:00:00Z"
 
 
 SUPPORTED_CLAUDE_MODELS = [
+    # Claude 4 family (current)
+    ModelResponse(
+        id="claude-opus-4-7",
+        display_name="Claude Opus 4.7",
+        created_at="2025-10-01T00:00:00Z",
+    ),
+    ModelResponse(
+        id="claude-sonnet-4-6",
+        display_name="Claude Sonnet 4.6",
+        created_at="2025-10-01T00:00:00Z",
+    ),
+    ModelResponse(
+        id="claude-haiku-4-5-20251001",
+        display_name="Claude Haiku 4.5",
+        created_at="2025-10-01T00:00:00Z",
+    ),
+    # Claude 4 family (legacy date-suffix IDs)
     ModelResponse(
         id="claude-opus-4-20250514",
         display_name="Claude Opus 4",
@@ -35,6 +52,7 @@ SUPPORTED_CLAUDE_MODELS = [
         display_name="Claude Haiku 4",
         created_at="2025-05-14T00:00:00Z",
     ),
+    # Claude 3.x family
     ModelResponse(
         id="claude-3-opus-20240229",
         display_name="Claude 3 Opus",
