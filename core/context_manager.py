@@ -19,7 +19,7 @@ class ContextManager:
         self.max_tokens = max_tokens
 
     def trim_messages(
-        self, messages: list, system: str | list | None = None
+        self, messages: list, system: str | list | None = None, tools: list | None = None
     ) -> tuple[list, bool]:
         """
         Trim messages to fit within configured limits.
@@ -45,12 +45,12 @@ class ContextManager:
 
         # Apply token limit if set
         if self.max_tokens and self.max_tokens > 0:
-            tokens = get_token_count(trimmed, system)
+            tokens = get_token_count(trimmed, system, tools)
             if tokens > self.max_tokens:
                 # Reduce by removing oldest message pairs
                 while len(trimmed) > 4 and tokens > self.max_tokens * 0.9:
                     trimmed = trimmed[2:]  # Remove oldest user/assistant pair
-                    tokens = get_token_count(trimmed, system)
+                    tokens = get_token_count(trimmed, system, tools)
 
         return trimmed, len(trimmed) < original_count
 

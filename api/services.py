@@ -107,7 +107,7 @@ class ClaudeProxyService:
             # Apply context management (trimming/compaction) if configured
             context_mgr = get_context_manager(self._settings)
             messages, was_trimmed = context_mgr.trim_messages(
-                request_data.messages, request_data.system
+                request_data.messages, request_data.system, request_data.tools
             )
             if was_trimmed:
                 logger.info(
