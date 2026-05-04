@@ -93,10 +93,8 @@ def configure_logging(
     # Remove default loguru handler (writes to stderr)
     logger.remove()
 
-    # Truncate log file on fresh start for clean debugging
-    Path(log_file).write_text("")
-
     # Add file sink: JSON lines, DEBUG level, context vars at top level
+    # enqueue=True: async writes — decouples log I/O from request path
     logger.add(
         log_file,
         level="DEBUG",
@@ -104,6 +102,7 @@ def configure_logging(
         encoding="utf-8",
         mode="a",
         rotation="50 MB",
+        enqueue=True,
     )
 
     # Intercept stdlib logging: route all root logger output to loguru
