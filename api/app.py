@@ -2,7 +2,7 @@
 
 import traceback
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -21,7 +21,7 @@ from .validation_log import summarize_request_validation_body
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan manager."""
     runtime = AppRuntime.for_app(app, settings=get_settings())
     await runtime.startup()

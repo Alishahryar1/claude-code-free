@@ -316,17 +316,17 @@ class Settings(BaseSettings):
         mode="before",
     )
     @classmethod
-    def parse_optional_str(cls, v: Any) -> Any:
+    def parse_optional_str(cls, v: str | bool | None) -> str | bool | None:
         if v == "":
             return None
         return v
 
     @field_validator("max_message_log_entries_per_chat", mode="before")
     @classmethod
-    def parse_optional_log_cap(cls, v: Any) -> Any:
+    def parse_optional_log_cap(cls, v: str | int | None) -> int | None:
         if v == "" or v is None:
             return None
-        return v
+        return int(v) if isinstance(v, str) else v
 
     @field_validator("whisper_device")
     @classmethod
@@ -378,8 +378,8 @@ class Settings(BaseSettings):
     def validate_ollama_base_url(cls, v: str) -> str:
         if v.rstrip("/").endswith("/v1"):
             raise ValueError(
-                "OLLAMA_BASE_URL must be the Ollama root URL for native Anthropic "
-                "messages, e.g. http://localhost:11434 (without /v1)."
+                "OLLAMA_BASE_URL must be the Ollama root URL (e.g., http://localhost:11434). "
+                "Do not include '/v1' in the URL as this proxy uses native Anthropic messages."
             )
         return v
 
