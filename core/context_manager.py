@@ -16,6 +16,10 @@ def _has_tool_use(message: object) -> bool:
     )
 
 
+def _role(message: object) -> str | None:
+    return getattr(message, "role", None) or (message.get("role") if isinstance(message, dict) else None)
+
+
 def _has_tool_result(message: object) -> bool:
     """Return True if a user message contains any tool_result blocks."""
     content = getattr(message, "content", None)
@@ -96,7 +100,18 @@ class ContextManager:
                 keep_start = max(2, self.max_messages // 5)
                 keep_end = self.max_messages - keep_start
 
-                trimmed = trimmed[:keep_start] + trimmed[-keep_end:]
+                first_chunk = list(trimmed[:keep_start])
+                # Sanitize last_chunk so it starts at a clean user boundary —
+                # prevents consecutive assistant+assistant at the seam and
+                # orphaned tool_result blocks at the head of the tail.
+                last_chunk = _sanitize_seam(list(trimmed[-keep_end:]))
+
+                # Drop trailing assistant+tool_use from first_chunk whose
+                # tool_result landed in the removed middle section.
+                while first_chunk and _role(first_chunk[-1]) == "assistant" and _has_tool_use(first_chunk[-1]):
+                    first_chunk.pop()
+
+                trimmed = first_chunk + last_chunk
 
         # Apply token limit if set
         if self.max_tokens and self.max_tokens > 0:
