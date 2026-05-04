@@ -169,10 +169,9 @@ class OpenAIChatTransport(BaseProvider):
 
         try:
             stream = await ks.limiter.execute_with_retry(
-                self._client.chat.completions.create,
+                self._client.with_options(api_key=ks.key).chat.completions.create,
                 **body,
                 stream=True,
-                api_key=ks.key,
             )
             return stream, body
         except Exception as error:
@@ -182,10 +181,9 @@ class OpenAIChatTransport(BaseProvider):
 
             # Retry with the same key/limiter for the downgraded body
             stream = await ks.limiter.execute_with_retry(
-                self._client.chat.completions.create,
+                self._client.with_options(api_key=ks.key).chat.completions.create,
                 **retry_body,
                 stream=True,
-                api_key=ks.key,
             )
             return stream, retry_body
 
