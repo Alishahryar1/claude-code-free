@@ -53,16 +53,24 @@ def _sanitize_seam(messages: list) -> list:
 class ContextManager:
     """Manages conversation context with simple trimming."""
 
-    def __init__(self, max_messages: int | None = None, max_tokens: int | None = None):
+    def __init__(
+        self,
+        max_messages: int | None = None,
+        max_tokens: int | None = None,
+        min_messages: int = 20,
+    ):
         """
         Initialize context manager.
 
         Args:
             max_messages: Maximum number of messages to keep (None = unlimited)
             max_tokens: Maximum token budget (None = unlimited)
+            min_messages: Minimum messages to keep after trimming (prevents
+                losing all context when thinking blocks inflate token counts)
         """
         self.max_messages = max_messages
         self.max_tokens = max_tokens
+        self.min_messages = min_messages
 
     def trim_messages(
         self, messages: list, system: str | list | None = None, tools: list | None = None
@@ -73,6 +81,7 @@ class ContextManager:
         Args:
             messages: List of message dicts
             system: Optional system prompt
+            tools: Optional list of tool definitions
 
         Returns:
             (trimmed_messages, was_trimmed)
@@ -93,8 +102,11 @@ class ContextManager:
         if self.max_tokens and self.max_tokens > 0:
             tokens = get_token_count(trimmed, system, tools)
             if tokens > self.max_tokens:
-                # Reduce by removing oldest message pairs
-                while len(trimmed) > 4 and tokens > self.max_tokens * 0.9:
+                # Reduce by removing oldest message pairs, but never drop below
+                # min_messages — thinking blocks can inflate counts dramatically
+                # and stripping everything leaves the model with no context.
+                floor = max(4, self.min_messages)
+                while len(trimmed) > floor and tokens > self.max_tokens * 0.9:
                     trimmed = trimmed[2:]  # Remove oldest user/assistant pair
                     tokens = get_token_count(trimmed, system, tools)
 
@@ -111,4 +123,5 @@ def get_context_manager(settings: Settings) -> ContextManager:
     return ContextManager(
         max_messages=settings.max_messages if settings.max_messages > 0 else None,
         max_tokens=settings.context_max_tokens if settings.context_max_tokens > 0 else None,
+        min_messages=settings.context_min_messages,
     )

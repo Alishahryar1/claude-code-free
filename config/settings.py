@@ -252,6 +252,7 @@ class Settings(BaseSettings):
     # ==================== Context Management ====================
     max_messages: int = Field(default=0, validation_alias="MAX_MESSAGES")
     context_max_tokens: int = Field(default=0, validation_alias="CONTEXT_MAX_TOKENS")
+    context_min_messages: int = Field(default=20, validation_alias="CONTEXT_MIN_MESSAGES")
 
     # ==================== NIM Settings ====================
     nim: NimSettings = Field(default_factory=NimSettings)
