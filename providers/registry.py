@@ -102,6 +102,13 @@ def _credential_for(descriptor: ProviderDescriptor, settings: Settings) -> str:
     return ""
 
 
+def _pool_for(descriptor: ProviderDescriptor, settings: Settings) -> list[str]:
+    if descriptor.pool_attr:
+        value = getattr(settings, descriptor.pool_attr, [])
+        return value if isinstance(value, list) else []
+    return []
+
+
 def _require_credential(descriptor: ProviderDescriptor, credential: str) -> None:
     if descriptor.credential_env is None:
         return
@@ -118,12 +125,14 @@ def build_provider_config(
 ) -> ProviderConfig:
     credential = _credential_for(descriptor, settings)
     _require_credential(descriptor, credential)
+    api_keys = _pool_for(descriptor, settings)
     base_url = _string_attr(
         settings, descriptor.base_url_attr, descriptor.default_base_url or ""
     )
     proxy = _string_attr(settings, descriptor.proxy_attr)
     return ProviderConfig(
         api_key=credential,
+        api_keys=api_keys,
         base_url=base_url or descriptor.default_base_url,
         rate_limit=settings.provider_rate_limit,
         rate_window=settings.provider_rate_window,

@@ -37,6 +37,7 @@ class ProviderDescriptor:
     default_base_url: str | None = None
     base_url_attr: str | None = None
     proxy_attr: str | None = None
+    pool_attr: str | None = None
 
 
 PROVIDER_CATALOG: dict[str, ProviderDescriptor] = {
@@ -48,6 +49,7 @@ PROVIDER_CATALOG: dict[str, ProviderDescriptor] = {
         credential_attr="nvidia_nim_api_key",
         default_base_url=NVIDIA_NIM_DEFAULT_BASE,
         proxy_attr="nvidia_nim_proxy",
+        pool_attr="nvidia_nim_api_keys",
         capabilities=("chat", "streaming", "tools", "thinking", "rate_limit"),
     ),
     "open_router": ProviderDescriptor(

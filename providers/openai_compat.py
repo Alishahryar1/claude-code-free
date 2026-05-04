@@ -29,6 +29,7 @@ from providers.error_mapping import (
     user_visible_message_for_mapped_provider_error,
 )
 from providers.model_listing import extract_openai_model_ids
+from providers.pool import KeyPool, KeyStatus
 from providers.rate_limit import GlobalRateLimiter
 
 
@@ -100,6 +101,15 @@ class OpenAIChatTransport(BaseProvider):
             ),
             http_client=http_client,
         )
+        self._key_pool: KeyPool | None = None
+        if config.api_keys:
+            self._key_pool = KeyPool(
+                config.api_keys,
+                scope=provider_name.lower(),
+                rate_limit=config.rate_limit,
+                rate_window=config.rate_window,
+                max_concurrency=config.max_concurrency,
+            )
 
     async def cleanup(self) -> None:
         """Release HTTP client resources."""
@@ -130,6 +140,9 @@ class OpenAIChatTransport(BaseProvider):
 
     async def _create_stream(self, body: dict) -> tuple[Any, dict]:
         """Create a streaming chat completion, optionally retrying once."""
+        if self._key_pool:
+            return await self._create_stream_pooled(body)
+
         try:
             stream = await self._global_rate_limiter.execute_with_retry(
                 self._client.chat.completions.create, **body, stream=True
@@ -142,6 +155,37 @@ class OpenAIChatTransport(BaseProvider):
 
             stream = await self._global_rate_limiter.execute_with_retry(
                 self._client.chat.completions.create, **retry_body, stream=True
+            )
+            return stream, retry_body
+
+    async def _create_stream_pooled(self, body: dict) -> tuple[Any, dict]:
+        """Create a streaming chat completion using the key pool."""
+        ks = self._key_pool.get_best_key_status()
+        logger.debug(
+            "Using pooled key for {}: ...{}",
+            self._provider_name,
+            ks.key[-8:] if ks.key else "none",
+        )
+
+        try:
+            stream = await ks.limiter.execute_with_retry(
+                self._client.chat.completions.create,
+                **body,
+                stream=True,
+                api_key=ks.key,
+            )
+            return stream, body
+        except Exception as error:
+            retry_body = self._get_retry_request_body(error, body)
+            if retry_body is None:
+                raise
+
+            # Retry with the same key/limiter for the downgraded body
+            stream = await ks.limiter.execute_with_retry(
+                self._client.chat.completions.create,
+                **retry_body,
+                stream=True,
+                api_key=ks.key,
             )
             return stream, retry_body
 
