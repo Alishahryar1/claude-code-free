@@ -10,6 +10,11 @@ from pydantic import BaseModel
 from .content import get_block_attr, get_block_type
 from .utils import set_if_not_none
 
+_TOOL_USE_HINT = (
+    "When calling tools, you MUST include ALL required parameters listed in each "
+    "tool's input_schema. Never omit a required parameter."
+)
+
 
 class OpenAIConversionError(Exception):
     """Raised when Anthropic content cannot be converted to OpenAI chat without data loss."""
@@ -583,6 +588,10 @@ def build_base_request_body(
     tools = getattr(request_data, "tools", None)
     if tools:
         body["tools"] = AnthropicToOpenAIConverter.convert_tools(tools)
+        if messages and messages[0].get("role") == "system":
+            messages[0]["content"] = messages[0]["content"] + "\n\n" + _TOOL_USE_HINT
+        else:
+            messages.insert(0, {"role": "system", "content": _TOOL_USE_HINT})
     tool_choice = getattr(request_data, "tool_choice", None)
     if tool_choice:
         body["tool_choice"] = AnthropicToOpenAIConverter.convert_tool_choice(
