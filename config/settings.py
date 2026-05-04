@@ -1,5 +1,7 @@
 """Centralized configuration using Pydantic Settings."""
 
+from __future__ import annotations
+
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -181,6 +183,9 @@ class Settings(BaseSettings):
     )
     enable_haiku_thinking: bool | None = Field(
         default=None, validation_alias="ENABLE_HAIKU_THINKING"
+    )
+    enable_provider_throttling: bool = Field(
+        default=True, validation_alias="ENABLE_PROVIDER_THROTTLING"
     )
 
     # ==================== HTTP Client Timeouts ====================

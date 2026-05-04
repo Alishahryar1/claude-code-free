@@ -68,6 +68,7 @@ class AnthropicMessagesTransport(BaseProvider):
             rate_limit=config.rate_limit,
             rate_window=config.rate_window,
             max_concurrency=config.max_concurrency,
+            enabled=config.enable_throttling,
         )
         self._client = httpx.AsyncClient(
             base_url=self._base_url,

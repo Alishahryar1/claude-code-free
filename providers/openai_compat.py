@@ -76,6 +76,7 @@ class OpenAIChatTransport(BaseProvider):
             rate_limit=config.rate_limit,
             rate_window=config.rate_window,
             max_concurrency=config.max_concurrency,
+            enabled=config.enable_throttling,
         )
         http_client = None
         if config.proxy:

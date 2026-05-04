@@ -38,6 +38,7 @@ class GlobalRateLimiter:
         rate_limit: int = 40,
         rate_window: float = 60.0,
         max_concurrency: int = 5,
+        enabled: bool = True,
     ):
         # Prevent re-initialization on singleton reuse
         if hasattr(self, "_initialized"):
@@ -53,6 +54,7 @@ class GlobalRateLimiter:
         self._rate_limit = rate_limit
         self._rate_window = float(rate_window)
         self._max_concurrency = max_concurrency
+        self._enabled = enabled
         self._proactive_limiter = StrictSlidingWindowLimiter(
             self._rate_limit, self._rate_window
         )
@@ -61,7 +63,8 @@ class GlobalRateLimiter:
         self._initialized = True
 
         logger.info(
-            f"GlobalRateLimiter (Provider) initialized ({rate_limit} req / {rate_window}s, max_concurrency={max_concurrency})"
+            f"GlobalRateLimiter (Provider) initialized ({rate_limit} req / {rate_window}s, "
+            f"max_concurrency={max_concurrency}, enabled={enabled})"
         )
 
     @classmethod
@@ -70,6 +73,7 @@ class GlobalRateLimiter:
         rate_limit: int | None = None,
         rate_window: float | None = None,
         max_concurrency: int = 5,
+        enabled: bool = True,
     ) -> GlobalRateLimiter:
         """Get or create the singleton instance.
 
@@ -77,12 +81,14 @@ class GlobalRateLimiter:
             rate_limit: Requests per window (only used on first creation)
             rate_window: Window in seconds (only used on first creation)
             max_concurrency: Max simultaneous open streams (only used on first creation)
+            enabled: Whether the limiter is active (only used on first creation)
         """
         if cls._instance is None:
             cls._instance = cls(
                 rate_limit=rate_limit or 40,
                 rate_window=rate_window or 60.0,
                 max_concurrency=max_concurrency,
+                enabled=enabled,
             )
         return cls._instance
 
@@ -94,6 +100,7 @@ class GlobalRateLimiter:
         rate_limit: int | None = None,
         rate_window: float | None = None,
         max_concurrency: int = 5,
+        enabled: bool = True,
     ) -> GlobalRateLimiter:
         """Get or create a provider-scoped limiter instance."""
         if not scope:
@@ -102,18 +109,20 @@ class GlobalRateLimiter:
         desired_rate_window = float(rate_window or 60.0)
         existing = cls._scoped_instances.get(scope)
         if existing and existing.matches_config(
-            desired_rate_limit, desired_rate_window, max_concurrency
+            desired_rate_limit, desired_rate_window, max_concurrency, enabled
         ):
             return existing
         if existing:
             logger.info(
                 "Rebuilding provider rate limiter for updated scope '{}'", scope
             )
-        cls._scoped_instances[scope] = cls(
-            rate_limit=desired_rate_limit,
-            rate_window=desired_rate_window,
-            max_concurrency=max_concurrency,
-        )
+        if scope not in cls._scoped_instances or existing:
+            cls._scoped_instances[scope] = cls(
+                rate_limit=desired_rate_limit,
+                rate_window=desired_rate_window,
+                max_concurrency=max_concurrency,
+                enabled=enabled,
+            )
         return cls._scoped_instances[scope]
 
     @classmethod
@@ -129,6 +138,9 @@ class GlobalRateLimiter:
         Returns:
             True if was reactively blocked and waited, False otherwise.
         """
+        if not self._enabled:
+            return False
+
         # 1. Reactive check: Wait if someone hit a 429
         waited_reactively = False
         now = time.monotonic()
@@ -168,13 +180,14 @@ class GlobalRateLimiter:
         return time.monotonic() < self._blocked_until
 
     def matches_config(
-        self, rate_limit: int, rate_window: float, max_concurrency: int
+        self, rate_limit: int, rate_window: float, max_concurrency: int, enabled: bool = True
     ) -> bool:
         """Return whether this limiter matches the requested runtime config."""
         return (
             self._rate_limit == rate_limit
             and self._rate_window == float(rate_window)
             and self._max_concurrency == max_concurrency
+            and self._enabled == enabled
         )
 
     def remaining_wait(self) -> float:
@@ -187,6 +200,10 @@ class GlobalRateLimiter:
 
         Blocks until a slot is available (controlled by max_concurrency).
         """
+        if not self._enabled:
+            yield
+            return
+
         await self._concurrency_sem.acquire()
         try:
             yield
@@ -221,6 +238,9 @@ class GlobalRateLimiter:
         Raises:
             The last exception if all retries are exhausted.
         """
+        if not self._enabled:
+            return await fn(*args, **kwargs)
+
         last_exc: Exception | None = None
 
         for attempt in range(1 + max_retries):

@@ -26,6 +26,7 @@ class ProviderConfig(BaseModel):
     http_write_timeout: float = 10.0
     http_connect_timeout: float = HTTP_CONNECT_TIMEOUT_DEFAULT
     enable_thinking: bool = True
+    enable_throttling: bool = True
     proxy: str = ""
     log_raw_sse_events: bool = False
     log_api_error_tracebacks: bool = False
