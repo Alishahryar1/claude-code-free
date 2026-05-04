@@ -35,6 +35,11 @@ class HeuristicToolParser:
     _WEB_TOOL_JSON_PATTERN = re.compile(
         r"(?is)\b(?:use\s+)?(?P<tool>WebFetch|WebSearch)\b.*?(?P<json>\{.*?\})"
     )
+    # Matches: ● {"type": "function", "name": "Foo", "parameters": {...}}
+    # emitted by some OpenAI-compat models (e.g. llama-4-maverick via NIM)
+    _BULLET_FUNC_JSON_PATTERN = re.compile(
+        r"●\s*(\{[^{}]*\"type\"\s*:\s*\"function\"[^{}]*\"name\"\s*:\s*\"(?P<name>[^\"]+)\"[^{}]*\"parameters\"\s*:\s*(?P<params>\{[^{}]*\})[^{}]*\})"
+    )
 
     def __init__(self):
         self._state = ParserState.TEXT
@@ -42,6 +47,35 @@ class HeuristicToolParser:
         self._current_tool_id = None
         self._current_function_name = None
         self._current_parameters = {}
+
+    def _extract_bullet_func_json_calls(self) -> tuple[str, list[dict[str, Any]]]:
+        """Detect ● {"type": "function", "name": "...", "parameters": {...}} style."""
+        detected_tools: list[dict[str, Any]] = []
+        remaining = self._buffer
+
+        for match in self._BULLET_FUNC_JSON_PATTERN.finditer(self._buffer):
+            try:
+                params = json.loads(match.group("params"))
+            except json.JSONDecodeError:
+                params = {}
+            tool_name = match.group("name")
+            detected_tools.append(
+                {
+                    "type": "tool_use",
+                    "id": f"toolu_heuristic_{uuid.uuid4().hex[:8]}",
+                    "name": tool_name,
+                    "input": params if isinstance(params, dict) else {},
+                }
+            )
+            logger.debug(
+                "Heuristic bypass: Detected bullet-JSON tool call '{}'", tool_name
+            )
+            remaining = remaining[: match.start()] + remaining[match.end() :]
+
+        if not detected_tools:
+            return self._buffer, []
+
+        return remaining, detected_tools
 
     def _extract_web_tool_json_calls(self) -> tuple[str, list[dict[str, Any]]]:
         detected_tools: list[dict[str, Any]] = []
@@ -97,7 +131,9 @@ class HeuristicToolParser:
         """Feed text and return safe text plus detected tool calls."""
         self._buffer += text
         self._buffer = self._strip_control_tokens(self._buffer)
-        self._buffer, detected_tools = self._extract_web_tool_json_calls()
+        self._buffer, detected_tools = self._extract_bullet_func_json_calls()
+        if not detected_tools:
+            self._buffer, detected_tools = self._extract_web_tool_json_calls()
         filtered_output_parts: list[str] = []
 
         while True:
