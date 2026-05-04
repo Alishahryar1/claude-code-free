@@ -110,10 +110,11 @@ def render_markdown_to_mdv2(text: str) -> str:
                 while i < len(children) and children[i].type != "link_close":
                     inner_tokens.append(children[i])
                     i += 1
-                link_text = ""
-                for child in inner_tokens:
-                    if child.type == "text" or child.type == "code_inline":
-                        link_text += child.content
+                link_text = "".join(
+                    child.content
+                    for child in inner_tokens
+                    if child.type in {"text", "code_inline"}
+                )
                 out.append(
                     f"[{escape_md_v2(link_text)}]({escape_md_v2_link_url(href)})"
                 )
