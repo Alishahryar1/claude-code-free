@@ -17,6 +17,7 @@ class ParserState(Enum):
     TEXT = 1
     MATCHING_FUNCTION = 2
     PARSING_PARAMETERS = 3
+    BUFFERING_JSON = 4  # accumulating bare {...} potential tool call
 
 
 class HeuristicToolParser:
@@ -35,6 +36,13 @@ class HeuristicToolParser:
     _WEB_TOOL_JSON_PATTERN = re.compile(
         r"(?is)\b(?:use\s+)?(?P<tool>WebFetch|WebSearch)\b.*?(?P<json>\{.*?\})"
     )
+    # Matches ● {...} where JSON has a "name" key and "arguments" or "parameters" key.
+    # Covers llama-4-maverick (parameters), OpenAI-compat (arguments), any field order.
+    _BULLET_JSON_PREFIX = re.compile(r"●\s*(\{)", re.DOTALL)
+    # Matches <tool_call>...</tool_call> XML wrapper used by Llama 3.1+, Qwen, Mistral.
+    _TOOL_CALL_XML_PATTERN = re.compile(
+        r"<tool_call>\s*(?P<json>\{.*?\})\s*</tool_call>", re.DOTALL
+    )
 
     def __init__(self):
         self._state = ParserState.TEXT
@@ -42,6 +50,112 @@ class HeuristicToolParser:
         self._current_tool_id = None
         self._current_function_name = None
         self._current_parameters = {}
+        self._json_depth = 0       # brace depth while BUFFERING_JSON
+        self._json_in_string = False  # inside a JSON string literal
+        self._json_escape = False  # previous char was backslash
+
+    @staticmethod
+    def _parse_tool_call_json(raw: str) -> dict[str, Any] | None:
+        """
+        Parse a JSON blob that may represent a tool call in any of these shapes:
+          {"name": "X", "arguments": {...}}        — OpenAI / most NIM models
+          {"name": "X", "parameters": {...}}       — llama-4-maverick via NIM
+          {"type": "function", "name": "X", ...}  — verbose OpenAI variant
+          {"function": {"name": "X", ...}}         — nested OpenAI delta form
+        Returns {"name": str, "input": dict} or None if not a tool call.
+        """
+        try:
+            obj = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(obj, dict):
+            return None
+
+        # Unwrap nested {"function": {...}} form
+        if "function" in obj and isinstance(obj["function"], dict):
+            obj = obj["function"]
+
+        name = obj.get("name") or obj.get("function_name")
+        if not name or not isinstance(name, str):
+            return None
+
+        params = obj.get("arguments") or obj.get("parameters") or obj.get("inputs") or {}
+        if isinstance(params, str):
+            try:
+                params = json.loads(params)
+            except json.JSONDecodeError:
+                params = {}
+        if not isinstance(params, dict):
+            params = {}
+
+        return {"name": name, "input": params}
+
+    def _extract_open_model_tool_calls(self) -> tuple[str, list[dict[str, Any]]]:
+        """
+        Detect tool calls emitted as text by open/NIM models:
+          1. ● {...}  — bullet-prefixed JSON (llama-4-maverick, some NIM models)
+          2. <tool_call>...</tool_call>  — XML wrapper (Llama 3.1+, Qwen, Mistral)
+        """
+        detected_tools: list[dict[str, Any]] = []
+        spans_to_remove: list[tuple[int, int]] = []
+
+        # --- XML wrapper form ---
+        for match in self._TOOL_CALL_XML_PATTERN.finditer(self._buffer):
+            parsed = self._parse_tool_call_json(match.group("json"))
+            if parsed:
+                detected_tools.append(
+                    {
+                        "type": "tool_use",
+                        "id": f"toolu_heuristic_{uuid.uuid4().hex[:8]}",
+                        **parsed,
+                    }
+                )
+                spans_to_remove.append((match.start(), match.end()))
+                logger.debug(
+                    "Heuristic bypass: Detected <tool_call> XML tool call '{}'",
+                    parsed["name"],
+                )
+
+        # --- Bullet-prefixed JSON form ---
+        for match in self._BULLET_JSON_PREFIX.finditer(self._buffer):
+            # Walk forward to find the matching closing brace
+            start = match.start()
+            brace_start = match.start(1)
+            depth = 0
+            end = None
+            for i, ch in enumerate(self._buffer[brace_start:], brace_start):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            if end is None:
+                continue  # JSON not complete yet — wait for more chunks
+            raw_json = self._buffer[brace_start:end]
+            parsed = self._parse_tool_call_json(raw_json)
+            if parsed:
+                detected_tools.append(
+                    {
+                        "type": "tool_use",
+                        "id": f"toolu_heuristic_{uuid.uuid4().hex[:8]}",
+                        **parsed,
+                    }
+                )
+                spans_to_remove.append((start, end))
+                logger.debug(
+                    "Heuristic bypass: Detected ●-JSON tool call '{}'", parsed["name"]
+                )
+
+        if not detected_tools:
+            return self._buffer, []
+
+        # Remove matched spans in reverse order to preserve offsets
+        remaining = self._buffer
+        for s, e in sorted(spans_to_remove, reverse=True):
+            remaining = remaining[:s] + remaining[e:]
+        return remaining, detected_tools
 
     def _extract_web_tool_json_calls(self) -> tuple[str, list[dict[str, Any]]]:
         detected_tools: list[dict[str, Any]] = []
@@ -97,7 +211,9 @@ class HeuristicToolParser:
         """Feed text and return safe text plus detected tool calls."""
         self._buffer += text
         self._buffer = self._strip_control_tokens(self._buffer)
-        self._buffer, detected_tools = self._extract_web_tool_json_calls()
+        self._buffer, detected_tools = self._extract_open_model_tool_calls()
+        if not detected_tools:
+            self._buffer, detected_tools = self._extract_web_tool_json_calls()
         filtered_output_parts: list[str] = []
 
         while True:
@@ -107,6 +223,17 @@ class HeuristicToolParser:
                     filtered_output_parts.append(self._buffer[:idx])
                     self._buffer = self._buffer[idx:]
                     self._state = ParserState.MATCHING_FUNCTION
+                elif "{" in self._buffer:
+                    # Potential bare-JSON tool call (no ● prefix, e.g. NIM/llama models).
+                    # Hold everything from { onward; flush only the safe prefix before it.
+                    idx = self._buffer.index("{")
+                    if idx:
+                        filtered_output_parts.append(self._buffer[:idx])
+                        self._buffer = self._buffer[idx:]
+                    self._state = ParserState.BUFFERING_JSON
+                    self._json_depth = 0
+                    self._json_in_string = False
+                    self._json_escape = False
                 else:
                     safe_prefix = self._split_incomplete_control_token_tail()
                     if safe_prefix:
@@ -116,6 +243,50 @@ class HeuristicToolParser:
                     filtered_output_parts.append(self._buffer)
                     self._buffer = ""
                     break
+
+            if self._state == ParserState.BUFFERING_JSON:
+                # Walk characters tracking depth / string state.
+                end_idx = None
+                for i, ch in enumerate(self._buffer):
+                    if self._json_escape:
+                        self._json_escape = False
+                        continue
+                    if ch == "\\" and self._json_in_string:
+                        self._json_escape = True
+                        continue
+                    if ch == '"':
+                        self._json_in_string = not self._json_in_string
+                        continue
+                    if self._json_in_string:
+                        continue
+                    if ch == "{":
+                        self._json_depth += 1
+                    elif ch == "}":
+                        self._json_depth -= 1
+                        if self._json_depth == 0:
+                            end_idx = i + 1
+                            break
+                if end_idx is None:
+                    break  # JSON incomplete — wait for more chunks
+                raw_json = self._buffer[:end_idx]
+                self._buffer = self._buffer[end_idx:]
+                self._state = ParserState.TEXT
+                parsed = self._parse_tool_call_json(raw_json)
+                if parsed:
+                    detected_tools.append(
+                        {
+                            "type": "tool_use",
+                            "id": f"toolu_heuristic_{uuid.uuid4().hex[:8]}",
+                            **parsed,
+                        }
+                    )
+                    logger.debug(
+                        "Heuristic bypass: Detected bare-JSON tool call '{}'",
+                        parsed["name"],
+                    )
+                else:
+                    # Not a tool call — emit as text and keep going
+                    filtered_output_parts.append(raw_json)
 
             if self._state == ParserState.MATCHING_FUNCTION:
                 match = self._FUNC_START_PATTERN.search(self._buffer)
@@ -185,11 +356,37 @@ class HeuristicToolParser:
 
         return "".join(filtered_output_parts), detected_tools
 
-    def flush(self) -> list[dict[str, Any]]:
-        """Flush any remaining tool call in the buffer."""
+    def flush_all(self) -> tuple[str, list[dict[str, Any]]]:
+        """Flush any remaining buffered content.
+
+        Returns (remaining_text, tool_calls). remaining_text is non-empty only
+        when BUFFERING_JSON held back content that turned out not to be a tool call.
+        """
         self._buffer = self._strip_control_tokens(self._buffer)
-        detected_tools = []
-        if self._state == ParserState.PARSING_PARAMETERS:
+        detected_tools: list[dict[str, Any]] = []
+        remaining_text = ""
+
+        if self._state == ParserState.BUFFERING_JSON:
+            # Stream ended while we were holding back a potential JSON blob.
+            # Try to parse it as a tool call one final time.
+            parsed = self._parse_tool_call_json(self._buffer)
+            if parsed:
+                detected_tools.append(
+                    {
+                        "type": "tool_use",
+                        "id": f"toolu_heuristic_{uuid.uuid4().hex[:8]}",
+                        **parsed,
+                    }
+                )
+                logger.debug(
+                    "Heuristic bypass: Flushed bare-JSON tool call '{}'", parsed["name"]
+                )
+            else:
+                remaining_text = self._buffer
+            self._state = ParserState.TEXT
+            self._buffer = ""
+
+        elif self._state == ParserState.PARSING_PARAMETERS:
             partial_matches = re.finditer(
                 r"<parameter=([^>]+)>(.*)$", self._buffer, re.DOTALL
             )
@@ -209,4 +406,9 @@ class HeuristicToolParser:
             self._state = ParserState.TEXT
             self._buffer = ""
 
-        return detected_tools
+        return remaining_text, detected_tools
+
+    def flush(self) -> list[dict[str, Any]]:
+        """Backwards-compatible flush — returns only tool calls, discards held text."""
+        _, tools = self.flush_all()
+        return tools

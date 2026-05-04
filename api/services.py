@@ -14,6 +14,7 @@ from loguru import logger
 from config.settings import Settings
 from core.anthropic import get_token_count, get_user_facing_error_message
 from core.anthropic.sse import ANTHROPIC_SSE_RESPONSE_HEADERS
+from core.context_manager import get_context_manager
 from providers.base import BaseProvider
 from providers.exceptions import InvalidRequestError, ProviderError
 
@@ -103,7 +104,25 @@ class ClaudeProxyService:
         try:
             _require_non_empty_messages(request_data.messages)
 
-            routed = self._model_router.resolve_messages_request(request_data)
+            # Apply context management (trimming/compaction) if configured
+            context_mgr = get_context_manager(self._settings)
+            messages, was_trimmed = context_mgr.trim_messages(
+                request_data.messages, request_data.system, request_data.tools
+            )
+            if was_trimmed:
+                logger.info(
+                    "CONTEXT: trimmed {} → {} messages",
+                    len(request_data.messages),
+                    len(messages),
+                )
+
+            trimmed_request = (
+                request_data.model_copy(update={"messages": messages})
+                if was_trimmed
+                else request_data
+            )
+
+            routed = self._model_router.resolve_messages_request(trimmed_request)
             if routed.resolved.provider_id in _OPENAI_CHAT_UPSTREAM_IDS:
                 tool_err = openai_chat_upstream_server_tool_error(
                     routed.request,
