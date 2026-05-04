@@ -74,12 +74,6 @@ cd free-claude-code
 cp .env.example .env
 ```
 
-PowerShell uses:
-
-```powershell
-Copy-Item .env.example .env
-```
-
 Edit `.env` and choose one provider. For the default NVIDIA NIM path:
 
 ```dotenv
