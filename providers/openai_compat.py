@@ -383,7 +383,12 @@ class OpenAIChatTransport(BaseProvider):
                     yield event
                 yield sse.emit_text_delta(remaining.content)
 
-        for tool_use in heuristic_parser.flush():
+        flush_text, flush_tools = heuristic_parser.flush_all()
+        if flush_text:
+            for event in sse.ensure_text_block():
+                yield event
+            yield sse.emit_text_delta(flush_text)
+        for tool_use in flush_tools:
             for event in _iter_heuristic_tool_use_sse(sse, tool_use):
                 yield event
 
