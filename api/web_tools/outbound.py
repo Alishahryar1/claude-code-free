@@ -258,7 +258,11 @@ async def _run_web_fetch(url: str, egress: WebFetchEgressPolicy) -> dict[str, st
                     response, constants._MAX_WEB_FETCH_RESPONSE_BYTES
                 )
         finally:
-            await connector.close()
+            # don't let connector cleanup failures hide the real problem
+            try:
+                await connector.close()
+            except Exception as cleanup_err:
+                logger.debug(f"connector cleanup hiccup: {cleanup_err}")
 
         break
 

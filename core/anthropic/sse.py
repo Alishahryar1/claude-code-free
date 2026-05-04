@@ -116,7 +116,8 @@ class ContentBlockManager:
         state.task_arg_buffer += args
         try:
             args_json = json.loads(state.task_arg_buffer)
-        except Exception:
+        except json.JSONDecodeError:
+            # not valid JSON yet, keep buffering till we get the full picture
             return None
 
         _normalize_task_run_in_background(args_json)

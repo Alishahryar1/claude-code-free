@@ -28,16 +28,16 @@ def ensure_atexit_registered() -> None:
         _atexit_registered = True
 
 
-def register_pid(pid: int) -> None:
-    if not pid:
+def register_pid(pid: int | None) -> None:
+    if pid is None or pid <= 0:  # 0 is the scheduler, negative PIDs are weird
         return
     ensure_atexit_registered()
     with _lock:
         _pids.add(int(pid))
 
 
-def unregister_pid(pid: int) -> None:
-    if not pid:
+def unregister_pid(pid: int | None) -> None:
+    if pid is None or pid <= 0:
         return
     with _lock:
         _pids.discard(int(pid))

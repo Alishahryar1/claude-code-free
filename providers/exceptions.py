@@ -4,7 +4,7 @@ from typing import Any
 
 
 class ProviderError(Exception):
-    """Base exception for all provider errors."""
+    """Base exception for all provider errors. When things go sideways with your LLM."""
 
     def __init__(
         self,

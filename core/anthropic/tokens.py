@@ -52,7 +52,9 @@ def get_token_count(
                 elif b_type == "image":
                     source = get_block_attr(block, "source")
                     if isinstance(source, dict):
-                        data = source.get("data") or source.get("base64") or ""
+                        # could be bytes, int, or something weird - force it to behave
+                        raw_data = source.get("data") or source.get("base64") or ""
+                        data = str(raw_data) if raw_data else ""
                         if data:
                             total_tokens += max(85, len(data) // 3000)
                         else:
