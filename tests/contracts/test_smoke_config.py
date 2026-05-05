@@ -8,6 +8,7 @@ from smoke.lib.config import (
     PROVIDER_SMOKE_DEFAULT_MODELS,
     TARGET_REQUIRED_ENV,
     SmokeConfig,
+    _parse_provider_type,
 )
 
 
@@ -173,3 +174,21 @@ def test_provider_smoke_does_not_include_default_local_urls_when_unmapped(
     config = _smoke_config(settings=_settings(model="nvidia_nim/test"))
 
     assert config.provider_smoke_models() == []
+
+
+def test_parse_provider_type_rejects_missing_separator() -> None:
+    try:
+        _parse_provider_type("foobar", "MODEL")
+    except ValueError as exc:
+        assert "MODEL must be a non-empty provider/model reference" in str(exc)
+    else:
+        raise AssertionError("expected malformed MODEL to fail")
+
+
+def test_parse_provider_type_rejects_unknown_provider_prefix() -> None:
+    try:
+        _parse_provider_type("foobar/model-x", "MODEL")
+    except ValueError as exc:
+        assert "MODEL must use a supported provider prefix" in str(exc)
+    else:
+        raise AssertionError("expected unknown provider prefix to fail")
