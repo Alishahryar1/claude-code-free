@@ -22,6 +22,7 @@ OPENROUTER_DEFAULT_BASE = "https://openrouter.ai/api/v1"
 LMSTUDIO_DEFAULT_BASE = "http://localhost:1234/v1"
 LLAMACPP_DEFAULT_BASE = "http://localhost:8080/v1"
 OLLAMA_DEFAULT_BASE = "http://localhost:11434"
+DS2API_DEFAULT_BASE = "http://127.0.0.1:6011/v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +74,8 @@ PROVIDER_CATALOG: dict[str, ProviderDescriptor] = {
     "lmstudio": ProviderDescriptor(
         provider_id="lmstudio",
         transport_type="anthropic_messages",
-        static_credential="lm-studio",
+        credential_env="LM_STUDIO_API_KEY",
+        credential_attr="lm_studio_api_key",
         default_base_url=LMSTUDIO_DEFAULT_BASE,
         base_url_attr="lm_studio_base_url",
         proxy_attr="lmstudio_proxy",
@@ -112,6 +114,16 @@ PROVIDER_CATALOG: dict[str, ProviderDescriptor] = {
         default_base_url=KIMI_DEFAULT_BASE,
         proxy_attr="kimi_proxy",
         capabilities=("chat", "streaming", "tools"),
+    ),
+    "ds2api": ProviderDescriptor(
+        provider_id="ds2api",
+        transport_type="openai_chat",
+        credential_env="DS2API_API_KEY",
+        credential_attr="ds2api_api_key",
+        default_base_url=DS2API_DEFAULT_BASE,
+        base_url_attr="ds2api_base_url",
+        proxy_attr="ds2api_proxy",
+        capabilities=("chat", "streaming", "tools", "thinking", "local"),
     ),
 }
 

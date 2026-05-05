@@ -7,6 +7,7 @@ import pytest
 from config.nim import NimSettings
 from config.provider_ids import SUPPORTED_PROVIDER_IDS
 from providers.deepseek import DeepSeekProvider
+from providers.ds2api import DS2APIProvider
 from providers.exceptions import UnknownProviderTypeError
 from providers.llamacpp import LlamaCppProvider
 from providers.lmstudio import LMStudioProvider
@@ -28,12 +29,16 @@ def _make_settings(**overrides):
     mock.open_router_api_key = "test_openrouter_key"
     mock.deepseek_api_key = "test_deepseek_key"
     mock.lm_studio_base_url = "http://localhost:1234/v1"
+    mock.lm_studio_api_key = "lm-studio"
     mock.llamacpp_base_url = "http://localhost:8080/v1"
     mock.ollama_base_url = "http://localhost:11434"
+    mock.ds2api_api_key = "test_ds2api_key"
+    mock.ds2api_base_url = "http://127.0.0.1:6011/v1"
     mock.nvidia_nim_proxy = ""
     mock.open_router_proxy = ""
     mock.lmstudio_proxy = ""
     mock.llamacpp_proxy = ""
+    mock.ds2api_proxy = ""
     mock.provider_rate_limit = 40
     mock.provider_rate_window = 60
     mock.provider_max_concurrency = 5
@@ -94,6 +99,7 @@ def test_create_provider_instantiates_each_builtin():
         "lmstudio": LMStudioProvider,
         "llamacpp": LlamaCppProvider,
         "ollama": OllamaProvider,
+        "ds2api": DS2APIProvider,
     }
 
     with (
