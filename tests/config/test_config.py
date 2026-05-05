@@ -40,8 +40,25 @@ class TestSettings:
         assert settings.enable_web_server_tools is False
         assert settings.log_raw_api_payloads is False
         assert settings.log_raw_sse_events is False
+        assert settings.context_warn_threshold == 0.75
         assert settings.debug_platform_edits is False
         assert settings.debug_subagent_stack is False
+
+    def test_context_warn_threshold_from_env(self, monkeypatch):
+        """CONTEXT_WARN_THRESHOLD env var is loaded into settings."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("CONTEXT_WARN_THRESHOLD", "0.8")
+        settings = Settings()
+        assert settings.context_warn_threshold == 0.8
+
+    def test_context_warn_threshold_must_be_in_range(self, monkeypatch):
+        """CONTEXT_WARN_THRESHOLD must be in the open/closed interval (0, 1]."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("CONTEXT_WARN_THRESHOLD", "0")
+        with pytest.raises(ValidationError, match="context_warn_threshold"):
+            Settings()
 
     def test_get_settings_cached(self):
         """Test get_settings returns cached instance."""

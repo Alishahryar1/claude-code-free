@@ -17,9 +17,13 @@ from core.anthropic.sse import ANTHROPIC_SSE_RESPONSE_HEADERS
 from providers.base import BaseProvider
 from providers.exceptions import InvalidRequestError, ProviderError
 
+from .context_usage import (
+    SessionContextUsageTracker,
+    extract_usage_input_tokens_from_sse_event,
+)
 from .model_router import ModelRouter
 from .models.anthropic import MessagesRequest, TokenCountRequest
-from .models.responses import TokenCountResponse
+from .models.responses import MessagesResponse, TokenCountResponse
 from .optimization_handlers import try_optimizations
 from .web_tools.egress import WebFetchEgressPolicy
 from .web_tools.request import (
@@ -34,6 +38,7 @@ ProviderGetter = Callable[[str], BaseProvider]
 
 # Providers that use ``/chat/completions`` + Anthropic-to-OpenAI conversion (not native Messages).
 _OPENAI_CHAT_UPSTREAM_IDS = frozenset({"nvidia_nim"})
+_CONTEXT_USAGE_TRACKERS_BY_THRESHOLD: dict[float, SessionContextUsageTracker] = {}
 
 
 def anthropic_sse_streaming_response(
@@ -92,11 +97,43 @@ class ClaudeProxyService:
         provider_getter: ProviderGetter,
         model_router: ModelRouter | None = None,
         token_counter: TokenCounter = get_token_count,
+        context_usage_tracker: SessionContextUsageTracker | None = None,
     ):
         self._settings = settings
         self._provider_getter = provider_getter
         self._model_router = model_router or ModelRouter(settings)
         self._token_counter = token_counter
+        self._context_usage_tracker = (
+            context_usage_tracker
+            if context_usage_tracker is not None
+            else _CONTEXT_USAGE_TRACKERS_BY_THRESHOLD.setdefault(
+                settings.context_warn_threshold,
+                SessionContextUsageTracker(
+                    warn_threshold=settings.context_warn_threshold
+                ),
+            )
+        )
+
+    async def _stream_with_context_usage_tracking(
+        self, body: AsyncIterator[str], *, model_name: str
+    ) -> AsyncIterator[str]:
+        tracked = False
+        async for event in body:
+            if not tracked:
+                usage_input_tokens = extract_usage_input_tokens_from_sse_event(event)
+                if usage_input_tokens is not None:
+                    self._context_usage_tracker.record_usage(
+                        model_name=model_name,
+                        input_tokens=usage_input_tokens,
+                    )
+                    tracked = True
+            yield event
+
+    def _track_optimized_response_usage(self, response: MessagesResponse) -> None:
+        self._context_usage_tracker.record_usage(
+            model_name=response.model,
+            input_tokens=response.usage.input_tokens,
+        )
 
     def create_message(self, request_data: MessagesRequest) -> object:
         """Create a message response or streaming response."""
@@ -124,16 +161,20 @@ class ClaudeProxyService:
                     allowed_schemes=self._settings.web_fetch_allowed_scheme_set(),
                 )
                 return anthropic_sse_streaming_response(
-                    stream_web_server_tool_response(
-                        routed.request,
-                        input_tokens=input_tokens,
-                        web_fetch_egress=egress,
-                        verbose_client_errors=self._settings.log_api_error_tracebacks,
-                    ),
+                    self._stream_with_context_usage_tracking(
+                        stream_web_server_tool_response(
+                            routed.request,
+                            input_tokens=input_tokens,
+                            web_fetch_egress=egress,
+                            verbose_client_errors=self._settings.log_api_error_tracebacks,
+                        ),
+                        model_name=routed.request.model,
+                    )
                 )
 
             optimized = try_optimizations(routed.request, self._settings)
             if optimized is not None:
+                self._track_optimized_response_usage(optimized)
                 return optimized
             logger.debug("No optimization matched, routing to provider")
 
@@ -159,12 +200,15 @@ class ClaudeProxyService:
                 routed.request.messages, routed.request.system, routed.request.tools
             )
             return anthropic_sse_streaming_response(
-                provider.stream_response(
-                    routed.request,
-                    input_tokens=input_tokens,
-                    request_id=request_id,
-                    thinking_enabled=routed.resolved.thinking_enabled,
-                ),
+                self._stream_with_context_usage_tracking(
+                    provider.stream_response(
+                        routed.request,
+                        input_tokens=input_tokens,
+                        request_id=request_id,
+                        thinking_enabled=routed.resolved.thinking_enabled,
+                    ),
+                    model_name=routed.request.model,
+                )
             )
 
         except ProviderError:

@@ -246,6 +246,10 @@ class Settings(BaseSettings):
     log_messaging_error_details: bool = Field(
         default=False, validation_alias="LOG_MESSAGING_ERROR_DETAILS"
     )
+    # Warn when cumulative context usage for a known model crosses this ratio.
+    context_warn_threshold: float = Field(
+        default=0.75, validation_alias="CONTEXT_WARN_THRESHOLD"
+    )
     debug_platform_edits: bool = Field(
         default=False, validation_alias="DEBUG_PLATFORM_EDITS"
     )
@@ -362,6 +366,13 @@ class Settings(BaseSettings):
     def validate_messaging_rate_window(cls, v: float) -> float:
         if v <= 0:
             raise ValueError("messaging_rate_window must be > 0")
+        return float(v)
+
+    @field_validator("context_warn_threshold")
+    @classmethod
+    def validate_context_warn_threshold(cls, v: float) -> float:
+        if v <= 0 or v > 1:
+            raise ValueError("context_warn_threshold must be in (0, 1]")
         return float(v)
 
     @field_validator("web_fetch_allowed_schemes")
