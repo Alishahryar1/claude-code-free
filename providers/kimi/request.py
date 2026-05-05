@@ -19,7 +19,7 @@ def build_request_body(request_data: Any, *, thinking_enabled: bool) -> dict:
     try:
         body = build_base_request_body(
             request_data,
-            reasoning_replay=ReasoningReplayMode.DISABLED,
+            reasoning_replay=ReasoningReplayMode.REASONING_CONTENT,
         )
     except OpenAIConversionError as exc:
         raise InvalidRequestError(str(exc)) from exc
