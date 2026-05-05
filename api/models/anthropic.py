@@ -31,6 +31,13 @@ class ContentBlockImage(_AnthropicBlockBase):
     source: dict[str, Any]
 
 
+class ContentBlockDocument(_AnthropicBlockBase):
+    """Anthropic document block (e.g. PDF files via the Files API)."""
+
+    type: Literal["document"]
+    source: dict[str, Any]
+
+
 class ContentBlockToolUse(_AnthropicBlockBase):
     type: Literal["tool_use"]
     id: str
@@ -91,6 +98,7 @@ class Message(BaseModel):
         | list[
             ContentBlockText
             | ContentBlockImage
+            | ContentBlockDocument
             | ContentBlockToolUse
             | ContentBlockToolResult
             | ContentBlockThinking
