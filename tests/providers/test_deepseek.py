@@ -898,7 +898,119 @@ def test_image_only_tool_result_replaced_with_placeholder(deepseek_provider):
     assert tool_result["type"] == "tool_result"
     assert isinstance(tool_result["content"], str)
     assert tool_result["content"] != ""
-    assert "image omitted" in tool_result["content"].lower()
+    assert "attachment omitted" in tool_result["content"].lower()
+    assert "image or document inputs" in tool_result["content"].lower()
+
+
+def test_document_only_tool_result_replaced_with_generic_placeholder(
+    deepseek_provider,
+):
+    """A document-only tool_result uses the generic attachment placeholder."""
+    request = MessagesRequest.model_validate(
+        {
+            "model": "m",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "t1",
+                            "name": "Read",
+                            "input": {"file_path": "paper.pdf"},
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "t1",
+                            "content": [
+                                {
+                                    "type": "document",
+                                    "source": {
+                                        "type": "file",
+                                        "file_id": "file_pdf",
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                },
+            ],
+        }
+    )
+
+    body = deepseek_provider._build_request_body(request)
+
+    tool_result = body["messages"][1]["content"][0]
+    assert tool_result["type"] == "tool_result"
+    assert isinstance(tool_result["content"], str)
+    assert "attachment omitted" in tool_result["content"].lower()
+    assert "document inputs" in tool_result["content"].lower()
+    assert "image omitted" not in tool_result["content"].lower()
+
+
+def test_image_only_message_replaced_with_placeholder(deepseek_provider):
+    """A top-level image-only message remains non-empty after stripping."""
+    request = MessagesRequest.model_validate(
+        {
+            "model": "m",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": "abc",
+                            },
+                        },
+                    ],
+                },
+            ],
+        }
+    )
+
+    body = deepseek_provider._build_request_body(request)
+
+    content = body["messages"][0]["content"]
+    assert len(content) == 1
+    assert content[0]["type"] == "text"
+    assert "attachment omitted" in content[0]["text"].lower()
+    assert "image or document inputs" in content[0]["text"].lower()
+
+
+def test_document_only_message_replaced_with_placeholder(deepseek_provider):
+    """A top-level document-only message remains non-empty after stripping."""
+    request = MessagesRequest.model_validate(
+        {
+            "model": "m",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "document",
+                            "source": {"type": "file", "file_id": "file_pdf"},
+                        },
+                    ],
+                },
+            ],
+        }
+    )
+
+    body = deepseek_provider._build_request_body(request)
+
+    content = body["messages"][0]["content"]
+    assert len(content) == 1
+    assert content[0]["type"] == "text"
+    assert "attachment omitted" in content[0]["text"].lower()
+    assert "document inputs" in content[0]["text"].lower()
 
 
 def test_warns_when_stripping_attachment_blocks(deepseek_provider, caplog):

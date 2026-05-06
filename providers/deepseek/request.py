@@ -27,6 +27,10 @@ _UNSUPPORTED_MESSAGE_BLOCK_TYPES = frozenset(
 # also provided via tool_result (e.g. Claude Code attaches PDFs as document
 # blocks alongside a Read tool_result containing the text).
 _STRIPPABLE_MESSAGE_BLOCK_TYPES = frozenset({"image", "document"})
+_OMITTED_ATTACHMENT_TEXT = (
+    "[attachment omitted: DeepSeek does not support image or document inputs]"
+)
+_OMITTED_ATTACHMENT_BLOCK = {"type": "text", "text": _OMITTED_ATTACHMENT_TEXT}
 
 
 def _strip_unsupported_attachment_blocks(messages: Any) -> Any:
@@ -54,11 +58,13 @@ def _strip_unsupported_attachment_blocks(messages: Any) -> Any:
             continue
 
         new_content: list[Any] = []
+        message_dropped_attachment = False
         for block in content:
             if isinstance(block, dict):
                 btype = block.get("type")
                 if btype in _STRIPPABLE_MESSAGE_BLOCK_TYPES:
                     top_level_dropped[btype] = top_level_dropped.get(btype, 0) + 1
+                    message_dropped_attachment = True
                     continue
                 if btype == "tool_result":
                     inner = block.get("content")
@@ -76,18 +82,16 @@ def _strip_unsupported_attachment_blocks(messages: Any) -> Any:
                                 continue
                             filtered_inner.append(sub)
                         if not filtered_inner:
-                            filtered_inner = [
-                                {
-                                    "type": "text",
-                                    "text": "[image omitted: DeepSeek does not support image inputs]",
-                                }
-                            ]
+                            filtered_inner = [_OMITTED_ATTACHMENT_BLOCK]
                             placeholder_replacements += 1
                         new_block = dict(block)
                         new_block["content"] = filtered_inner
                         new_content.append(new_block)
                         continue
             new_content.append(block)
+        if not new_content and message_dropped_attachment:
+            new_content = [_OMITTED_ATTACHMENT_BLOCK]
+            placeholder_replacements += 1
         new_msg = dict(message)
         new_msg["content"] = new_content
         stripped.append(new_msg)
