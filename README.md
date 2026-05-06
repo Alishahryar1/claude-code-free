@@ -39,7 +39,7 @@ Free Claude Code routes Anthropic Messages API traffic from Claude Code to NVIDI
 - Drop-in proxy for Claude Code's Anthropic API calls.
 - Six provider backends: NVIDIA NIM, OpenRouter, DeepSeek, LM Studio, llama.cpp, and Ollama.
 - Per-model routing: send Opus, Sonnet, Haiku, and fallback traffic to different providers.
-- Native Claude Code `/model` picker support through the proxy's `/v1/models` endpoint.
+- Native Claude Code `/model` picker support through the proxy's `/v1/models` endpoint (Claude Code must opt in to Gateway model discovery; see [Model Picker](#model-picker)).
 - Streaming, tool use, reasoning/thinking block handling, and local request optimizations.
 - Optional Discord or Telegram bot wrapper for remote coding sessions.
 - Optional voice-note transcription through local Whisper or NVIDIA NIM.
@@ -108,18 +108,18 @@ free-claude-code
 
 ### 4. Run Claude Code
 
-Point `ANTHROPIC_BASE_URL` at the proxy root. Do not append `/v1`.
+Point `ANTHROPIC_BASE_URL` at the proxy root. Do not append `/v1`. Set `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` if you use `/model` to list models from this proxy (see [Model Picker](#model-picker)).
 
 PowerShell:
 
 ```powershell
-$env:ANTHROPIC_AUTH_TOKEN="freecc"; $env:ANTHROPIC_BASE_URL="http://localhost:8082"; claude
+$env:ANTHROPIC_AUTH_TOKEN="freecc"; $env:ANTHROPIC_BASE_URL="http://localhost:8082"; $env:CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY="1"; claude
 ```
 
 Bash:
 
 ```bash
-ANTHROPIC_AUTH_TOKEN="freecc" ANTHROPIC_BASE_URL="http://localhost:8082" claude
+ANTHROPIC_AUTH_TOKEN="freecc" ANTHROPIC_BASE_URL="http://localhost:8082" CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1 claude
 ```
 
 ## Choose A Provider
@@ -261,7 +261,7 @@ MODEL="nvidia_nim/z-ai/glm4.7"
 ### Claude Code CLI
 
 ```bash
-ANTHROPIC_AUTH_TOKEN="freecc" ANTHROPIC_BASE_URL="http://localhost:8082" claude
+ANTHROPIC_AUTH_TOKEN="freecc" ANTHROPIC_BASE_URL="http://localhost:8082" CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1 claude
 ```
 
 ### VS Code Extension
@@ -271,7 +271,8 @@ Open Settings, search for `claude-code.environmentVariables`, choose **Edit in s
 ```json
 "claudeCode.environmentVariables": [
   { "name": "ANTHROPIC_BASE_URL", "value": "http://localhost:8082" },
-  { "name": "ANTHROPIC_AUTH_TOKEN", "value": "freecc" }
+  { "name": "ANTHROPIC_AUTH_TOKEN", "value": "freecc" },
+  { "name": "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "value": "1" }
 ]
 ```
 
@@ -289,7 +290,8 @@ Set the environment for `acp.registry.claude-acp`:
 ```json
 "env": {
   "ANTHROPIC_BASE_URL": "http://localhost:8082",
-  "ANTHROPIC_AUTH_TOKEN": "freecc"
+  "ANTHROPIC_AUTH_TOKEN": "freecc",
+  "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"
 }
 ```
 
@@ -297,7 +299,9 @@ Restart the IDE after changing the file.
 
 ### Model Picker
 
-Claude Code 2.1.126 or later reads this proxy's `/v1/models` endpoint when `ANTHROPIC_BASE_URL` points at the proxy. Start Claude Code normally, run `/model`, and choose any discovered provider model.
+Claude Code 2.1.126 or later can populate `/model` from this proxy's Gateway `/v1/models` response when `ANTHROPIC_BASE_URL` points here. In **2.1.126–2.1.128** that discovery was automatic; **newer releases** require **`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`** in the same environment as `ANTHROPIC_*`. Omit the flag if you only set models via proxy config and never use `/model` discovery.
+
+Start Claude Code with that variable set (see [Quick Start](#4-run-claude-code)), run `/model`, and choose any discovered provider model.
 
 <div align="center">
   <img src="cc-model-picker.png" alt="Claude Code model picker showing gateway models" width="700">
