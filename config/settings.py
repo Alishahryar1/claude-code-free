@@ -432,6 +432,17 @@ class Settings(BaseSettings):
         return bool(os.environ.get("ANTHROPIC_AUTH_TOKEN"))
 
     @property
+    def nvidia_nim_api_keys(self) -> list[str]:
+        """Return a list of cleaned NVIDIA NIM API keys from the delimited string."""
+        if not self.nvidia_nim_api_key.strip():
+            return []
+        return [
+            key.strip()
+            for key in self.nvidia_nim_api_key.split(",")
+            if key.strip()
+        ]
+
+    @property
     def provider_type(self) -> str:
         """Extract provider type from the default model string."""
         return Settings.parse_provider_type(self.model)
