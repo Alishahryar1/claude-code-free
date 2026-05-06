@@ -1,0 +1,303 @@
+# fcc.ps1 — Free Claude Code one-click launcher (Windows PowerShell)
+# Usage:
+#   ./fcc.ps1 setup     One-click: install deps + create shortcuts
+#   ./fcc.ps1           Start proxy in background
+#   ./fcc.ps1 claude    Start proxy + launch Claude Code
+#   ./fcc.ps1 stop      Stop the proxy
+#   ./fcc.ps1 status    Show proxy status
+#   ./fcc.ps1 shortcut  Create desktop shortcut
+#
+# Requires: uv (auto-installed by setup if missing), Claude Code CLI
+
+param(
+    [string]$Action = "proxy"
+)
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Port = if ($env:FCC_PORT) { [int]$env:FCC_PORT } else { 8082 }
+$BaseUrl = "http://localhost:$Port"
+$AuthToken = if ($env:ANTHROPIC_AUTH_TOKEN) { $env:ANTHROPIC_AUTH_TOKEN } else { "freecc" }
+$LogFile = "$env:TEMP\fcc-proxy.log"
+
+function Ensure-Uv {
+    if (Get-Command uv -ErrorAction SilentlyContinue) {
+        return $true
+    }
+    Write-Host "📦 uv is required but not found."
+    $answer = Read-Host "Install uv automatically? [Y/n] "
+    if ($answer -eq "n" -or $answer -eq "N") {
+        Write-Host "Please install uv first: irm https://astral.sh/uv/install.ps1 | iex"
+        return $false
+    }
+    Write-Host "Installing uv..."
+    irm https://astral.sh/uv/install.ps1 | iex
+    # Refresh PATH
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    if (Get-Command uv -ErrorAction SilentlyContinue) {
+        Write-Host "✅ uv installed"
+        return $true
+    }
+    Write-Host "❌ Failed to install uv. Please install manually:"
+    Write-Host "   irm https://astral.sh/uv/install.ps1 | iex"
+    return $false
+}
+
+function Get-ProcessIdByPort {
+    param([int]$Port)
+    # Get-NetTCPConnection requires admin, falls back to netstat
+    $procId = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess
+    if (-not $procId) {
+        $lines = netstat -ano | Select-String ":$Port\b"
+        if ($lines) {
+            $procId = $lines | ForEach-Object { ($_.Line -split '\s+')[-1] } | Where-Object { $_ -match '^\d+$' } | Select-Object -First 1
+        }
+    }
+    return $procId
+}
+
+function Start-Proxy {
+    if (-not (Ensure-Uv)) { exit 1 }
+
+    Write-Host "🔧 Cleaning up port $Port ..."
+    $existingPids = Get-ProcessIdByPort -Port $Port
+    if ($existingPids) {
+        $existingPids | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+        Start-Sleep -Seconds 1
+    }
+
+    Write-Host "🚀 Starting proxy server → $BaseUrl"
+    Set-Location $ScriptDir
+    Remove-Job -Name "FCCProxy" -ErrorAction SilentlyContinue
+    $job = Start-Job -Name "FCCProxy" -ScriptBlock {
+        param($dir, $port, $log)
+        Set-Location $dir
+        uv run uvicorn server:app --host 0.0.0.0 --port $port *>"$log"
+    } -ArgumentList $ScriptDir, $Port, $LogFile
+
+    # Wait for proxy to be ready
+    for ($i = 0; $i -lt 10; $i++) {
+        try {
+            $null = Invoke-WebRequest -Uri "$BaseUrl" -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop
+            Write-Host "✅ Proxy is ready"
+            return
+        } catch {}
+        Start-Sleep -Seconds 1
+    }
+
+    Write-Host "❌ Proxy failed to start, check log: $LogFile"
+    exit 1
+}
+
+function Stop-Proxy {
+    $procIds = Get-ProcessIdByPort -Port $Port
+    if ($procIds) {
+        Write-Host "🛑 Stopping proxy (PID: $($procIds -join ','))..."
+        $procIds | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+        Start-Sleep -Seconds 1
+        $remaining = Get-ProcessIdByPort -Port $Port
+        if ($remaining) {
+            Write-Host "⚠️  Process still bound to port $Port (PID: $($remaining -join ',')), forcing kill..."
+            $remaining | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+            Start-Sleep -Seconds 1
+            $remaining = Get-ProcessIdByPort -Port $Port
+            if ($remaining) {
+                Write-Host "⚠️  Warning: process(es) may still be running: $($remaining -join ',')"
+            } else {
+                Write-Host "✅ Stopped"
+            }
+        } else {
+            Write-Host "✅ Stopped"
+        }
+    } else {
+        Write-Host "ℹ️  Proxy is not running"
+    }
+}
+
+function Show-Status {
+    $procIds = Get-ProcessIdByPort -Port $Port
+    if ($procIds) {
+        Write-Host "✅ Proxy is running (PID: $($procIds -join ','))"
+        Write-Host "   Port: $Port"
+        Write-Host "   URL:  $BaseUrl"
+        try {
+            $null = Invoke-WebRequest -Uri "$BaseUrl" -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop
+            Write-Host "   Health: OK"
+        } catch {
+            Write-Host "   Health: port bound but not responding to HTTP"
+        }
+    } else {
+        Write-Host "ℹ️  Proxy is not running"
+        exit 1
+    }
+}
+
+function New-Shortcut {
+    param(
+        [ValidateSet("proxy", "claude")]
+        [string]$Type,
+
+        [string]$Suffix
+    )
+
+    $desktopDir = [Environment]::GetFolderPath("Desktop")
+    if (-not (Test-Path $desktopDir)) {
+        Write-Host "❌ Desktop directory not found: $desktopDir"
+        exit 1
+    }
+
+    $filename = "ClaudeProxy($Suffix).bat"
+    $filepath = Join-Path $desktopDir $filename
+
+    # Overwrite check
+    if (Test-Path $filepath) {
+        Write-Host "⚠️  Shortcut already exists: $filename"
+        $confirm = Read-Host "Overwrite? [y/N] "
+        if ($confirm -ne "y" -and $confirm -ne "Y") {
+            Write-Host "Skipped: $filename"
+            return
+        }
+        Write-Host ""
+    }
+
+    $actionScript = if ($Type -eq "proxy") { "proxy" } else { "claude" }
+
+    $content = @"
+@echo off
+REM Free Claude Code — One-click launcher shortcut
+REM Generated by `fcc.ps1 shortcut`
+
+REM Auto-install uv if missing
+where uv >nul 2>nul
+if %ERRORLEVEL% neq 0 (
+    echo Installing uv...
+    powershell.exe -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"
+)
+
+cd /d "$ScriptDir"
+powershell.exe -ExecutionPolicy Bypass -File "$ScriptDir\fcc.ps1" $actionScript
+"@
+
+    if ($Type -eq "proxy") {
+        $content += @"
+pause
+"@
+    }
+
+    try {
+        $content | Out-File -FilePath $filepath -Encoding Default -Force
+        Write-Host "✅ Created: $filepath"
+    } catch {
+        Write-Host "❌ Write failed: $filepath"
+        Write-Host $_.Exception.Message
+        exit 1
+    }
+}
+
+function Invoke-Setup {
+    Write-Host "🔧 Free Claude Code — One-Click Setup"
+    Write-Host "=============================================="
+    Write-Host ""
+
+    # 1. Ensure uv is installed
+    if (-not (Ensure-Uv)) { exit 1 }
+
+    # 2. Install project dependencies
+    Write-Host ""
+    Write-Host "📦 Installing project dependencies..."
+    Set-Location $ScriptDir
+    uv sync
+    Write-Host "✅ Dependencies installed"
+
+    # 3. Create desktop shortcuts
+    Write-Host ""
+    Write-Host "📌 Creating desktop shortcuts..."
+    New-Shortcut -Type "proxy" -Suffix "Proxy"
+    Write-Host ""
+    New-Shortcut -Type "claude" -Suffix "Full"
+
+    Write-Host ""
+    Write-Host "=============================================="
+    Write-Host "  Setup complete!"
+    Write-Host ""
+    Write-Host "  Double-click ClaudeProxy(Full).bat"
+    Write-Host "  on your desktop to launch."
+    Write-Host "=============================================="
+}
+
+function Show-ShortcutMenu {
+    Write-Host "Select shortcut type:"
+    Write-Host "  1) Proxy only — double-click to start proxy server in background"
+    Write-Host "  2) Proxy + Claude Code — double-click to start all"
+    Write-Host "  3) Create both"
+    Write-Host ""
+    $choice = Read-Host "Enter option [1/2/3]"
+
+    switch ($choice) {
+        "1" { New-Shortcut -Type "proxy" -Suffix "Proxy" }
+        "2" { New-Shortcut -Type "claude" -Suffix "Full" }
+        "3" {
+            New-Shortcut -Type "proxy" -Suffix "Proxy"
+            Write-Host ""
+            New-Shortcut -Type "claude" -Suffix "Full"
+        }
+        default {
+            Write-Host "❌ Invalid option: $choice"
+            exit 1
+        }
+    }
+}
+
+switch ($Action) {
+    "setup" {
+        Invoke-Setup
+    }
+    "proxy" {
+        Start-Proxy
+    }
+    "claude" {
+        if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
+            Write-Host "❌ claude command not found, please install Claude Code"
+            exit 1
+        }
+        Start-Proxy
+        Write-Host ""
+        Write-Host "=============================================="
+        Write-Host "  Launching Claude Code..."
+        Write-Host "=============================================="
+        Write-Host ""
+        $env:ANTHROPIC_AUTH_TOKEN = $AuthToken
+        $env:ANTHROPIC_BASE_URL = $BaseUrl
+        claude
+    }
+    "stop" {
+        Stop-Proxy
+    }
+    "status" {
+        Show-Status
+    }
+    "shortcut" {
+        Show-ShortcutMenu
+    }
+    { $_ -in "-h", "--help", "-?" } {
+        Write-Host "Usage: .\fcc.ps1 [setup|proxy|claude|stop|status|shortcut]"
+        Write-Host ""
+        Write-Host "First time:"
+        Write-Host "  .\fcc.ps1 setup     Install deps + create desktop shortcuts"
+        Write-Host ""
+        Write-Host "Daily use:"
+        Write-Host "  .\fcc.ps1           Start proxy in background"
+        Write-Host "  .\fcc.ps1 claude    Start proxy + launch Claude Code"
+        Write-Host "  .\fcc.ps1 stop      Stop proxy"
+        Write-Host "  .\fcc.ps1 status    Show proxy status"
+        Write-Host "  .\fcc.ps1 shortcut  Create desktop shortcut"
+        Write-Host ""
+        Write-Host "Environment variables:"
+        Write-Host "  FCC_PORT               Proxy port (default: 8082)"
+        Write-Host "  ANTHROPIC_AUTH_TOKEN   Auth token (default: freecc)"
+    }
+    default {
+        Write-Host "Usage: .\fcc.ps1 [setup|proxy|claude|stop|status|shortcut]"
+        Write-Host "Try '.\fcc.ps1 --help' for more details."
+    }
+}
