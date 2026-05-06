@@ -61,7 +61,6 @@ class AnthropicMessagesTransport(BaseProvider):
     ):
         super().__init__(config)
         self._provider_name = provider_name
-        self._api_key = config.api_key
         self._base_url = (config.base_url or default_base_url).rstrip("/")
         self._global_rate_limiter = GlobalRateLimiter.get_scoped_instance(
             provider_name.lower(),
@@ -69,6 +68,14 @@ class AnthropicMessagesTransport(BaseProvider):
             rate_window=config.rate_window,
             max_concurrency=config.max_concurrency,
         )
+        from providers.key_pool import ApiKeyPool
+
+        self._key_pool = None
+        if config.api_keys and len(config.api_keys) > 0:
+            self._key_pool = ApiKeyPool(config.api_keys, config.key_usage_limit)
+            self._api_key = self._key_pool.get_next_key() or config.api_key
+        else:
+            self._api_key = config.api_key
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             proxy=config.proxy or None,
@@ -79,6 +86,16 @@ class AnthropicMessagesTransport(BaseProvider):
                 write=config.http_write_timeout,
             ),
         )
+
+    def _rotate_api_key(self):
+        if self._key_pool:
+            next_key = self._key_pool.get_next_key()
+            if next_key:
+                self._api_key = next_key
+
+    def _mark_api_key_used(self):
+        if self._key_pool and self._api_key:
+            self._key_pool.mark_key_used(self._api_key)
 
     async def cleanup(self) -> None:
         """Release HTTP client resources."""
@@ -124,7 +141,10 @@ class AnthropicMessagesTransport(BaseProvider):
 
     def _request_headers(self) -> dict[str, str]:
         """Return headers for the native messages request."""
-        return {"Content-Type": "application/json"}
+        return {
+            "Content-Type": "application/json",
+            "x-api-key": self._api_key,
+        }
 
     def _build_request_body(
         self, request: Any, thinking_enabled: bool | None = None
@@ -138,14 +158,57 @@ class AnthropicMessagesTransport(BaseProvider):
         )
 
     async def _send_stream_request(self, body: dict) -> httpx.Response:
-        """Create a streaming messages response."""
-        request = self._client.build_request(
-            "POST",
-            "/messages",
-            json=body,
-            headers=self._request_headers(),
-        )
-        return await self._client.send(request, stream=True)
+        """Create a streaming messages response. Handles API key fallback."""
+        last_exc = None
+
+        # If no key pool, just send once
+        if not self._key_pool:
+            request = self._client.build_request(
+                "POST",
+                "/messages",
+                json=body,
+                headers=self._request_headers(),
+            )
+            return await self._client.send(request, stream=True)
+
+        for _ in range(len(self._key_pool.keys)):
+            try:
+                request = self._client.build_request(
+                    "POST",
+                    "/messages",
+                    json=body,
+                    headers=self._request_headers(),
+                )
+                response = await self._client.send(request, stream=True)
+
+                # If key is exhausted or unauthorized, mark it and rotate
+                if response.status_code in (401, 429):
+                    logger.warning(
+                        "{} key rotation: status={} for key prefix={}",
+                        self._provider_name,
+                        response.status_code,
+                        self._api_key[:8] if self._api_key else "None",
+                    )
+                    self._key_pool.mark_key_failed(self._api_key)
+                    await response.aclose()
+                    self._rotate_api_key()
+                    if not self._api_key:
+                        return response  # Return error response if no keys left
+                    continue
+
+                self._mark_api_key_used()
+                return response
+            except (httpx.ConnectError, httpx.ConnectTimeout) as error:
+                last_exc = error
+                self._rotate_api_key()
+            except Exception as error:
+                last_exc = error
+                self._rotate_api_key()
+
+        if last_exc:
+            raise last_exc
+
+        raise httpx.HTTPError("All API keys in the pool have been exhausted or failed.")
 
     async def _raise_for_status(
         self, response: httpx.Response, *, req_tag: str

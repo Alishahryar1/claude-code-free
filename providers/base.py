@@ -18,6 +18,8 @@ class ProviderConfig(BaseModel):
     """
 
     api_key: str
+    api_keys: list[str] = []  # Optional: for fallback keys
+    key_usage_limit: int = 1000  # Default per-key usage limit
     base_url: str | None = None
     rate_limit: int | None = None
     rate_window: int = 60

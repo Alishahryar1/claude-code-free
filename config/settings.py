@@ -1,6 +1,7 @@
 """Centralized configuration using Pydantic Settings."""
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
@@ -107,10 +108,26 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # ==================== OpenRouter Config ====================
-    open_router_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
+    open_router_api_keys: list[str] = Field(
+        default_factory=list, validation_alias="OPENROUTER_API_KEYS"
+    )
+    open_router_api_key: str = Field(
+        default="", validation_alias="OPENROUTER_API_KEY"
+    )  # legacy, single key
+    open_router_key_usage_limit: int = Field(
+        default=1000, validation_alias="OPENROUTER_KEY_USAGE_LIMIT"
+    )
 
     # ==================== DeepSeek Config ====================
-    deepseek_api_key: str = Field(default="", validation_alias="DEEPSEEK_API_KEY")
+    deepseek_api_keys: list[str] = Field(
+        default_factory=list, validation_alias="DEEPSEEK_API_KEYS"
+    )
+    deepseek_api_key: str = Field(
+        default="", validation_alias="DEEPSEEK_API_KEY"
+    )  # legacy, single key
+    deepseek_key_usage_limit: int = Field(
+        default=1000, validation_alias="DEEPSEEK_KEY_USAGE_LIMIT"
+    )
 
     # ==================== Kimi Config ====================
     kimi_api_key: str = Field(default="", validation_alias="KIMI_API_KEY")
@@ -128,7 +145,13 @@ class Settings(BaseSettings):
     )
 
     # ==================== NVIDIA NIM Config ====================
-    nvidia_nim_api_key: str = ""
+    nvidia_nim_api_keys: list[str] = Field(
+        default_factory=list, validation_alias="NVIDIA_NIM_API_KEYS"
+    )
+    nvidia_nim_api_key: str = Field(default="", validation_alias="NVIDIA_NIM_API_KEY")
+    nvidia_nim_key_usage_limit: int = Field(
+        default=1000, validation_alias="NVIDIA_NIM_KEY_USAGE_LIMIT"
+    )
 
     # ==================== LM Studio Config ====================
     lm_studio_base_url: str = Field(
@@ -304,6 +327,23 @@ class Settings(BaseSettings):
         if message := _removed_env_var_message(cls.model_config):
             raise ValueError(message)
         return data
+
+    @field_validator(
+        "open_router_api_keys",
+        "deepseek_api_keys",
+        "nvidia_nim_api_keys",
+        mode="before",
+    )
+    @classmethod
+    def parse_api_key_list(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            if not v.strip():
+                return []
+            # Support comma-separated or space-separated keys
+            return [k.strip() for k in re.split(r"[\s,]+", v) if k.strip()]
+        if isinstance(v, list):
+            return [str(k).strip() for k in v if str(k).strip()]
+        return []
 
     # Handle empty strings for optional string fields
     @field_validator(

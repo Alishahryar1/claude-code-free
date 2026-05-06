@@ -129,8 +129,30 @@ def build_provider_config(
         settings, descriptor.base_url_attr, descriptor.default_base_url or ""
     )
     proxy = _string_attr(settings, descriptor.proxy_attr)
+
+    # Fallback key support
+    api_keys = []
+    key_usage_limit = 1000
+    if descriptor.provider_id == "open_router":
+        api_keys = settings.open_router_api_keys
+        if not api_keys and settings.open_router_api_key:
+            api_keys = [settings.open_router_api_key]
+        key_usage_limit = settings.open_router_key_usage_limit
+    elif descriptor.provider_id == "deepseek":
+        api_keys = settings.deepseek_api_keys
+        if not api_keys and settings.deepseek_api_key:
+            api_keys = [settings.deepseek_api_key]
+        key_usage_limit = settings.deepseek_key_usage_limit
+    elif descriptor.provider_id == "nvidia_nim":
+        api_keys = settings.nvidia_nim_api_keys
+        if not api_keys and settings.nvidia_nim_api_key:
+            api_keys = [settings.nvidia_nim_api_key]
+        key_usage_limit = settings.nvidia_nim_key_usage_limit
+
     return ProviderConfig(
         api_key=credential,
+        api_keys=api_keys,
+        key_usage_limit=key_usage_limit,
         base_url=base_url or descriptor.default_base_url,
         rate_limit=settings.provider_rate_limit,
         rate_window=settings.provider_rate_window,

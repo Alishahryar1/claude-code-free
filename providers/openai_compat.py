@@ -13,7 +13,7 @@ from typing import Any
 
 import httpx
 from loguru import logger
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, AuthenticationError, RateLimitError
 
 from core.anthropic import (
     ContentType,
@@ -69,7 +69,6 @@ class OpenAIChatTransport(BaseProvider):
     ):
         super().__init__(config)
         self._provider_name = provider_name
-        self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._global_rate_limiter = GlobalRateLimiter.get_scoped_instance(
             provider_name.lower(),
@@ -77,6 +76,14 @@ class OpenAIChatTransport(BaseProvider):
             rate_window=config.rate_window,
             max_concurrency=config.max_concurrency,
         )
+        from providers.key_pool import ApiKeyPool
+
+        self._key_pool = None
+        if config.api_keys and len(config.api_keys) > 0:
+            self._key_pool = ApiKeyPool(config.api_keys, config.key_usage_limit)
+            self._api_key = self._key_pool.get_next_key() or api_key
+        else:
+            self._api_key = api_key
         http_client = None
         if config.proxy:
             http_client = httpx.AsyncClient(
@@ -100,6 +107,17 @@ class OpenAIChatTransport(BaseProvider):
             ),
             http_client=http_client,
         )
+
+    def _rotate_api_key(self):
+        if self._key_pool:
+            next_key = self._key_pool.get_next_key()
+            if next_key:
+                self._api_key = next_key
+                self._client.api_key = next_key
+
+    def _mark_api_key_used(self):
+        if self._key_pool and self._api_key:
+            self._key_pool.mark_key_used(self._api_key)
 
     async def cleanup(self) -> None:
         """Release HTTP client resources."""
@@ -129,21 +147,69 @@ class OpenAIChatTransport(BaseProvider):
         return None
 
     async def _create_stream(self, body: dict) -> tuple[Any, dict]:
-        """Create a streaming chat completion, optionally retrying once."""
-        try:
-            stream = await self._global_rate_limiter.execute_with_retry(
-                self._client.chat.completions.create, **body, stream=True
-            )
-            return stream, body
-        except Exception as error:
-            retry_body = self._get_retry_request_body(error, body)
-            if retry_body is None:
-                raise
+        """Create a streaming chat completion, optionally retrying once. Handles API key fallback."""
+        last_exc = None
 
-            stream = await self._global_rate_limiter.execute_with_retry(
-                self._client.chat.completions.create, **retry_body, stream=True
-            )
-            return stream, retry_body
+        # If no key pool, just use the global rate limiter retry logic with body-retry
+        if not self._key_pool:
+            try:
+                stream = await self._global_rate_limiter.execute_with_retry(
+                    self._client.chat.completions.create, **body, stream=True
+                )
+                return stream, body
+            except Exception as error:
+                retry_body = self._get_retry_request_body(error, body)
+                if retry_body is None:
+                    raise
+
+                stream = await self._global_rate_limiter.execute_with_retry(
+                    self._client.chat.completions.create, **retry_body, stream=True
+                )
+                return stream, retry_body
+
+        for _ in range(len(self._key_pool.keys)):
+            try:
+                try:
+                    stream = await self._global_rate_limiter.execute_with_retry(
+                        self._client.chat.completions.create, **body, stream=True
+                    )
+                    self._mark_api_key_used()
+                    return stream, body
+                except Exception as error:
+                    # Check if we should retry with a modified body first (e.g. NIM 400)
+                    retry_body = self._get_retry_request_body(error, body)
+                    if retry_body is not None:
+                        stream = await self._global_rate_limiter.execute_with_retry(
+                            self._client.chat.completions.create,
+                            **retry_body,
+                            stream=True,
+                        )
+                        self._mark_api_key_used()
+                        return stream, retry_body
+                    raise
+            except (AuthenticationError, RateLimitError) as error:
+                logger.warning(
+                    "{} key rotation: error={} for key prefix={}",
+                    self._provider_name,
+                    type(error).__name__,
+                    self._api_key[:8] if self._api_key else "None",
+                )
+                self._key_pool.mark_key_failed(self._api_key)
+                self._rotate_api_key()
+                if not self._api_key:
+                    raise error
+                last_exc = error
+            except Exception as error:
+                last_exc = error
+                if isinstance(error, (httpx.ConnectError, httpx.ConnectTimeout)):
+                    self._rotate_api_key()
+                else:
+                    raise error
+
+        if last_exc:
+            raise last_exc
+
+        raise httpx.HTTPError("All API keys in the pool have been exhausted or failed.")
 
     def _emit_tool_arg_delta(
         self, sse: SSEBuilder, tc_index: int, args: str
