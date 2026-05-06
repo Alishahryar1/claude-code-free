@@ -115,6 +115,12 @@ class Settings(BaseSettings):
     # ==================== Kimi Config ====================
     kimi_api_key: str = Field(default="", validation_alias="KIMI_API_KEY")
 
+    # ==================== DS2API Config (local Docker DeepSeek) ====================
+    ds2api_api_key: str = Field(default="", validation_alias="DS2API_API_KEY")
+    ds2api_base_url: str = Field(
+        default="http://127.0.0.1:6011/v1", validation_alias="DS2API_BASE_URL"
+    )
+
     # ==================== Messaging Platform Selection ====================
     # Valid: "telegram" | "discord" | "none"
     messaging_platform: str = Field(
@@ -134,6 +140,9 @@ class Settings(BaseSettings):
     lm_studio_base_url: str = Field(
         default="http://localhost:1234/v1",
         validation_alias="LM_STUDIO_BASE_URL",
+    )
+    lm_studio_api_key: str = Field(
+        default="lm-studio", validation_alias="LM_STUDIO_API_KEY"
     )
 
     # ==================== Llama.cpp Config ====================
@@ -165,6 +174,7 @@ class Settings(BaseSettings):
     lmstudio_proxy: str = Field(default="", validation_alias="LMSTUDIO_PROXY")
     llamacpp_proxy: str = Field(default="", validation_alias="LLAMACPP_PROXY")
     kimi_proxy: str = Field(default="", validation_alias="KIMI_PROXY")
+    ds2api_proxy: str = Field(default="", validation_alias="DS2API_PROXY")
 
     # ==================== Provider Rate Limiting ====================
     provider_rate_limit: int = Field(default=40, validation_alias="PROVIDER_RATE_LIMIT")

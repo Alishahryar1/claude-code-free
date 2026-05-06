@@ -16,6 +16,7 @@ from api.dependencies import (
 )
 from config.nim import NimSettings
 from providers.deepseek import DeepSeekProvider
+from providers.ds2api import DS2APIProvider
 from providers.exceptions import ServiceUnavailableError, UnknownProviderTypeError
 from providers.lmstudio import LMStudioProvider
 from providers.nvidia_nim import NvidiaNimProvider
@@ -36,7 +37,10 @@ def _make_mock_settings(**overrides):
     mock.open_router_api_key = "test_openrouter_key"
     mock.deepseek_api_key = "test_deepseek_key"
     mock.lm_studio_base_url = "http://localhost:1234/v1"
+    mock.lm_studio_api_key = "lm-studio"
     mock.ollama_base_url = "http://localhost:11434"
+    mock.ds2api_api_key = "test_ds2api_key"
+    mock.ds2api_base_url = "http://127.0.0.1:6011/v1"
     mock.nim = NimSettings()
     mock.http_read_timeout = 300.0
     mock.http_write_timeout = 10.0
@@ -130,6 +134,20 @@ async def test_get_provider_lmstudio():
 
         assert isinstance(provider, LMStudioProvider)
         assert provider._base_url == "http://localhost:1234/v1"
+        assert provider._api_key == "lm-studio"
+
+
+@pytest.mark.asyncio
+async def test_get_provider_ds2api():
+    """Test that provider_type=ds2api returns DS2APIProvider."""
+    with patch("api.dependencies.get_settings") as mock_settings:
+        mock_settings.return_value = _make_mock_settings(provider_type="ds2api")
+
+        provider = get_provider()
+
+        assert isinstance(provider, DS2APIProvider)
+        assert provider._base_url == "http://127.0.0.1:6011/v1"
+        assert provider._api_key == "test_ds2api_key"
 
 
 @pytest.mark.asyncio
