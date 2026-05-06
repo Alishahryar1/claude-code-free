@@ -96,8 +96,14 @@ class HeuristicToolParser:
     def feed(self, text: str) -> tuple[str, list[dict[str, Any]]]:
         """Feed text and return safe text plus detected tool calls."""
         self._buffer += text
-        self._buffer = self._strip_control_tokens(self._buffer)
-        self._buffer, detected_tools = self._extract_web_tool_json_calls()
+        # Guard expensive passes with fast substring checks — the common case for
+        # nemotron/qwen output is plain text with no control tokens or web tool JSON.
+        if _CONTROL_TOKEN_START in self._buffer:
+            self._buffer = self._strip_control_tokens(self._buffer)
+        if "WebFetch" in self._buffer or "WebSearch" in self._buffer:
+            self._buffer, detected_tools = self._extract_web_tool_json_calls()
+        else:
+            detected_tools = []
         filtered_output_parts: list[str] = []
 
         while True:

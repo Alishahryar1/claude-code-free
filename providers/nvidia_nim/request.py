@@ -44,10 +44,11 @@ def _clone_strip_extra_body(
 
     Returns ``None`` when there is no ``extra_body`` dict or ``strip`` reports no change.
     """
+    # Check original before cloning — avoids deepcopy when extra_body is absent.
+    if not isinstance(body.get("extra_body"), dict):
+        return None
     cloned_body = deepcopy(body)
     extra_body = cloned_body.get("extra_body")
-    if not isinstance(extra_body, dict):
-        return None
     if not strip(extra_body):
         return None
     if not extra_body:
@@ -82,6 +83,17 @@ def _strip_message_reasoning_content(body: dict[str, Any]) -> bool:
         ):
             removed = True
     return removed
+
+
+def _schema_has_booleans(value: Any) -> bool:
+    """Fast scan for boolean values in a JSON schema tree."""
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, dict):
+        return any(_schema_has_booleans(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_schema_has_booleans(item) for item in value)
+    return False
 
 
 def _sanitize_nim_schema_node(value: Any) -> tuple[bool, Any]:
@@ -129,6 +141,16 @@ def _sanitize_nim_tool_schemas(body: dict[str, Any]) -> None:
     if not isinstance(tools, list):
         return
 
+    # Fast path: Claude Code tool schemas virtually never contain booleans.
+    # Skip the full recursive walk unless a boolean is actually present.
+    if not any(
+        _schema_has_booleans(
+            tool.get("function", {}).get("parameters") if isinstance(tool, dict) else None
+        )
+        for tool in tools
+    ):
+        return
+
     sanitized_tools: list[Any] = []
     for tool in tools:
         if not isinstance(tool, dict):
@@ -172,9 +194,14 @@ def clone_body_without_chat_template(body: dict[str, Any]) -> dict[str, Any] | N
 
 def clone_body_without_reasoning_content(body: dict[str, Any]) -> dict[str, Any] | None:
     """Clone a request body and strip assistant message ``reasoning_content`` fields."""
-    cloned_body = deepcopy(body)
-    if not _strip_message_reasoning_content(cloned_body):
+    # Check original before cloning — avoids deepcopy when no reasoning_content present.
+    messages = body.get("messages")
+    if not isinstance(messages, list):
         return None
+    if not any(isinstance(m, dict) and "reasoning_content" in m for m in messages):
+        return None
+    cloned_body = deepcopy(body)
+    _strip_message_reasoning_content(cloned_body)
     return cloned_body
 
 

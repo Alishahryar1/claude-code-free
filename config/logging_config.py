@@ -8,6 +8,7 @@ included at top level for easy grep/filter.
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -96,14 +97,17 @@ def configure_logging(
     # Truncate log file on fresh start for clean debugging
     Path(log_file).write_text("")
 
-    # Add file sink: JSON lines, DEBUG level, context vars at top level
+    # Add file sink: JSON lines, INFO by default (DEBUG via LOG_FILE_LEVEL=DEBUG).
+    # enqueue=True offloads writes to a background thread — no blocking disk I/O
+    # in the streaming hot path.
     logger.add(
         log_file,
-        level="DEBUG",
+        level=os.getenv("LOG_FILE_LEVEL", "INFO"),
         format=_serialize_with_context,
         encoding="utf-8",
         mode="a",
         rotation="50 MB",
+        enqueue=True,
     )
 
     # Intercept stdlib logging: route all root logger output to loguru

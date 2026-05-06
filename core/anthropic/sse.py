@@ -187,12 +187,6 @@ class SSEBuilder:
         event_str = format_sse_event(event_type, data)
         if self._log_raw_events:
             logger.debug("SSE_EVENT: {} - {}", event_type, event_str.strip())
-        else:
-            logger.debug(
-                "SSE_EVENT: event_type={} serialized_bytes={}",
-                event_type,
-                len(event_str.encode("utf-8")),
-            )
         return event_str
 
     def message_start(self) -> str:
