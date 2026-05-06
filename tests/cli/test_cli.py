@@ -505,6 +505,52 @@ class TestCLISession:
             assert env["ANTHROPIC_BASE_URL"] == "http://localhost:8082"
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("configured_token", "configured_api_key", "expected_api_key"),
+        [
+            ("proxy-token", None, "proxy-token"),
+            (None, None, "ccnim"),
+            ("proxy-token", "already-set", "already-set"),
+        ],
+    )
+    async def test_start_task_sets_api_key_from_auth_token(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        configured_token: str | None,
+        configured_api_key: str | None,
+        expected_api_key: str,
+    ):
+        """Test start_task maps proxy auth token into CLI API key when needed."""
+        from cli.session import CLISession
+
+        session = CLISession("/tmp", "http://localhost:8082/v1")
+
+        if configured_token is None:
+            monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+        else:
+            monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", configured_token)
+
+        if configured_api_key is None:
+            monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        else:
+            monkeypatch.setenv("ANTHROPIC_API_KEY", configured_api_key)
+
+        mock_process = AsyncMock()
+        mock_process.stdout.read.side_effect = [b""]
+        mock_process.stderr.read.return_value = b""
+        mock_process.wait.return_value = 0
+
+        with patch(
+            "asyncio.create_subprocess_exec", new_callable=AsyncMock
+        ) as mock_exec:
+            mock_exec.return_value = mock_process
+            async for _ in session.start_task("test"):
+                pass
+
+            env = mock_exec.call_args.kwargs["env"]
+            assert env["ANTHROPIC_API_KEY"] == expected_api_key
+
+    @pytest.mark.asyncio
     async def test_start_task_allowed_dirs(self):
         """Test start_task includes allowed dirs in command."""
         from cli.session import CLISession

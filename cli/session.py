@@ -106,9 +106,13 @@ class CLISession:
         async with self._cli_lock:
             self._is_busy = True
             env = os.environ.copy()
+            proxy_auth_token = env.get("ANTHROPIC_AUTH_TOKEN", "ccnim")
 
+            # Claude CLI authenticates with x-api-key sourced from ANTHROPIC_API_KEY.
+            # Our local proxy expects the server-side ANTHROPIC_AUTH_TOKEN value.
+            # When no API key is configured, map auth token -> API key for the CLI.
             if "ANTHROPIC_API_KEY" not in env:
-                env["ANTHROPIC_API_KEY"] = "sk-placeholder-key-for-proxy"
+                env["ANTHROPIC_API_KEY"] = proxy_auth_token
 
             env["ANTHROPIC_API_URL"] = self.api_url
             if self.api_url.endswith("/v1"):
