@@ -392,6 +392,7 @@ class Settings(BaseSettings):
     def validate_model_format(cls, v: str | None) -> str | None:
         if v is None:
             return None
+        # v = _normalize_model_ref(v)
         if "/" not in v:
             raise ValueError(
                 f"Model must be prefixed with provider type. "
