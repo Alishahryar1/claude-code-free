@@ -17,6 +17,7 @@ from free_claude_code.core.anthropic.stream_contracts import (
     text_content,
     thinking_content,
 )
+from free_claude_code.core.history_replay import decode_replay
 from free_claude_code.core.json_types import JsonObject, JsonValue
 from free_claude_code.core.reasoning import ReasoningPolicy
 from free_claude_code.providers.model_listing import ModelListResponseError
@@ -278,7 +279,10 @@ def test_build_request_body_replays_only_opaque_reasoning_details(
         message for message in body["messages"] if message["role"] == "assistant"
     )
 
-    assert assistant["content"] == "I will inspect it."
+    assert (
+        assistant["content"]
+        == "[Earlier reasoning]\nNeed a tool.\n\nI will inspect it."
+    )
     assert assistant["reasoning_details"] == [detail]
     assert "reasoning" not in assistant
     assert "reasoning_content" not in assistant
@@ -330,14 +334,13 @@ async def test_stream_uses_upstream_sse_and_preserves_reasoning_details(
     assert await_args.kwargs["model"] == "cline-pass/kimi-k3"
     assert thinking_content(events) == "plan "
     assert text_content(events) == "done"
-    redacted_blocks = [
-        event.data["content_block"]
+    records = [
+        decode_replay(event.data["delta"]["signature"]).native
         for event in events
-        if event.event == "content_block_start"
-        and event.data.get("content_block", {}).get("type") == "redacted_thinking"
+        if event.data.get("delta", {}).get("type") == "signature_delta"
     ]
-    assert len(redacted_blocks) == 1
-    assert json.loads(redacted_blocks[0]["data"]) == detail
+    assert len(records) == 1
+    assert records[0]["reasoning_details"] == [detail]
     assert stream.closed
 
 

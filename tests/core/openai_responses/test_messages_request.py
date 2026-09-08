@@ -5,16 +5,18 @@ from collections.abc import Mapping
 import pytest
 
 from free_claude_code.core.anthropic.native import NativeMessagesOptions
+from free_claude_code.core.history_replay import (
+    ReplayOrigin,
+    ReplayRecord,
+    encode_replay,
+    prepare_history,
+)
 from free_claude_code.core.json_types import JsonObject, JsonValue
 from free_claude_code.core.openai_responses import (
     OpenAIResponsesRequest,
     ResponsesConversionError,
     ResponsesMessagesRequest,
     build_responses_messages_request,
-)
-from free_claude_code.core.openai_responses.reasoning_replay import (
-    MessagesReplayOrigin,
-    encode_messages_reasoning,
 )
 
 _SCOPE = "github_copilot/anthropic_messages"
@@ -90,7 +92,6 @@ def _build(
             {"model": "public", "input": "hi", **payload}
         ),
         options=NativeMessagesOptions("concrete", 4096, thinking),
-        replay_scope=_SCOPE,
     )
 
 
@@ -129,8 +130,10 @@ def test_parallel_function_and_custom_roundtrip_preserves_replay_order_and_image
         "signature": "opaque",
         "extension": {"record": 1},
     }
-    carrier = encode_messages_reasoning(
-        native_thinking, origin=MessagesReplayOrigin(_SCOPE, "source")
+    carrier = encode_replay(
+        ReplayRecord(
+            ReplayOrigin(_SCOPE, "messages", "", "", "source"), native_thinking
+        )
     )
     tools: list[JsonValue] = [
         {
@@ -209,7 +212,9 @@ def test_parallel_function_and_custom_roundtrip_preserves_replay_order_and_image
         {"type": "text", "text": "first"},
         {"type": "text", "text": "second"},
     ]
-    messages = built.body["messages"]
+    messages = prepare_history(
+        built.body, ReplayOrigin(_SCOPE, "messages", "", "", "target")
+    )["messages"]
     assert isinstance(messages, list) and len(messages) == 3
     assistant = messages[1]
     assert isinstance(assistant, Mapping)
@@ -380,15 +385,6 @@ def test_malformed_tool_history_is_rejected_before_inference(
                     "type": "input_image",
                     "image_url": "https://example.org/a.png",
                     "detail": "low",
-                }
-            ]
-        },
-        {"input": [{"type": "reasoning", "encrypted_content": "foreign-openai-blob"}]},
-        {
-            "input": [
-                {
-                    "type": "reasoning",
-                    "content": [{"type": "reasoning_text", "text": "unsigned"}],
                 }
             ]
         },

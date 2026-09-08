@@ -6,9 +6,17 @@ from dataclasses import dataclass, field
 from typing import cast
 
 from free_claude_code.core.anthropic import ReasoningReplayMode
+from free_claude_code.core.history_replay import (
+    is_replay,
+    readable_reasoning,
+    reasoning_context,
+    reasoning_detail,
+    tool_history_context,
+)
 from free_claude_code.core.json_types import JsonObject, JsonValue
 from free_claude_code.core.openai_chat import (
     IMAGE_TOOL_RESULT_MARKER,
+    ChatToolResultImages,
     close_chat_tool_result_turns,
     computer_screenshot_label,
     image_tool_result_label,
@@ -23,7 +31,6 @@ from .reasoning import (
     encrypted_reasoning_from_item,
     reasoning_text_from_item,
 )
-from .reasoning_replay import reject_messages_reasoning_for_other_egress
 from .tools import (
     call_id_from_item,
     custom_tool_description,
@@ -74,22 +81,31 @@ class ResponsesChatRequest:
 class _PendingReasoning:
     text: str | None = None
     encrypted: list[str] = field(default_factory=list)
+    contexts: list[str] = field(default_factory=list)
 
     def add(self, item: Mapping[str, JsonValue]) -> None:
-        self.text = combine_reasoning(self.text, reasoning_text_from_item(item))
         if encrypted := encrypted_reasoning_from_item(item):
             self.encrypted.append(encrypted)
+            if is_replay(encrypted):
+                return
+        text, summary = readable_reasoning(item)
+        if summary:
+            self.contexts.append(reasoning_context(text, summary=True))
+        else:
+            self.text = combine_reasoning(self.text, reasoning_text_from_item(item))
 
     @property
     def empty(self) -> bool:
-        return self.text is None and not self.encrypted
+        return self.text is None and not self.encrypted and not self.contexts
 
-    def take(self) -> tuple[str | None, list[str]]:
+    def take(self) -> tuple[str | None, list[str], list[str]]:
         text = self.text
         encrypted = list(self.encrypted)
         self.text = None
         self.encrypted.clear()
-        return text, encrypted
+        contexts = list(self.contexts)
+        self.contexts.clear()
+        return text, encrypted, contexts
 
 
 class _ResponsesChatInputBuilder:
@@ -147,6 +163,22 @@ class _ResponsesChatInputBuilder:
             image = _image_part(item, context="input_image")
             self._flush_reasoning()
             self.messages.append({"role": "user", "content": [image]})
+            return
+        if isinstance(item_type, str) and item_type.endswith(("_call", "_result")):
+            if item.get("status") not in {
+                None,
+                "completed",
+                "failed",
+                "incomplete",
+                "interrupted",
+            }:
+                raise ResponsesConversionError(
+                    "An active hosted tool cannot continue through Chat Completions."
+                )
+            self._flush_reasoning()
+            self.messages.append(
+                {"role": "assistant", "content": tool_history_context(item)}
+            )
 
     def finish(self) -> tuple[list[str], list[dict[str, object]]]:
         self._flush_rich_outputs()
@@ -189,6 +221,7 @@ class _ResponsesChatInputBuilder:
                 parse_arguments(raw_arguments)
             except ResponsesConversionError as exc:
                 self._quarantined_call_ids.add(call_id)
+                self._pending_reasoning.take()
                 trace_event(
                     stage="responses",
                     event="responses.input.function_call_quarantined",
@@ -217,6 +250,8 @@ class _ResponsesChatInputBuilder:
                 "function": {"name": name, "arguments": arguments},
             }
         )
+        if self._reasoning_replay is ReasoningReplayMode.REASONING_CONTENT:
+            message.setdefault("reasoning_content", "")
 
     def _add_tool_output(
         self, item: Mapping[str, JsonValue], *, function: bool
@@ -288,21 +323,34 @@ class _ResponsesChatInputBuilder:
         if not self._pending_rich_output_parts:
             return
         self.messages.append(
-            {
-                "role": "user",
-                "content": list(self._pending_rich_output_parts),
-            }
+            cast(
+                dict[str, object],
+                ChatToolResultImages(
+                    role="user",
+                    content=cast(
+                        list[JsonValue], list(self._pending_rich_output_parts)
+                    ),
+                ),
+            )
         )
         self._pending_rich_output_parts.clear()
 
     def _apply_pending_reasoning(self, message: dict[str, object]) -> None:
-        text, encrypted = self._pending_reasoning.take()
+        text, encrypted, contexts = self._pending_reasoning.take()
+        if contexts:
+            message["content"] = "\n\n".join(
+                [*contexts, str(message.get("content") or "")]
+            ).rstrip()
         if text is not None:
             _apply_reasoning_text(message, text, self._reasoning_replay)
-        if encrypted and self._structured_reasoning_details:
-            message["reasoning_details"] = [
-                _encrypted_reasoning_detail(value) for value in encrypted
-            ]
+        if encrypted:
+            details = message.setdefault("reasoning_details", [])
+            if isinstance(details, list):
+                for value in encrypted:
+                    if self._structured_reasoning_details or is_replay(value):
+                        details.extend(reasoning_detail(value))
+            if not details:
+                message.pop("reasoning_details", None)
 
 
 def build_responses_chat_request(
@@ -312,7 +360,6 @@ def build_responses_chat_request(
     structured_reasoning_details: bool = False,
 ) -> ResponsesChatRequest:
     """Translate a Responses request directly into one Chat Completions body."""
-    reject_messages_reasoning_for_other_egress(request.input)
     builder = _ResponsesChatInputBuilder(
         reasoning_replay=reasoning_replay,
         structured_reasoning_details=structured_reasoning_details,
@@ -509,28 +556,23 @@ def _apply_reasoning_text(
     message: dict[str, object], text: str, mode: ReasoningReplayMode
 ) -> None:
     if mode in {ReasoningReplayMode.REASONING_CONTENT, ReasoningReplayMode.REASONING}:
-        message[mode.value] = text
+        previous = message.get(mode.value)
+        message[mode.value] = combine_reasoning(
+            previous if isinstance(previous, str) else None, text
+        )
         return
-    if mode is not ReasoningReplayMode.THINK_TAGS:
+    replay = (
+        f"<think>\n{text}\n</think>"
+        if mode is ReasoningReplayMode.THINK_TAGS
+        else reasoning_context(text)
+    )
+    if not replay:
         return
-    replay = f"<think>\n{text}\n</think>"
     content = message.get("content")
     if isinstance(content, str) and content:
         message["content"] = f"{replay}\n\n{content}"
     else:
         message["content"] = replay
-
-
-def _encrypted_reasoning_detail(value: str) -> object:
-    try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError:
-        parsed = None
-    if isinstance(parsed, Mapping):
-        return dict(parsed)
-    if isinstance(parsed, list):
-        return parsed
-    return {"type": "reasoning.encrypted", "data": value}
 
 
 def _chat_tools(

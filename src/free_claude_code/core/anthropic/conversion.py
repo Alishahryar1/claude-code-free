@@ -6,9 +6,18 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from free_claude_code.core.history_replay import (
+    HistoryReplayError,
+    is_replay,
+    reasoning_context,
+    reasoning_detail,
+    tool_history_context,
+    validate_hosted_tool_history,
+)
 from free_claude_code.core.json_types import JsonObject
 from free_claude_code.core.openai_chat import (
     IMAGE_TOOL_RESULT_MARKER,
+    ChatToolResultImages,
     close_chat_tool_result_turns,
     image_tool_result_label,
 )
@@ -178,15 +187,6 @@ def _assert_no_forbidden_assistant_block(block: Any) -> None:
         raise OpenAIConversionError(
             "Assistant image blocks are not supported for OpenAI chat conversion."
         )
-    if block_type in (
-        "server_tool_use",
-        "web_search_tool_result",
-        "web_fetch_tool_result",
-    ):
-        raise OpenAIConversionError(
-            "OpenAI chat conversion does not support Anthropic server tool blocks "
-            f"({block_type!r} in an assistant message). Remove the unsupported block."
-        )
 
 
 def _openai_system_text(
@@ -266,7 +266,7 @@ def _openai_chat_tool_result(block: Any) -> _OpenAIChatToolResult:
             "tool_call_id": tool_id,
             "content": IMAGE_TOOL_RESULT_MARKER,
         },
-        rich_user_message={"role": "user", "content": rich_parts},
+        rich_user_message=ChatToolResultImages(role="user", content=rich_parts),
     )
 
 
@@ -518,6 +518,19 @@ class AnthropicToOpenAIConverter:
             # Reserve the downstream system role for request.system at index zero.
             return [_PlainSegment([{"role": "user", "content": system_text}])]
         if role == "assistant" and isinstance(content, list):
+            try:
+                validate_hosted_tool_history(
+                    [
+                        {
+                            "type": get_block_type(block),
+                            "id": get_block_attr(block, "id", None),
+                            "tool_use_id": get_block_attr(block, "tool_use_id", None),
+                        }
+                        for block in content
+                    ]
+                )
+            except HistoryReplayError as error:
+                raise OpenAIConversionError(str(error)) from error
             if (first_i := _index_first_tool_use(content)) is not None:
                 for block in content:
                     if get_block_type(block) == "tool_use":
@@ -554,10 +567,15 @@ class AnthropicToOpenAIConverter:
                         converted, reasoning_content, reasoning_replay
                     )
                 elif (
-                    reasoning_replay == ReasoningReplayMode.THINK_TAGS
+                    reasoning_replay
+                    in {ReasoningReplayMode.THINK_TAGS, ReasoningReplayMode.DISABLED}
                     and reasoning_content
                 ):
-                    content_parts = [_think_tag_content(reasoning_content)]
+                    content_parts = [
+                        _think_tag_content(reasoning_content)
+                        if reasoning_replay == ReasoningReplayMode.THINK_TAGS
+                        else reasoning_context(reasoning_content)
+                    ]
                     if content:
                         content_parts.append(content)
                     converted["content"] = "\n\n".join(content_parts)
@@ -574,7 +592,12 @@ class AnthropicToOpenAIConverter:
         reasoning_content: str | None,
         reasoning_replay: ReasoningReplayMode,
     ) -> _ToolTurnSegment:
-        pre = content[:first_tool_index]
+        pre = [
+            block
+            for index, block in enumerate(content)
+            if index < first_tool_index
+            or get_block_type(block) in {"thinking", "redacted_thinking"}
+        ]
         tool_calls = _iter_tool_uses_in_order(content)
         if not tool_calls:
             return _ToolTurnSegment(
@@ -588,6 +611,11 @@ class AnthropicToOpenAIConverter:
         deferred_blocks = _deferred_post_tool_blocks(
             content, first_tool_index=first_tool_index
         )
+        deferred_blocks = [
+            block
+            for block in deferred_blocks
+            if get_block_type(block) not in {"thinking", "redacted_thinking"}
+        ]
 
         pre_msg: dict[str, Any]
         if not pre:
@@ -612,7 +640,6 @@ class AnthropicToOpenAIConverter:
             assistant_message=pre_msg,
             required_tool_ids=_tool_call_ids(tool_calls),
             deferred_blocks=deferred_blocks,
-            top_level_reasoning=reasoning_content,
             reasoning_replay=reasoning_replay,
         )
 
@@ -627,23 +654,41 @@ class AnthropicToOpenAIConverter:
         thinking_parts: list[str] = []
         thinking_seen = False
         tool_calls: list[dict[str, Any]] = []
+        details: list[Any] = []
         for block in content:
             block_type = get_block_type(block)
             if block_type == "text":
                 content_parts.append(get_block_attr(block, "text", ""))
             elif block_type == "thinking":
-                if reasoning_replay == ReasoningReplayMode.DISABLED:
+                signature = get_block_attr(block, "signature", None)
+                if is_replay(signature):
+                    details.extend(reasoning_detail(signature))
                     continue
                 thinking = get_block_attr(block, "thinking", "")
+                if reasoning_replay == ReasoningReplayMode.DISABLED:
+                    if thinking:
+                        content_parts.append(reasoning_context(thinking))
+                    continue
                 if reasoning_replay == ReasoningReplayMode.THINK_TAGS:
                     content_parts.append(_think_tag_content(thinking))
                 elif reasoning_content is None:
                     thinking_seen = True
                     thinking_parts.append(thinking)
             elif block_type == "redacted_thinking":
-                # Opaque provider continuation data; do not materialize as model-visible text
-                # or native reasoning fields for OpenAI chat upstreams.
-                continue
+                data = get_block_attr(block, "data", None)
+                if isinstance(data, str) and data:
+                    details.extend(reasoning_detail(data))
+            elif block_type in {
+                "server_tool_use",
+                "web_search_tool_result",
+                "web_fetch_tool_result",
+            }:
+                value = (
+                    block
+                    if isinstance(block, dict)
+                    else block.model_dump(mode="json", exclude_none=True)
+                )
+                content_parts.append(tool_history_context(value))
             elif block_type == "tool_use":
                 tool_calls.append(_tool_call_from_tool_use(block))
             else:
@@ -657,6 +702,8 @@ class AnthropicToOpenAIConverter:
             "role": "assistant",
             "content": content_str,
         }
+        if details:
+            msg["reasoning_details"] = details
         if tool_calls:
             msg["tool_calls"] = tool_calls
         if _reasoning_replay_field(reasoning_replay) is not None:

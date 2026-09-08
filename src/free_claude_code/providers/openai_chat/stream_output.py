@@ -16,6 +16,12 @@ from free_claude_code.core.anthropic.streaming import (
     parse_complete_tool_input,
 )
 from free_claude_code.core.failures import ExecutionFailure
+from free_claude_code.core.history_replay import (
+    ReplayOrigin,
+    ReplayRecord,
+    encode_replay,
+    reasoning_detail,
+)
 from free_claude_code.core.json_types import JsonObject
 from free_claude_code.core.openai_responses import (
     OpenAIResponsesRequest,
@@ -78,6 +84,7 @@ class ChatStreamOutput(ABC):
 
     def __init__(self, *, input_tokens: int) -> None:
         self.input_tokens = input_tokens
+        self.replay_origin: ReplayOrigin | None = None
         self.tool_states: dict[int, ChatToolState] = {}
         self._text_parts: list[str] = []
         self._reasoning_parts: list[str] = []
@@ -117,6 +124,14 @@ class ChatStreamOutput(ABC):
         return self._emit_reasoning_delta(content)
 
     def emit_opaque_reasoning(self, data: str) -> list[str]:
+        if self.replay_origin is not None:
+            data = encode_replay(
+                ReplayRecord(
+                    self.replay_origin, {"reasoning_details": reasoning_detail(data)}
+                )
+            )
+            if self._reasoning_started:
+                return self._attach_reasoning_replay(data)
         events = self.close_content_blocks()
         events.extend(self._emit_opaque_reasoning(data))
         if data:
@@ -327,6 +342,9 @@ class ChatStreamOutput(ABC):
     def _emit_opaque_reasoning(self, data: str) -> list[str]: ...
 
     @abstractmethod
+    def _attach_reasoning_replay(self, data: str) -> list[str]: ...
+
+    @abstractmethod
     def _stop_reasoning_block(self) -> list[str]: ...
 
     @abstractmethod
@@ -399,6 +417,13 @@ class AnthropicChatStreamOutput(ChatStreamOutput):
         return [
             self._ledger.content_block_start(index, "redacted_thinking", data=data),
             self._ledger.content_block_stop(index),
+        ]
+
+    def _attach_reasoning_replay(self, data: str) -> list[str]:
+        return [
+            self._ledger.content_block_delta(
+                self._ledger.blocks.thinking_index, "signature_delta", data
+            )
         ]
 
     def _stop_reasoning_block(self) -> list[str]:
@@ -560,6 +585,11 @@ class ResponsesChatStreamOutput(ChatStreamOutput):
         self._ledger.pop_active_block(state.index)
         events.extend(self._completer.complete_block(state))
         return events
+
+    def _attach_reasoning_replay(self, data: str) -> list[str]:
+        if self._reasoning_state is not None:
+            self._reasoning_state.encrypted_content = data
+        return []
 
     def _stop_reasoning_block(self) -> list[str]:
         state = self._reasoning_state

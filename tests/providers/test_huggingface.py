@@ -206,9 +206,14 @@ def test_build_request_body_does_not_replay_prior_thinking_blocks(
 
     body = huggingface_provider._build_request_body(req)
 
-    assert body["messages"] == [{"role": "assistant", "content": "visible answer"}]
+    assert body["messages"] == [
+        {
+            "role": "assistant",
+            "content": "[Earlier reasoning]\nhidden prior thought\n\nvisible answer",
+        }
+    ]
     assert "reasoning_content" not in body["messages"][0]
-    assert "hidden prior thought" not in str(body)
+    assert "hidden prior thought" in str(body)
 
 
 def test_build_request_body_does_not_replay_top_level_reasoning_content(
@@ -227,8 +232,13 @@ def test_build_request_body_does_not_replay_top_level_reasoning_content(
 
     body = huggingface_provider._build_request_body(req)
 
-    assert body["messages"] == [{"role": "assistant", "content": "visible answer"}]
-    assert "hidden prior reasoning" not in str(body)
+    assert body["messages"] == [
+        {
+            "role": "assistant",
+            "content": "[Earlier reasoning]\nhidden prior reasoning\n\nvisible answer",
+        }
+    ]
+    assert "hidden prior reasoning" in str(body)
 
 
 @pytest.mark.asyncio

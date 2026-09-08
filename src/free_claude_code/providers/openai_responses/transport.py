@@ -4,6 +4,7 @@ import asyncio
 import sys
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping
+from dataclasses import replace
 from typing import cast
 
 import httpx2
@@ -16,6 +17,10 @@ from free_claude_code.application.model_metadata import ProviderModelInfo
 from free_claude_code.core.anthropic.models import MessagesRequest
 from free_claude_code.core.diagnostics import extract_upstream_error_detail
 from free_claude_code.core.failures import ExecutionFailure, FailureKind
+from free_claude_code.core.history_replay import (
+    prepare_history,
+    preserve_responses_reasoning,
+)
 from free_claude_code.core.json_types import JsonObject
 from free_claude_code.core.openai_responses import (
     OpenAIResponsesRequest,
@@ -46,6 +51,11 @@ from free_claude_code.providers.failure_policy import (
     is_retryable_stream_error,
     provider_authentication_status,
     reports_context_window_incomplete,
+)
+from free_claude_code.providers.history_replay import (
+    history_retry_body,
+    replay_origin,
+    validate_history,
 )
 from free_claude_code.providers.http import ProviderAttemptScope, maybe_await_aclose
 from free_claude_code.providers.reasoning_compatibility import (
@@ -215,6 +225,7 @@ class OpenAIResponsesTransport:
         model_info: ProviderModelInfo | None = None,
         can_disable_reasoning: bool = True,
     ) -> JsonObject:
+        validate_history(request.model_dump(mode="json"))
         request, reasoning = prepare_messages_reasoning(
             request,
             reasoning,
@@ -241,6 +252,7 @@ class OpenAIResponsesTransport:
         *,
         reasoning: ReasoningPolicy,
     ) -> tuple[JsonObject, ResponsesToolAdapter]:
+        validate_history(request.model_dump(mode="json"))
         if not request.model.strip():
             raise InvalidRequestError("Responses request model must not be empty.")
         if request.input is None or request.input == "" or request.input == []:
@@ -361,6 +373,14 @@ class OpenAIResponsesTransport:
                     if endpoint is not None
                     else self._client
                 )
+                origin = replay_origin(
+                    self._provider_name,
+                    "responses",
+                    str(body["model"]),
+                    client=client,
+                    endpoint=endpoint.snapshot if endpoint is not None else None,
+                )
+                sent_body = prepare_history(body, origin)
                 attempt = await execution.open_attempt(ProviderOperationKind.GENERATION)
                 scope = ProviderAttemptScope(
                     attempt,
@@ -368,7 +388,10 @@ class OpenAIResponsesTransport:
                     request_id=request_id,
                 )
                 sdk_stream = await self._create_sdk_stream(
-                    body, client=client, endpoint=endpoint, extra_headers=extra_headers
+                    sent_body,
+                    client=client,
+                    endpoint=endpoint,
+                    extra_headers=extra_headers,
                 )
                 stream = scope.retain(_ClosableResponsesStream(sdk_stream))
                 stream_opened = True
@@ -412,6 +435,14 @@ class OpenAIResponsesTransport:
                         raise context_window_exceeded_provider_failure()
                     if adapt_event is not None:
                         payload = adapt_event(upstream_event.type, payload)
+                    response = payload.get("response")
+                    if (
+                        isinstance(response, dict)
+                        and isinstance(response.get("model"), str)
+                        and response["model"]
+                    ):
+                        origin = replace(origin, model=response["model"])
+                    payload = preserve_responses_reasoning(payload, origin)
                     for event in presenter.feed(upstream_event.type, payload):
                         for held in recovery.push(event):
                             yield held
@@ -445,6 +476,21 @@ class OpenAIResponsesTransport:
                 ):
                     recovery.discard()
                     continue
+                if scope is not None and not recovery.committed:
+                    corrected_history = history_retry_body(
+                        raw_error, sent_body, "responses"
+                    )
+                    if corrected_history is not None:
+                        retry = (
+                            execution.can_attempt
+                            if scope.attempt.accepted
+                            else await scope.attempt.correct(error)
+                            is ProviderCorrectionAction.RETRY
+                        )
+                        if retry:
+                            body = corrected_history
+                            recovery.discard()
+                            continue
                 if (
                     scope is not None
                     and reasoning_correction is not None

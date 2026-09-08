@@ -89,8 +89,7 @@ def test_exact_client_budget_is_not_derived_from_output_tokens(lmstudio_provider
 
 
 def test_build_request_body_never_replays_prior_thinking(lmstudio_provider):
-    """Mistral-family templates have no assistant reasoning field; prior-turn
-    thinking must never be replayed regardless of current-turn reasoning policy."""
+    """Retain prior thinking as ordinary context without a reasoning role."""
     req = make_request(
         messages=[
             {"role": "user", "content": "hi"},
@@ -110,7 +109,8 @@ def test_build_request_body_never_replays_prior_thinking(lmstudio_provider):
 
     roles = [m.get("role") for m in body.get("messages", [])]
     assert "assistant_reasoning_content" not in roles
-    assert "prior reasoning" not in str(body)
+    assert "[Earlier reasoning]" in str(body)
+    assert "prior reasoning" in str(body)
 
 
 def test_preflight_builds_before_context_budget_and_preserves_policy(

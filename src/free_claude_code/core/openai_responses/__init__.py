@@ -26,7 +26,6 @@ from .provider_stream import (
     responses_stream_failure_from_event,
 )
 from .reasoning import responses_reasoning_config, responses_reasoning_policy
-from .reasoning_replay import MessagesReplayOrigin
 from .streaming.blocks import ReasoningBlockState, TextBlockState, ToolBlockState
 from .streaming.completion import (
     ResponseBlockCompleter,
@@ -51,7 +50,6 @@ from .tools import (
 __all__ = [
     "OPENAI_RESPONSES_SSE_HEADERS",
     "AnthropicToResponsesStream",
-    "MessagesReplayOrigin",
     "NativeResponsesRelay",
     "OpenAIResponsesRequest",
     "ReasoningBlockState",

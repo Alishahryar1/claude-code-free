@@ -15,6 +15,7 @@ from free_claude_code.core.anthropic.stream_contracts import (
     text_content,
     thinking_content,
 )
+from free_claude_code.core.history_replay import decode_replay
 from free_claude_code.core.model_capabilities import ModelInputModality
 from free_claude_code.providers.open_router import OpenRouterProvider
 from free_claude_code.providers.openai_chat import OpenAIChatProvider
@@ -327,8 +328,16 @@ async def test_stream_maps_reasoning_content_and_details(open_router_provider):
     event_text = "".join(events)
     parsed = parse_sse_text(event_text)
     assert thinking_content(parsed) == "plan "
-    assert "redacted_thinking" in event_text
-    assert "opaque" in event_text
+    carriers = [
+        event.data["delta"]["signature"]
+        for event in parsed
+        if event.data.get("delta", {}).get("type") == "signature_delta"
+    ]
+    assert len(carriers) == 1
+    assert decode_replay(carriers[0]).native["reasoning_details"] == [
+        {"type": "reasoning.text", "text": "plan "},
+        redacted,
+    ]
     assert text_content(parsed) == "done"
     assert stream.closed
 

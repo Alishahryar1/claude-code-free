@@ -25,10 +25,10 @@ from free_claude_code.core.diagnostics import (
     redact_sensitive_error_text,
 )
 from free_claude_code.core.failures import ExecutionFailure, FailureKind
+from free_claude_code.core.history_replay import ReplayOrigin, prepare_history
 from free_claude_code.core.json_types import JsonObject
 from free_claude_code.core.openai_responses import (
     AnthropicToResponsesStream,
-    MessagesReplayOrigin,
     OpenAIResponsesRequest,
     ResponsesConversionError,
     ResponsesMessagesRequest,
@@ -54,6 +54,11 @@ from free_claude_code.providers.failure_policy import (
     is_context_window_error_code,
     is_context_window_finish_reason,
     is_retryable_stream_error,
+)
+from free_claude_code.providers.history_replay import (
+    history_retry_body,
+    replay_origin,
+    validate_history,
 )
 from free_claude_code.providers.http import ProviderAttemptScope, maybe_await_aclose
 from free_claude_code.providers.reasoning_compatibility import (
@@ -100,6 +105,7 @@ class AnthropicMessagesTransport:
         reasoning: ReasoningPolicy,
         model_info: ProviderModelInfo | None = None,
     ) -> PreparedMessagesRequest:
+        validate_history(request.model_dump(mode="json"))
         request, reasoning = prepare_messages_reasoning(
             request,
             reasoning,
@@ -125,6 +131,7 @@ class AnthropicMessagesTransport:
     def _responses_body(
         self, request: OpenAIResponsesRequest, reasoning: ReasoningPolicy
     ) -> ResponsesMessagesRequest:
+        validate_history(request.model_dump(mode="json"))
         try:
             options = resolve_messages_options(
                 model=request.model,
@@ -135,9 +142,7 @@ class AnthropicMessagesTransport:
                 if request.reasoning
                 else None,
             )
-            return build_responses_messages_request(
-                request, options=options, replay_scope=self._replay_scope
-            )
+            return build_responses_messages_request(request, options=options)
         except (NativeMessagesError, ResponsesConversionError, ValueError) as error:
             raise InvalidRequestError(str(error)) from error
 
@@ -193,8 +198,8 @@ class AnthropicMessagesTransport:
             betas=prepared.betas,
             endpoint_context=endpoint_context,
             request_id=request_id,
-            presenter_factory=lambda: NativeMessagesRelay(
-                public_model=response_model or request.model
+            presenter_factory=lambda origin: NativeMessagesRelay(
+                public_model=response_model or request.model, replay_origin=origin
             ),
         )
 
@@ -213,11 +218,11 @@ class AnthropicMessagesTransport:
             betas=(),
             endpoint_context=endpoint_context,
             request_id=request_id,
-            presenter_factory=lambda: AnthropicToResponsesStream(
+            presenter_factory=lambda origin: AnthropicToResponsesStream(
                 request,
                 public_model=response_model or request.model,
                 tool_identities=prepared.tool_identities,
-                replay_origin=MessagesReplayOrigin(self._replay_scope, request.model),
+                replay_origin=origin,
             ),
         )
 
@@ -228,7 +233,7 @@ class AnthropicMessagesTransport:
         betas: tuple[str, ...],
         endpoint_context: EndpointContext,
         request_id: str | None,
-        presenter_factory: Callable[[], _Presenter],
+        presenter_factory: Callable[[ReplayOrigin], _Presenter],
         reasoning_correction: ReasoningCorrection | None = None,
     ) -> AsyncIterator[str]:
         execution = self._admission.start_execution(request_id=request_id)
@@ -261,16 +266,16 @@ class AnthropicMessagesTransport:
         betas: tuple[str, ...],
         endpoint_context: EndpointContext,
         execution: ProviderExecution,
-        presenter_factory: Callable[[], _Presenter],
+        presenter_factory: Callable[[ReplayOrigin], _Presenter],
         reasoning_correction: ReasoningCorrection | None = None,
     ) -> AsyncIterator[str]:
         recovery = RecoveryController()
         refreshed = False
         force_refresh = False
         while execution.can_attempt:
-            presenter = presenter_factory()
             scope: ProviderAttemptScope | None = None
             stream_opened = False
+            sent_body = body
             try:
                 attempt = await execution.open_attempt(ProviderOperationKind.GENERATION)
                 scope = ProviderAttemptScope(
@@ -280,6 +285,14 @@ class AnthropicMessagesTransport:
                 )
                 endpoint = await endpoint_context.endpoint(force_refresh=force_refresh)
                 force_refresh = False
+                origin = replay_origin(
+                    self._replay_scope,
+                    "messages",
+                    str(body["model"]),
+                    endpoint=endpoint,
+                )
+                sent_body = prepare_history(body, origin)
+                presenter = presenter_factory(origin)
                 headers = httpx.Headers(
                     {
                         "anthropic-version": "2023-06-01",
@@ -303,7 +316,7 @@ class AnthropicMessagesTransport:
                         self._client.build_request(
                             "POST",
                             f"{base_url}{path}",
-                            json=body,
+                            json=sent_body,
                             headers=headers,
                         ),
                         stream=True,
@@ -366,6 +379,21 @@ class AnthropicMessagesTransport:
                         recovery.discard()
                         continue
                 attempt_failure = None
+                if scope is not None and not recovery.committed:
+                    corrected_history = history_retry_body(
+                        raw_error, sent_body, "messages"
+                    )
+                    if corrected_history is not None:
+                        retry = (
+                            execution.can_attempt
+                            if scope.attempt.accepted
+                            else await scope.attempt.correct(error)
+                            is ProviderCorrectionAction.RETRY
+                        )
+                        if retry:
+                            body = corrected_history
+                            recovery.discard()
+                            continue
                 if (
                     scope is not None
                     and reasoning_correction is not None

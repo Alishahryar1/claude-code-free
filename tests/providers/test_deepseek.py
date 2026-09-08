@@ -96,7 +96,7 @@ def test_responses_request_uses_deepseek_chat_policy(deepseek_provider):
 
     assert translated.body["max_tokens"] == ANTHROPIC_DEFAULT_MAX_OUTPUT_TOKENS
     assert translated.body["tool_choice"] == "auto"
-    assert translated.body["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert translated.body["extra_body"] == {"thinking": {"type": "enabled"}}
 
 
 def test_responses_tool_history_keeps_deepseek_replayable_reasoning(
@@ -108,7 +108,7 @@ def test_responses_tool_history_keeps_deepseek_replayable_reasoning(
             "input": [
                 {
                     "type": "reasoning",
-                    "summary": [{"type": "summary_text", "text": "Inspect first"}],
+                    "content": [{"type": "reasoning_text", "text": "Inspect first"}],
                 },
                 {
                     "type": "function_call",
@@ -376,7 +376,7 @@ def test_build_request_body_encodes_reasoning_off():
     assert "stream_options" not in body
 
 
-def test_non_tool_thinking_is_omitted_from_first_replay(deepseek_provider):
+def test_non_tool_thinking_survives_conversion(deepseek_provider):
     request = MessagesRequest.model_validate(
         {
             "model": "m",
@@ -398,10 +398,14 @@ def test_non_tool_thinking_is_omitted_from_first_replay(deepseek_provider):
     body = deepseek_provider._build_request_body(
         request, reasoning=reasoning_for(request)
     )
-    assert body["messages"][0] == {"role": "assistant", "content": "out"}
+    assert body["messages"][0] == {
+        "role": "assistant",
+        "content": "out",
+        "reasoning_content": "plain",
+    }
 
 
-def test_strip_redacted_thinking_when_thinking_on(deepseek_provider):
+def test_redacted_thinking_is_kept_until_destination_preparation(deepseek_provider):
     request = MessagesRequest.model_validate(
         {
             "model": "m",
@@ -419,7 +423,10 @@ def test_strip_redacted_thinking_when_thinking_on(deepseek_provider):
     body = deepseek_provider._build_request_body(
         request, reasoning=reasoning_for(request)
     )
-    assert body["messages"][0] == {"role": "assistant", "content": "out"}
+    assert body["messages"][0]["reasoning_details"] == [
+        {"type": "reasoning.encrypted", "data": "opaque"}
+    ]
+    assert request.model_dump()["messages"][0]["content"][0]["data"] == "opaque"
 
 
 def test_tool_history_with_replayable_thinking_preserves_thinking(deepseek_provider):
@@ -522,7 +529,7 @@ def test_tool_history_with_unsigned_thinking_preserves_thinking(deepseek_provide
     assert body["messages"][0]["reasoning_content"] == "plain"
 
 
-def test_tool_history_without_thinking_disables_thinking_and_hints(deepseek_provider):
+def test_tool_history_without_thinking_keeps_selected_effort(deepseek_provider):
     request = MessagesRequest.model_validate(
         {
             "model": "m",
@@ -573,7 +580,9 @@ def test_tool_history_without_thinking_disables_thinking_and_hints(deepseek_prov
         request, reasoning=reasoning_for(request)
     )
 
-    assert body["extra_body"]["thinking"] == {"type": "disabled"}
+    assert body["reasoning_effort"] == "high"
+    assert body["extra_body"].get("thinking") != {"type": "disabled"}
+    assert body["messages"][0]["reasoning_content"] == ""
     assert "context_management" not in body
     assert "output_config" not in body
     assert body["tools"][0]["function"]["name"] == "Read"
@@ -666,7 +675,7 @@ def test_tool_history_with_empty_top_level_reasoning_preserves_reasoning_state(
     assert body["messages"][0]["tool_calls"][0]["function"]["name"] == "Read"
 
 
-def test_thinking_off_strips_thinking_history():
+def test_thinking_off_preserves_historical_reasoning():
     provider = DeepSeekProvider(
         make_provider_config(
             api_key="k",
@@ -691,8 +700,8 @@ def test_thinking_off_strips_thinking_history():
         }
     )
     body = provider._build_request_body(request, reasoning=REASONING_OFF)
-    assert "reasoning_content" not in body["messages"][0]
-    assert "sec" not in str(body["messages"])
+    assert body["extra_body"]["thinking"] == {"type": "disabled"}
+    assert body["messages"][0]["reasoning_content"] == "sec"
 
 
 def test_thinking_off_still_replays_required_tool_reasoning():
@@ -952,7 +961,7 @@ def test_preflight_rejects_listed_server_tools_in_tools_list():
         provider.preflight_messages(request)
 
 
-def test_preflight_rejects_server_tool_result_blocks():
+def test_preflight_preserves_completed_server_tool_history():
     request = MessagesRequest.model_validate(
         {
             "model": "m",
@@ -985,11 +994,12 @@ def test_preflight_rejects_server_tool_result_blocks():
         ),
         admission=immediate_admission(),
     )
-    with pytest.raises(InvalidRequestError, match=r"web_search_tool_result|server"):
-        provider.preflight_messages(request)
+    provider.preflight_messages(request)
+    body = provider._build_request_body(request)
+    assert "[Earlier tool record]" in body["messages"][0]["content"]
 
 
-def test_non_tool_top_level_reasoning_is_not_replayed(deepseek_provider):
+def test_non_tool_top_level_reasoning_survives_conversion(deepseek_provider):
     request = MessagesRequest(
         model="m",
         messages=[
@@ -1003,7 +1013,11 @@ def test_non_tool_top_level_reasoning_is_not_replayed(deepseek_provider):
     body = deepseek_provider._build_request_body(
         request, reasoning=reasoning_for(request)
     )
-    assert body["messages"][0] == {"role": "assistant", "content": "hi"}
+    assert body["messages"][0] == {
+        "role": "assistant",
+        "content": "hi",
+        "reasoning_content": "r",
+    }
 
 
 def test_tool_call_top_level_reasoning_is_replayed(deepseek_provider):
@@ -1045,7 +1059,7 @@ def test_tool_call_top_level_reasoning_is_replayed(deepseek_provider):
 
 
 @pytest.mark.asyncio
-async def test_wire_messages_keep_prefix_across_tool_thinking_fallback(
+async def test_wire_messages_keep_prefix_and_effort_when_old_reasoning_is_absent(
     deepseek_provider,
 ):
     prefix_messages = [
@@ -1128,10 +1142,10 @@ async def test_wire_messages_keep_prefix_across_tool_thinking_fallback(
     assistant_messages = [
         message for message in first_messages if message["role"] == "assistant"
     ]
-    assert "reasoning_content" not in assistant_messages[0]
+    assert assistant_messages[0]["reasoning_content"] == "ordinary reasoning"
     assert assistant_messages[1]["reasoning_content"] == "required tool reasoning"
     assert first_wire["thinking"] == {"type": "enabled"}
-    assert continued_wire["thinking"] == {"type": "disabled"}
+    assert continued_wire["thinking"] == {"type": "enabled"}
 
 
 @pytest.mark.asyncio

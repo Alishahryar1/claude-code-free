@@ -15,7 +15,6 @@ from free_claude_code.providers.openai_chat import (
     OpenAIChatProvider,
     OpenAIChatRequestPolicy,
     ReasoningObject,
-    apply_reasoning_details_replay,
     validate_extra_body_does_not_override_canonical_fields,
 )
 from free_claude_code.providers.reasoning_compatibility import (
@@ -74,6 +73,5 @@ class OpenRouterProvider(OpenAIChatProvider):
 _PROFILE = OpenAIChatProfile(
     _REQUEST_POLICY,
     ReasoningObject(tuple((effort, effort.value) for effort in ReasoningEffort)),
-    postprocessors=(apply_reasoning_details_replay,),
     structured_reasoning_details=True,
 )

@@ -339,7 +339,7 @@ class TestStreamingExceptionHandling:
             pytest.raises(ValueError, match="invalid stream wrapper"),
         ):
             await provider._create_stream(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 execution,
                 ProviderOperationKind.GENERATION,
             )
@@ -1745,7 +1745,7 @@ class TestStreamingExceptionHandling:
             pytest.raises(TruncatedProviderStreamError),
         ):
             await runner._collect_recovery_output(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 include_reasoning=True,
                 execution=execution,
                 operation_kind=ProviderOperationKind.CONTINUATION,
@@ -1778,7 +1778,7 @@ class TestStreamingExceptionHandling:
             pytest.raises(TimeoutError),
         ):
             await runner._collect_recovery_output(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 include_reasoning=True,
                 execution=execution,
                 operation_kind=ProviderOperationKind.CONTINUATION,
@@ -1810,6 +1810,7 @@ class TestStreamingExceptionHandling:
             [_make_chunk(content="visible"), _make_chunk(finish_reason="stop")]
         )
         body = {
+            "model": "test-model",
             "messages": [],
             "stream_options": {"include_usage": True},
         }
@@ -1955,7 +1956,7 @@ class TestStreamingExceptionHandling:
             return_value=stream,
         ):
             result = await runner._collect_recovery_output(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 include_reasoning=True,
                 execution=execution,
                 operation_kind=ProviderOperationKind.CONTINUATION,
@@ -2106,7 +2107,7 @@ class TestStreamingExceptionHandling:
             return_value=stream,
         ):
             result = await runner._collect_recovery_output(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 include_reasoning=True,
                 execution=execution,
                 operation_kind=ProviderOperationKind.CONTINUATION,
@@ -2142,7 +2143,7 @@ class TestStreamingExceptionHandling:
             side_effect=[failed, recovered],
         ) as create:
             result = await runner._collect_recovery_output(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 include_reasoning=True,
                 execution=execution,
                 operation_kind=ProviderOperationKind.CONTINUATION,
@@ -2175,7 +2176,7 @@ class TestStreamingExceptionHandling:
             pytest.raises(ValueError, match="original terminal failure"),
         ):
             await runner._collect_recovery_output(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 include_reasoning=True,
                 execution=execution,
                 operation_kind=ProviderOperationKind.CONTINUATION,
@@ -2201,7 +2202,7 @@ class TestStreamingExceptionHandling:
         ):
             task = asyncio.create_task(
                 runner._collect_recovery_output(
-                    {"messages": []},
+                    {"model": "test-model", "messages": []},
                     include_reasoning=True,
                     execution=execution,
                     operation_kind=ProviderOperationKind.CONTINUATION,
@@ -2250,7 +2251,7 @@ class TestStreamingExceptionHandling:
             side_effect=[rejected, recovered],
         ) as create:
             result = await runner._collect_recovery_output(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 include_reasoning=True,
                 execution=execution,
                 operation_kind=ProviderOperationKind.CONTINUATION,

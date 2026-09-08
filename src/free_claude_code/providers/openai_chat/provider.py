@@ -6,7 +6,7 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 import httpx2
 from loguru import logger
@@ -35,6 +35,7 @@ from free_claude_code.core.anthropic.streaming import (
 )
 from free_claude_code.core.anthropic.usage import anthropic_input_usage_fields
 from free_claude_code.core.failures import ExecutionFailure, FailureKind
+from free_claude_code.core.history_replay import HistoryScope, prepare_history
 from free_claude_code.core.json_types import JsonObject
 from free_claude_code.core.openai_responses import (
     OpenAIResponsesRequest,
@@ -68,6 +69,11 @@ from free_claude_code.providers.failure_policy import (
     is_context_window_finish_reason,
     is_retryable_stream_error,
     underlying_provider_error,
+)
+from free_claude_code.providers.history_replay import (
+    history_retry_body,
+    replay_origin,
+    validate_history,
 )
 from free_claude_code.providers.http import (
     ProviderAttemptScope,
@@ -313,8 +319,18 @@ class _OpenAIChatStreamAssembler:
         if not chunk.choices:
             return
 
+        if (
+            self._output.replay_origin is not None
+            and isinstance(getattr(chunk, "model", None), str)
+            and chunk.model
+        ):
+            self._output.replay_origin = replace(
+                self._output.replay_origin, model=chunk.model
+            )
         choice = chunk.choices[0]
         delta = choice.delta
+        if choice.finish_reason:
+            self._finish_reason = choice.finish_reason
         if delta is None:
             return
 
@@ -347,6 +363,10 @@ class _OpenAIChatStreamAssembler:
         yield from self._extra_reasoning_events(delta, self._output)
 
         native_tool_calls = delta.tool_calls
+        if self._structured_reasoning is not None and (
+            delta.content or native_tool_calls or choice.finish_reason
+        ):
+            yield from self._structured_reasoning.flush(self._output)
         if native_tool_calls:
             released_text = self._function_tag_parser.disable()
             if released_text:
@@ -409,6 +429,8 @@ class _OpenAIChatStreamAssembler:
                 "Provider stream ended with an incomplete tool name."
             )
 
+        if self._structured_reasoning is not None:
+            yield from self._structured_reasoning.flush(self._output)
         remaining = self._think_parser.flush()
         if remaining:
             if remaining.type == ContentType.THINKING:
@@ -717,6 +739,7 @@ class OpenAIChatProvider(BaseProvider):
         reasoning: ReasoningPolicy = DEFAULT_REASONING_POLICY,
     ) -> ResponsesChatRequest:
         """Build a Chat body directly from Responses ingress."""
+        validate_history(request.model_dump(mode="json"))
         try:
             translated = build_responses_chat_request(
                 request,
@@ -747,6 +770,9 @@ class OpenAIChatProvider(BaseProvider):
     ) -> dict[str, Any]:
         """Apply provider behavior that is independent of client protocol."""
         return body
+
+    def _history_scope(self, body: Mapping[str, Any]) -> HistoryScope:
+        return self._profile.history_scope
 
     def preflight_messages(
         self,
@@ -863,6 +889,23 @@ class OpenAIChatProvider(BaseProvider):
                         **(extra_headers or {}),
                         **(endpoint.openai_headers() if endpoint is not None else {}),
                     }
+                origin = replay_origin(
+                    self._provider_name,
+                    "chat",
+                    str(body["model"]),
+                    client=client,
+                    endpoint=endpoint.snapshot if endpoint is not None else None,
+                )
+                create_body = cast(
+                    dict[str, Any],
+                    prepare_history(
+                        create_body,
+                        origin,
+                        scope=self._history_scope(body),
+                        reasoning_field=self._profile.request_policy.reasoning_replay.value,
+                        structured_details=self._profile.structured_reasoning_details,
+                    ),
+                )
                 stream = await client.chat.completions.create(
                     **create_body,
                     stream=True,
@@ -924,6 +967,11 @@ class OpenAIChatProvider(BaseProvider):
         reasoning_correction: ReasoningCorrection | None = None,
         sent_body: Mapping[str, Any] | None = None,
     ) -> dict | None:
+        corrected_history = history_retry_body(
+            error, sent_body if sent_body is not None else body, "chat"
+        )
+        if corrected_history is not None:
+            return corrected_history
         if reasoning_correction is not None and "reasoning" not in used_retry_kinds:
             retry_body = reasoning_correction.retry_body(
                 error, body, sent_body=sent_body
@@ -947,7 +995,9 @@ class OpenAIChatProvider(BaseProvider):
                 return retry_body
 
         if "provider_specific" not in used_retry_kinds:
-            retry_body = self._get_retry_request_body(error, body)
+            retry_body = self._get_retry_request_body(
+                error, dict(sent_body) if sent_body is not None else body
+            )
             if retry_body is not None:
                 used_retry_kinds.add("provider_specific")
                 return retry_body
@@ -1199,6 +1249,15 @@ class _OpenAIChatStreamRunner:
                     request_id=self._request_id,
                 )
                 stream = scope.retain(stream)
+                assembler.output.replay_origin = replay_origin(
+                    tag,
+                    "chat",
+                    str(body["model"]),
+                    client=self._provider._client,
+                    endpoint=self._endpoint.snapshot
+                    if self._endpoint is not None
+                    else None,
+                )
                 assembler.bind_tool_argument_aliases(
                     self._provider._tool_argument_aliases(body)
                 )
@@ -1220,6 +1279,19 @@ class _OpenAIChatStreamRunner:
             except asyncio.CancelledError, GeneratorExit:
                 raise
             except Exception as error:
+                if scope is not None and not recovery.committed:
+                    corrected_history = history_retry_body(error, sent_body, "chat")
+                    if corrected_history is not None:
+                        retry = (
+                            execution.can_attempt
+                            if scope.attempt.accepted
+                            else await scope.attempt.correct(error)
+                            is ProviderCorrectionAction.RETRY
+                        )
+                        if retry:
+                            body = corrected_history
+                            recovery.discard()
+                            continue
                 if (
                     scope is not None
                     and not recovery.committed

@@ -19,6 +19,7 @@ from free_claude_code.core.openai_tool_names import (
     encode_openai_chat_tool_names,
 )
 from free_claude_code.core.reasoning import ReasoningPolicy
+from free_claude_code.providers.history_replay import validate_history
 
 MaxTokensField = Literal["max_tokens", "max_completion_tokens"]
 OpenAIChatPostprocessor = Callable[
@@ -51,6 +52,7 @@ def build_openai_chat_request_body(
     postprocessors: Iterable[OpenAIChatPostprocessor] = (),
 ) -> dict[str, Any]:
     """Build an OpenAI-compatible chat request body from an Anthropic request."""
+    validate_history(request_data.model_dump(mode="json"))
     logger.debug(
         "{}_REQUEST: conversion start model={} msgs={}",
         policy.provider_name,

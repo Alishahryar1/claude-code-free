@@ -5,6 +5,7 @@ from typing import Any
 
 from free_claude_code.core.anthropic.streaming import AnthropicStreamLedger
 from free_claude_code.core.anthropic.usage import anthropic_input_usage_fields
+from free_claude_code.core.history_replay import is_replay
 from free_claude_code.core.openai_tool_names import OpenAIToolNameCodec
 
 
@@ -180,6 +181,15 @@ class ResponsesProviderStream:
             if not isinstance(encrypted, str) or not encrypted:
                 encrypted = self._encrypted_reasoning.get(item_id)
             if isinstance(encrypted, str) and encrypted:
+                if is_replay(encrypted) and self.ledger.blocks.thinking_started:
+                    return [
+                        self.ledger.content_block_delta(
+                            self.ledger.blocks.thinking_index,
+                            "signature_delta",
+                            encrypted,
+                        ),
+                        self.ledger.stop_thinking_block(),
+                    ]
                 events = list(self.ledger.close_content_blocks())
                 index = self.ledger.blocks.allocate_index()
                 events.append(
