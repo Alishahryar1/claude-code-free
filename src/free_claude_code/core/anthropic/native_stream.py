@@ -83,17 +83,42 @@ class NativeMessagesRelay:
         self._public_model = public_model
         self._replay_origin = replay_origin
         self._reasoning = NativeReasoningBlocks()
+        self._started = False
+        self._open_blocks: set[int] = set()
+        self._stop_reason: str | None = None
         self.completed = False
 
     def feed(self, event_type: str, payload: Mapping[str, JsonValue]) -> str:
         completed = self._reasoning.feed(event_type, payload)
-        if event_type == "message_stop":
+        if event_type in {"content_block_start", "content_block_stop"}:
+            index = payload.get("index")
+            if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+                raise NativeMessagesError("Messages content requires a block index.")
+            if event_type == "content_block_start":
+                if index in self._open_blocks:
+                    raise NativeMessagesError("Messages replaced incomplete content.")
+                self._open_blocks.add(index)
+            else:
+                if index not in self._open_blocks:
+                    raise NativeMessagesError(
+                        "Messages closed content that never started."
+                    )
+                self._open_blocks.remove(index)
+        elif event_type == "message_delta":
+            delta = payload.get("delta")
+            reason = delta.get("stop_reason") if isinstance(delta, Mapping) else None
+            if isinstance(reason, str) and reason:
+                self._stop_reason = reason
+        elif event_type == "message_stop":
+            if not self._started or self._open_blocks or self._stop_reason is None:
+                raise NativeMessagesError("Messages ended before content completed.")
             self.completed = True
         body = dict(payload)
         if event_type == "message_start":
             message = body.get("message")
             if not isinstance(message, dict):
                 raise NativeMessagesError("Messages start must contain a message.")
+            self._started = True
             body["message"] = {**message, "model": self._public_model}
             if (
                 self._replay_origin is not None

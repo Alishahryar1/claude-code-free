@@ -185,7 +185,7 @@ class AnthropicToResponsesStream:
                 raise NativeMessagesError(
                     "Duplicate Messages start cannot create another response."
                 )
-            message = payload["message"]
+            message = payload.get("message")
             if not isinstance(message, Mapping):
                 raise NativeMessagesError("Messages start must contain a message.")
             self._usage.update(message.get("usage"))
@@ -264,9 +264,9 @@ class AnthropicToResponsesStream:
                 raise NativeMessagesError(
                     "Responses cannot represent native text extensions."
                 )
-            text = block["text"]
+            text = block.get("text")
             if not isinstance(text, str):
-                raise AssertionError("Validated native text must be a string.")
+                raise NativeMessagesError("Native text must be a string.")
             state = TextBlockState(index, slot, new_message_item_id())
             self._ledger.set_active_block(state)
             events = [
@@ -309,8 +309,8 @@ class AnthropicToResponsesStream:
             raise NativeMessagesError(
                 "Responses cannot represent a server-managed tool caller."
             )
-        name = block["name"]
-        call_id = block["id"]
+        name = block.get("name")
+        call_id = block.get("id")
         if (
             not isinstance(name, str)
             or not name
@@ -344,17 +344,17 @@ class AnthropicToResponsesStream:
         state = self._ledger.active_block(index)
         kind = delta.get("type")
         if isinstance(state, TextBlockState) and kind == "text_delta":
-            text = delta["text"]
+            text = delta.get("text")
             if not isinstance(text, str):
-                raise AssertionError("Validated text delta must be a string.")
+                raise NativeMessagesError("Native text delta must be a string.")
             state.text_parts.append(text)
             return [
                 self._events.output_text_delta(state.item_id, state.output_index, text)
             ]
         if isinstance(state, ReasoningBlockState) and kind == "thinking_delta":
-            text = delta["thinking"]
+            text = delta.get("thinking")
             if not isinstance(text, str):
-                raise AssertionError("Validated thinking delta must be a string.")
+                raise NativeMessagesError("Native thinking delta must be a string.")
             state.text_parts.append(text)
             return [
                 self._events.reasoning_text_delta(

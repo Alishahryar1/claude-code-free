@@ -6,6 +6,7 @@ from typing import cast
 
 import pytest
 
+from free_claude_code.core.anthropic.native import NativeMessagesError
 from free_claude_code.core.anthropic.native_stream import (
     NativeMessagesRelay,
 )
@@ -93,6 +94,34 @@ def test_relay_preserves_native_identity_and_extensions_without_mutating_input()
         parse_sse_lines(relay.feed("content_block_start", block).splitlines())[0].data
         == block
     )
+    assert not relay.completed
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        {"type": "text", "text": "partial"},
+        {"type": "tool_use", "id": "call-a", "name": "lookup", "input": {}},
+        {"type": "server_tool_use", "id": "call-a", "name": "lookup", "input": {}},
+    ],
+)
+def test_native_stop_requires_every_started_block_to_close(block: JsonObject) -> None:
+    relay = NativeMessagesRelay(public_model="public")
+    events: list[JsonObject] = [
+        _START,
+        {"type": "content_block_start", "index": 3, "content_block": block},
+        {
+            "type": "content_block_start",
+            "index": 9,
+            "content_block": {"type": "text", "text": "done"},
+        },
+        {"type": "content_block_stop", "index": 9},
+        {"type": "message_delta", "delta": {"stop_reason": "end_turn"}},
+    ]
+    for event in events:
+        relay.feed(cast(str, event["type"]), event)
+    with pytest.raises(NativeMessagesError):
+        relay.feed("message_stop", {"type": "message_stop"})
     assert not relay.completed
 
 

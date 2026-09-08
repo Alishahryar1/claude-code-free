@@ -381,16 +381,21 @@ async def test_repeated_unauthorized_cannot_create_unbounded_auth_retry() -> Non
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("responses", [False, True])
 @pytest.mark.parametrize(
     "first",
     [
         b"event: content_block_delta\ndata: {bad}\n\n",
         _sse(*_events()[:3]),
         b'event: error\ndata: {"type":"error","error":{"type":"overloaded_error"}}\n\n',
+        pytest.param(_sse(*_events()[:3], *_events()[4:]), id="unclosed-block"),
+        pytest.param(_sse(*_events()[:4], _events()[-1]), id="missing-stop-reason"),
+        pytest.param(_sse(*_events()[-2:]), id="missing-message-start"),
     ],
 )
 async def test_early_malformed_truncated_and_overloaded_attempts_retry_invisibly(
     first: bytes,
+    responses: bool,
 ) -> None:
     calls = 0
     wires: list[Wire] = []
@@ -409,30 +414,155 @@ async def test_early_malformed_truncated_and_overloaded_attempts_retry_invisibly
             [
                 event
                 async for event in _stream(
-                    _transport(client), Endpoint(), responses=True
+                    _transport(client), Endpoint(), responses=responses
                 )
             ]
         )
     events = parse_sse_text(result)
     assert calls == 2 and all(wire.closed for wire in wires)
-    assert sum(event.event == "response.created" for event in events) == 1
+    start = "response.created" if responses else "message_start"
+    stop = "response.completed" if responses else "message_stop"
+    assert sum(event.event == start for event in events) == 1
+    assert events[-1].event == stop
     assert "final" in result and "hello" not in result
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("missing", [False, True])
+@pytest.mark.parametrize(
+    "kind,field",
+    [
+        ("message_start", "message"),
+        ("text", "text"),
+        ("text_delta", "text"),
+        ("thinking_delta", "thinking"),
+        ("tool_use", "name"),
+        ("tool_use", "id"),
+    ],
+)
+async def test_malformed_converted_fields_retry_without_leaking_first_attempt(
+    kind: str, field: str, missing: bool
+) -> None:
+    first = _events()[:3]
+    malformed: JsonObject
+    if kind == "message_start":
+        first = first[:1]
+        malformed = first[0]
+    elif kind in {"text", "tool_use"}:
+        first = first[:2]
+        malformed = (
+            {"type": "text", "text": ""}
+            if kind == "text"
+            else {"type": "tool_use", "id": "call-a", "name": "lookup", "input": {}}
+        )
+        first[1]["content_block"] = malformed
+    else:
+        first[1]["content_block"] = {
+            "type": "thinking" if kind == "thinking_delta" else "text",
+            field: "",
+        }
+        malformed = {"type": kind, field: ""}
+        first[2]["delta"] = malformed
+    if missing:
+        malformed.pop(field)
+    else:
+        malformed[field] = None
+    wires: list[Wire] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        wire = Wire([_sse(*first) if not wires else _sse(*_events("final"))])
+        wires.append(wire)
+        return httpx2.Response(
+            200, headers={"content-type": "text/event-stream"}, stream=wire
+        )
+
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
+        events = parse_sse_text(
+            "".join(
+                [
+                    event
+                    async for event in _stream(
+                        _transport(client), Endpoint(), responses=True
+                    )
+                ]
+            )
+        )
+    assert len(wires) == 2 and all(wire.closed for wire in wires)
+    assert sum(event.event == "response.created" for event in events) == 1
+    assert events[-1].event == "response.completed"
+    assert events[-1].data["response"]["output"][0]["content"][0]["text"] == "final"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", [False, True])
+async def test_committed_malformed_text_preserves_output_without_retry(
+    missing: bool,
+) -> None:
+    delta: JsonObject = {"type": "text_delta"}
+    if not missing:
+        delta["text"] = None
+    wire = Wire(
+        [
+            _sse(*_events("x" * 70_000)[:3]),
+            _sse({"type": "content_block_delta", "index": 0, "delta": delta}),
+        ]
+    )
+    calls = 0
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal calls
+        calls += 1
+        return httpx2.Response(
+            200, headers={"content-type": "text/event-stream"}, stream=wire
+        )
+
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
+        events = parse_sse_text(
+            "".join(
+                [
+                    event
+                    async for event in _stream(
+                        _transport(client), Endpoint(), responses=True
+                    )
+                ]
+            )
+        )
+    assert calls == 1 and wire.closed
+    assert sum(event.event == "response.failed" for event in events) == 1
+    assert not any(event.event == "response.completed" for event in events)
+    response = events[-1].data["response"]
+    assert response["status"] == "failed"
+    assert response["output"][0]["status"] == "incomplete"
+    assert response["output"][0]["content"][0]["text"] == "x" * 70_000
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("responses", [False, True])
-@pytest.mark.parametrize("auth", [False, True])
+@pytest.mark.parametrize(
+    "failure,item_status",
+    [
+        pytest.param(httpx2.ReadTimeout("stalled"), "incomplete", id="timeout"),
+        pytest.param(
+            _sse({"type": "error", "error": {"type": "authentication_error"}}),
+            "incomplete",
+            id="authentication",
+        ),
+        pytest.param(_sse(*_events()[4:]), "incomplete", id="unclosed-block"),
+        pytest.param(
+            _sse(_events()[3], _events()[-1]), "completed", id="missing-stop-reason"
+        ),
+    ],
+)
 async def test_committed_failure_never_retries_or_emits_success(
     responses: bool,
-    auth: bool,
+    failure: bytes | Exception,
+    item_status: str,
 ) -> None:
     calls = 0
     wire = Wire(
         [
             _sse(*_events("x" * 70_000)[:3]),
-            _sse({"type": "error", "error": {"type": "authentication_error"}})
-            if auth
-            else httpx2.ReadTimeout("stalled"),
+            failure,
         ]
     )
 
@@ -459,7 +589,8 @@ async def test_committed_failure_never_retries_or_emits_success(
     )
     if responses:
         assert sum(event.event == "response.failed" for event in events) == 1
-        assert events[-1].data["response"]["output"][0]["status"] == "incomplete"
+        assert events[-1].data["response"]["status"] == "failed"
+        assert events[-1].data["response"]["output"][0]["status"] == item_status
 
 
 @pytest.mark.asyncio
