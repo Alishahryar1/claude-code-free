@@ -495,10 +495,10 @@ async def test_copilot_partial_failure_output_does_not_mask_authentication_refre
     _item(recovered[2])["id"] = "recovered-tool"
 
     class RefreshHarness(Harness):
-        def openai(self, request: httpx2.Request) -> httpx2.Response:
+        def reply(self, request: httpx2.Request) -> httpx2.Response:
             if self.runtime.sessions[0].endpoint_calls > 1:
                 self.responses_content = responses_sse(*recovered).encode()
-            return super().openai(request)
+            return super().reply(request)
 
     harness = RefreshHarness(tmp_path, CopilotEgress.RESPONSES)
     harness.responses_content = responses_sse(*capture[:3], failed).encode()

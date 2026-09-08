@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 from copy import deepcopy
 from typing import Any
 
-import httpx
 import httpx2
 import pytest
 
@@ -138,20 +137,19 @@ async def _harness(protocol, responder=None, *, key="a", chat_provider=None):
         status, payload = (
             responder(bodies) if responder else (200, _events_for(protocol))
         )
-        module = httpx if protocol == "messages" else httpx2
         if status != 200:
-            return module.Response(status, json={"error": payload})
+            return httpx2.Response(status, json={"error": payload})
         raw = "".join(
             (f"event: {event['type']}\n" if protocol == "messages" else "")
             + f"data: {json.dumps(event)}\n\n"
             for event in payload
         )
-        return module.Response(
+        return httpx2.Response(
             200, headers={"content-type": "text/event-stream"}, content=raw
         )
 
     if protocol == "messages":
-        client = httpx.AsyncClient(transport=httpx.MockTransport(reply))
+        client = httpx2.AsyncClient(transport=httpx2.MockTransport(reply))
         provider = messages_transport(client, immediate_admission(max_attempts=5))
         endpoint = Endpoint()
         endpoint.token = key
@@ -198,7 +196,7 @@ async def _harness(protocol, responder=None, *, key="a", chat_provider=None):
     try:
         yield stream, bodies
     finally:
-        if isinstance(client, httpx.AsyncClient):
+        if isinstance(client, httpx2.AsyncClient):
             await client.aclose()
         else:
             await client.close()

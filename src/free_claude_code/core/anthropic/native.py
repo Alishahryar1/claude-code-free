@@ -44,6 +44,22 @@ class NativeMessagesError(ValueError):
     """A request or event cannot preserve the native Messages contract."""
 
 
+def complete_native_tool_input(initial: JsonValue, fragments: list[str]) -> JsonObject:
+    """Decode complete tool input when constructing a reply, never inventing it."""
+    if fragments and initial:
+        raise NativeMessagesError("Tool input mixes eager content and JSON deltas.")
+    try:
+        value = json.loads("".join(fragments)) if fragments else initial
+        if not isinstance(value, dict):
+            raise NativeMessagesError("Native tool arguments must decode to an object.")
+        json.dumps(value, ensure_ascii=False, allow_nan=False).encode("utf-8")
+    except (ValueError, UnicodeError, RecursionError) as exc:
+        raise NativeMessagesError(
+            "Native tool arguments are incomplete or invalid JSON."
+        ) from exc
+    return cast(JsonObject, value)
+
+
 @dataclass(frozen=True, slots=True)
 class NativeMessagesOptions:
     """Provider-resolved wire controls; no model-name inference belongs here."""

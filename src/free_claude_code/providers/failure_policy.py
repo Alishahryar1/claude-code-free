@@ -7,12 +7,14 @@ from contextlib import suppress
 from dataclasses import replace
 from typing import Any
 
+import anthropic
 import httpx
 import httpx2
 import openai
 
 from free_claude_code.core.anthropic.errors import anthropic_status_for_error_type
 from free_claude_code.core.diagnostics import (
+    attach_upstream_error_body,
     attached_upstream_error_body,
     extract_upstream_error_detail,
     format_execution_failure_message,
@@ -93,13 +95,29 @@ def classify_provider_failure(
             exc,
             read_timeout_s=read_timeout_s,
         )
+    detail = extract_upstream_error_detail(exc)
+    if isinstance(exc, anthropic.APIStatusError) and exc.status_code == 200:
+        detail = replace(detail, status_code=failure.status_code)
     message = format_execution_failure_message(
         failure,
-        extract_upstream_error_detail(exc),
+        detail,
         upstream_name=provider_name,
         request_id=request_id,
     )
     return replace(failure, message=message)
+
+
+def normalize_anthropic_stream_error(
+    exc: Exception, *, provider_name: str, request_id: str | None
+) -> Exception:
+    """Give streamed SDK errors their failure status before correction decisions."""
+    if not isinstance(exc, anthropic.APIStatusError) or exc.status_code != 200:
+        return exc
+    failure = classify_provider_failure(
+        exc, provider_name=provider_name, read_timeout_s=None, request_id=request_id
+    )
+    attach_upstream_error_body(failure, json.dumps(exc.body))
+    return failure
 
 
 def overloaded_provider_failure() -> ExecutionFailure:
@@ -234,7 +252,10 @@ def is_retryable_provider_error(exc: BaseException) -> bool:
         exc,
         openai.AuthenticationError
         | openai.PermissionDeniedError
-        | openai.BadRequestError,
+        | openai.BadRequestError
+        | anthropic.AuthenticationError
+        | anthropic.PermissionDeniedError
+        | anthropic.BadRequestError,
     ):
         return False
     if retryable_transient_status(exc) is not None:
@@ -252,6 +273,8 @@ def is_retryable_provider_error(exc: BaseException) -> bool:
             httpx2.NetworkError,
             openai.APITimeoutError,
             openai.APIConnectionError,
+            anthropic.APITimeoutError,
+            anthropic.APIConnectionError,
             RetryableProviderProtocolError,
         ),
     )
@@ -263,7 +286,13 @@ def is_retryable_stream_error(exc: BaseException) -> bool:
         return True
     if isinstance(exc, ExecutionFailure):
         return exc.retryable
-    if isinstance(exc, openai.AuthenticationError | openai.BadRequestError):
+    if isinstance(
+        exc,
+        openai.AuthenticationError
+        | openai.BadRequestError
+        | anthropic.AuthenticationError
+        | anthropic.BadRequestError,
+    ):
         return False
     if retryable_transient_status(exc) is not None:
         return True
@@ -280,6 +309,8 @@ def is_retryable_stream_error(exc: BaseException) -> bool:
             httpx2.NetworkError,
             openai.APITimeoutError,
             openai.APIConnectionError,
+            anthropic.APITimeoutError,
+            anthropic.APIConnectionError,
         ),
     )
 
@@ -400,8 +431,8 @@ def _classify_provider_failure(
             is_retryable_provider_error(exc),
         )
 
-    if isinstance(exc, httpx.HTTPStatusError):
-        status = exc.response.status_code
+    if isinstance(exc, httpx.HTTPStatusError | anthropic.APIStatusError):
+        status = _reported_status(exc) or 500
         if status == 401:
             return _failure(
                 FailureKind.AUTHENTICATION, 401, _AUTHENTICATION_MESSAGE, False
@@ -412,11 +443,23 @@ def _classify_provider_failure(
             return _failure(FailureKind.PERMISSION, 403, _PERMISSION_MESSAGE, False)
         if status == 429:
             return _failure(FailureKind.RATE_LIMIT, 429, _RATE_LIMIT_MESSAGE, True)
-        if status == 400:
+        if status == 400 or (
+            isinstance(exc, anthropic.APIStatusError) and status in {404, 422}
+        ):
             return _failure(
-                FailureKind.INVALID_REQUEST, 400, _INVALID_REQUEST_MESSAGE, False
+                FailureKind.INVALID_REQUEST, status, _INVALID_REQUEST_MESSAGE, False
             )
-        if status in (502, 503, 504):
+        if (
+            isinstance(exc, anthropic.APIStatusError)
+            and exc.status_code == 200
+            and status == 504
+        ):
+            return _failure(
+                FailureKind.TIMEOUT, 504, "Provider request timed out.", True
+            )
+        if status in (502, 503, 504) or (
+            isinstance(exc, anthropic.APIStatusError) and status == 529
+        ):
             return overloaded_provider_failure()
         return _failure(
             FailureKind.UPSTREAM,
@@ -426,10 +469,20 @@ def _classify_provider_failure(
         )
 
     kind = FailureKind.UPSTREAM
-    if isinstance(exc, TimeoutError | httpx.TimeoutException | httpx2.TimeoutException):
+    if isinstance(
+        exc,
+        TimeoutError
+        | httpx.TimeoutException
+        | httpx2.TimeoutException
+        | anthropic.APITimeoutError,
+    ):
         kind = FailureKind.TIMEOUT
     elif isinstance(
-        exc, ssl.SSLWantReadError | httpx.NetworkError | httpx2.NetworkError
+        exc,
+        ssl.SSLWantReadError
+        | httpx.NetworkError
+        | httpx2.NetworkError
+        | anthropic.APIConnectionError,
     ):
         kind = FailureKind.UNAVAILABLE
     return _failure(
@@ -466,6 +519,13 @@ def _status_from_exception(exc: BaseException) -> int | None:
 
 
 def _reported_status(exc: BaseException) -> int | None:
+    if isinstance(exc, anthropic.APIStatusError) and exc.status_code == 200:
+        body = exc.body
+        if isinstance(body, Mapping):
+            error = body.get("error", body)
+            if isinstance(error, Mapping):
+                return anthropic_status_for_error_type(str(error.get("type", "")))
+        return 500
     status = _status_from_exception(exc)
     if status is not None:
         return status

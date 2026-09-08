@@ -6,6 +6,8 @@ from typing import Protocol
 
 import httpx
 import httpx2
+from anthropic import AsyncAnthropic
+from anthropic import Omit as AnthropicOmit
 from openai import AsyncOpenAI, Omit
 
 from free_claude_code.providers.admission import (
@@ -66,7 +68,7 @@ class RequestEndpoint:
         if self._http is not None:
             await self._http.aclose()
 
-    async def openai_client(self, client: AsyncOpenAI) -> AsyncOpenAI:
+    async def _resolve(self) -> tuple[HttpEndpoint, httpx2.AsyncClient]:
         endpoint = await self._context.endpoint(force_refresh=self._refresh_pending)
         self.snapshot = endpoint
         self._refresh_pending = False
@@ -79,6 +81,10 @@ class RequestEndpoint:
             )
         # An endpoint is authoritative for every attempt, including after refresh.
         self._http.cookies.clear()
+        return endpoint, self._http
+
+    async def openai_client(self, client: AsyncOpenAI) -> AsyncOpenAI:
+        endpoint, http = await self._resolve()
         headers = dict(httpx.Headers(endpoint.headers).items())
         self._omit_authorization = (
             endpoint.api_key is None and "authorization" not in headers
@@ -101,7 +107,7 @@ class RequestEndpoint:
             base_url=endpoint.base_url,
             set_default_headers=headers,
             set_default_query={},
-            http_client=self._http,
+            http_client=http,
             max_retries=0,
         )
         # SDK copy(None) inherits these values. Clear only this owned view.
@@ -112,6 +118,47 @@ class RequestEndpoint:
 
     def openai_headers(self) -> dict[str, str | Omit]:
         return {"Authorization": Omit()} if self._omit_authorization else {}
+
+    async def anthropic_client(self, client: AsyncAnthropic) -> AsyncAnthropic:
+        endpoint, http = await self._resolve()
+        base_url = endpoint.base_url.rstrip("/").removesuffix("/v1")
+        return client.with_options(
+            base_url=base_url,
+            http_client=http,
+            set_default_headers={},
+            set_default_query={},
+            max_retries=0,
+        )
+
+    def anthropic_headers(
+        self, betas: tuple[str, ...]
+    ) -> dict[str, str | AnthropicOmit]:
+        if self.snapshot is None:
+            raise RuntimeError("Messages headers require an endpoint snapshot.")
+        headers: dict[str, str | AnthropicOmit] = dict(
+            httpx2.Headers(self.snapshot.headers).items()
+        )
+        if self.snapshot.api_key and not any(
+            key in headers for key in ("authorization", "x-api-key")
+        ):
+            headers["x-api-key"] = self.snapshot.api_key
+        for key in ("authorization", "x-api-key", "cookie"):
+            headers.setdefault(key, AnthropicOmit())
+        existing = headers.get("anthropic-beta", "")
+        combined = tuple(
+            dict.fromkeys(
+                [
+                    *filter(
+                        None, existing.split(",") if isinstance(existing, str) else ()
+                    ),
+                    *betas,
+                ]
+            )
+        )
+        headers["anthropic-beta"] = ",".join(combined) if combined else AnthropicOmit()
+        headers.setdefault("anthropic-version", "2023-06-01")
+        headers.setdefault("accept", "text/event-stream")
+        return headers
 
     async def retry_authentication(
         self, error: Exception, attempt: ProviderAttempt, execution: ProviderExecution

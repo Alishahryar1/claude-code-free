@@ -28,6 +28,10 @@ class ResponsesOutputLedger:
     def active_block(self, index: int) -> BlockState | None:
         return self._active_blocks.get(index)
 
+    @property
+    def has_active_blocks(self) -> bool:
+        return bool(self._active_blocks)
+
     def set_active_block(self, state: BlockState) -> None:
         self._active_blocks[state.index] = state
 

@@ -85,6 +85,19 @@ def _end(
     return events
 
 
+def test_prestart_reasoning_is_rejected_without_retaining_a_block() -> None:
+    stream = _stream()
+    with pytest.raises(NativeMessagesError):
+        _feed(
+            stream,
+            "content_block_start",
+            index=3,
+            content_block={"type": "thinking", "thinking": "unstarted"},
+        )
+    _start(stream)
+    assert _end(stream)[-1]["type"] == "response.completed"
+
+
 def test_text_thinking_and_redacted_blocks_keep_order_replay_and_exact_usage() -> None:
     stream = _stream()
     events = _start(stream)
@@ -417,3 +430,86 @@ def test_terminal_usage_omits_missing_cache_and_provisional_thinking_details() -
         "output_tokens": 19,
         "total_tokens": 22,
     }
+
+
+@pytest.mark.parametrize(
+    "fragment", ['{"q":', "[]", '"text"', '{"q":NaN}', '{"q":1e999}']
+)
+def test_function_arguments_must_be_complete_finite_objects(fragment: str) -> None:
+    stream = _stream(tools=[{"type": "function", "name": "lookup"}])
+    _start(stream)
+    _feed(
+        stream,
+        "content_block_start",
+        index=4,
+        content_block={
+            "type": "tool_use",
+            "id": "c",
+            "name": "lookup",
+            "input": {},
+        },
+    )
+    _feed(
+        stream,
+        "content_block_delta",
+        index=4,
+        delta={
+            "type": "input_json_delta",
+            "partial_json": fragment,
+        },
+    )
+    with pytest.raises(NativeMessagesError, match="arguments"):
+        _feed(stream, "content_block_stop", index=4)
+    assert not stream.completed
+
+
+@pytest.mark.parametrize("fragment", [None, '{"q":"changed"}'])
+def test_eager_tool_input_is_preserved_without_mixing_fragmented_input(
+    fragment: str | None,
+) -> None:
+    stream = _stream(tools=[{"type": "function", "name": "lookup"}])
+    _start(stream)
+    _feed(
+        stream,
+        "content_block_start",
+        index=4,
+        content_block={
+            "type": "tool_use",
+            "id": "c",
+            "name": "lookup",
+            "input": {"q": "original"},
+        },
+    )
+    if fragment is not None:
+        _feed(
+            stream,
+            "content_block_delta",
+            index=4,
+            delta={"type": "input_json_delta", "partial_json": fragment},
+        )
+        with pytest.raises(NativeMessagesError, match="mixes"):
+            _feed(stream, "content_block_stop", index=4)
+    else:
+        events = _feed(stream, "content_block_stop", index=4) + _end(stream, "tool_use")
+        response = cast(JsonObject, events[-1]["response"])
+        output = cast(list[JsonObject], response["output"])
+        assert output[0]["arguments"] == '{"q":"original"}'
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        {"type": "text", "text": "partial"},
+        {"type": "thinking", "thinking": "thought", "signature": "sig"},
+        {"type": "tool_use", "id": "c", "name": "lookup", "input": {}},
+    ],
+)
+def test_native_stop_cannot_complete_an_unfinished_responses_item(
+    block: JsonObject,
+) -> None:
+    stream = _stream(tools=[{"type": "function", "name": "lookup"}])
+    _start(stream)
+    _feed(stream, "content_block_start", index=3, content_block=block)
+    with pytest.raises(NativeMessagesError, match=r"incomplete|before converted"):
+        _end(stream)
+    assert not stream.completed

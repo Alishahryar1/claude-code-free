@@ -7,11 +7,11 @@ shape the real Anthropic API returns for a non-streaming ``messages.create()``
 call.
 """
 
-import json
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
+from .native import NativeMessagesError, complete_native_tool_input
 from .stream_contracts import SSEEvent
 from .streaming.decoder import AnthropicSSEDecoder
 
@@ -31,6 +31,7 @@ async def aggregate_anthropic_sse_to_message(
     message: dict[str, Any] = {}
     blocks: dict[int, dict[str, Any]] = {}
     parts: dict[int, list[str]] = {}
+    open_blocks: set[int] = set()
     error: dict[str, Any] | None = None
     complete = False
 
@@ -47,6 +48,9 @@ async def aggregate_anthropic_sse_to_message(
             if isinstance(idx, int) and isinstance(block, dict):
                 blocks[idx] = dict(block)
                 parts.setdefault(idx, [])
+                open_blocks.add(idx)
+        elif ptype == "content_block_stop":
+            open_blocks.discard(payload.get("index"))
         elif ptype == "content_block_delta":
             idx = payload.get("index")
             delta = payload.get("delta")
@@ -120,15 +124,21 @@ async def aggregate_anthropic_sse_to_message(
         elif btype == "thinking":
             block["thinking"] = str(block.get("thinking", "")) + accumulated
             block.setdefault("signature", "")
-        elif btype == "tool_use":
-            if accumulated.strip():
-                try:
-                    block["input"] = json.loads(accumulated)
-                except json.JSONDecodeError:
-                    block["input"] = block.get("input") or {}
-            elif not isinstance(block.get("input"), dict):
-                block["input"] = {}
+        elif btype in {"tool_use", "server_tool_use"}:
+            try:
+                block["input"] = complete_native_tool_input(
+                    block.get("input"), parts.get(idx, [])
+                )
+            except NativeMessagesError as exc:
+                error = error or {"type": "api_error", "message": str(exc)}
         content.append(block)
+
+    if open_blocks:
+        error = error or {
+            "type": "api_error",
+            "message": "Messages ended with incomplete content blocks.",
+        }
+    complete = complete and error is None
 
     message["content"] = content
     message.setdefault("id", f"msg_{uuid.uuid4()}")

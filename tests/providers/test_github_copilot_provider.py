@@ -6,7 +6,6 @@ from collections.abc import AsyncIterator
 from dataclasses import replace
 from pathlib import Path
 
-import httpx
 import httpx2
 import pytest
 
@@ -58,7 +57,7 @@ from tests.providers.test_openai_responses_transport import (
 )
 
 
-class Wire(httpx.AsyncByteStream, httpx2.AsyncByteStream):
+class Wire(httpx2.AsyncByteStream):
     def __init__(self, content: bytes) -> None:
         self.content = content
         self.closed = False
@@ -78,6 +77,53 @@ class Wire(httpx.AsyncByteStream, httpx2.AsyncByteStream):
         self.close_entered.set()
         await self.close_gate.wait()
         self.closed = True
+
+
+class Pool(httpx2.MockTransport):
+    close_calls = 0
+
+    async def aclose(self) -> None:
+        self.close_calls += 1
+        await super().aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("egress", list(CopilotEgress))
+async def test_shutdown_waits_for_concurrent_streams_and_cancel_keeps_shared_pool_open(
+    tmp_path, egress
+):
+    harness = Harness(tmp_path, egress)
+    harness.block_read = True
+
+    async def consume():
+        return [event async for event in harness.stream(True)]
+
+    first = asyncio.create_task(consume())
+    first_wire = await harness.opened.get()
+    second = asyncio.create_task(consume())
+    second_wire = await harness.opened.get()
+    cleanup = asyncio.create_task(harness.provider.cleanup())
+    try:
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        assert first_wire.closed and not second_wire.closed
+        assert not cleanup.done() and harness.pool.close_calls == 0
+        second_wire.read_gate.set()
+        assert await second
+        await cleanup
+        assert second_wire.closed and harness.pool.close_calls == 1
+        assert harness.auth.is_connected() and harness.runtime.close_calls == 0
+    finally:
+        for wire in harness.wires:
+            wire.read_gate.set()
+            wire.close_gate.set()
+        first.cancel()
+        second.cancel()
+        await asyncio.gather(first, second, return_exceptions=True)
+        await cleanup
+        await harness.close()
+    assert all(session.closed for session in harness.runtime.sessions)
 
 
 class Runtime(FakeRuntime):
@@ -133,8 +179,9 @@ class Harness:
         self.auth = CopilotAuthManager(
             state_path=state, runtime_factory=lambda: self.runtime
         )
-        self.seen: list[httpx.Request | httpx2.Request] = []
+        self.seen: list[httpx2.Request] = []
         self.wires: list[Wire] = []
+        self.opened: asyncio.Queue[Wire] = asyncio.Queue()
         self.statuses: list[int] = []
         self.block_close = False
         self.block_read = False
@@ -166,14 +213,14 @@ class Harness:
             )
             + "\n\ndata: [DONE]\n\n"
         ).encode()
+        self.pool = Pool(self.reply)
         self.provider = GitHubCopilotProvider(
             make_provider_config(
                 None, "https://configuration.invalid", http_read_timeout=3
             ),
             auth=self.auth,
             admission=immediate_admission(max_attempts=2),
-            messages_transport=httpx.MockTransport(self.messages),
-            openai_transport=httpx2.MockTransport(self.openai),
+            transport=self.pool,
         )
 
     def wire(self, content: bytes) -> Wire:
@@ -183,27 +230,10 @@ class Harness:
         if self.block_read:
             wire.read_gate.clear()
         self.wires.append(wire)
+        self.opened.put_nowait(wire)
         return wire
 
-    def messages(self, request: httpx.Request) -> httpx.Response:
-        self.seen.append(request)
-        status = self.statuses.pop(0) if self.statuses else 200
-        if status != 200:
-            return httpx.Response(
-                status,
-                headers={"set-cookie": "inherited=secret; Path=/"},
-                json={"error": {"message": "expired"}},
-            )
-        return httpx.Response(
-            200,
-            headers={
-                "content-type": "text/event-stream",
-                "set-cookie": "inherited=secret; Path=/",
-            },
-            stream=self.wire(self.messages_content),
-        )
-
-    def openai(self, request: httpx2.Request) -> httpx2.Response:
+    def reply(self, request: httpx2.Request) -> httpx2.Response:
         self.seen.append(request)
         status = self.statuses.pop(0) if self.statuses else 200
         if status != 200:
@@ -213,7 +243,9 @@ class Harness:
                 json={"error": {"message": "expired"}},
             )
         content = (
-            self.responses_content
+            self.messages_content
+            if request.url.path.endswith("/messages")
+            else self.responses_content
             if request.url.path.endswith("/responses")
             else self.chat_content
         )

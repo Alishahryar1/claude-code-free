@@ -6,11 +6,12 @@ import sys
 from collections.abc import AsyncIterator, Callable, Mapping
 from typing import cast
 
-import httpx
+import httpx2
+from anthropic import APIStatusError, AsyncAnthropic, AsyncStream
+from anthropic.types import MessageParam
 
 from free_claude_code.application.errors import InvalidRequestError
 from free_claude_code.application.model_metadata import ProviderModelInfo
-from free_claude_code.core.anthropic.errors import anthropic_status_for_error_type
 from free_claude_code.core.anthropic.models import MessagesRequest
 from free_claude_code.core.anthropic.native import (
     NativeMessagesError,
@@ -18,13 +19,6 @@ from free_claude_code.core.anthropic.native import (
     build_native_messages_request,
 )
 from free_claude_code.core.anthropic.native_stream import NativeMessagesRelay
-from free_claude_code.core.anthropic.streaming.decoder import AnthropicSSEDecoder
-from free_claude_code.core.diagnostics import (
-    ERROR_DETAIL_DISPLAY_CAP_BYTES,
-    attach_upstream_error_body,
-    redact_sensitive_error_text,
-)
-from free_claude_code.core.failures import ExecutionFailure, FailureKind
 from free_claude_code.core.history_replay import ReplayOrigin, prepare_history
 from free_claude_code.core.json_types import JsonObject
 from free_claude_code.core.openai_responses import (
@@ -46,14 +40,14 @@ from free_claude_code.providers.admission import (
     ProviderExecution,
     ProviderOperationKind,
 )
-from free_claude_code.providers.endpoint import EndpointContext
+from free_claude_code.providers.endpoint import EndpointContext, RequestEndpoint
 from free_claude_code.providers.failure_policy import (
     RetryableProviderProtocolError,
     classify_provider_failure,
     context_window_exceeded_provider_failure,
-    is_context_window_error_code,
     is_context_window_finish_reason,
     is_retryable_stream_error,
+    normalize_anthropic_stream_error,
 )
 from free_claude_code.providers.history_replay import (
     history_retry_body,
@@ -85,14 +79,16 @@ class AnthropicMessagesTransport:
     def __init__(
         self,
         *,
-        client: httpx.AsyncClient,
+        client: AsyncAnthropic,
         admission: ProviderAdmissionController,
         provider_name: str,
         replay_scope: str,
         read_timeout_s: float,
+        endpoint_transport: httpx2.AsyncBaseTransport | None = None,
         capabilities: MessagesModelCapabilities = MessagesModelCapabilities(),
     ) -> None:
         self._client = client
+        self._endpoint_transport = endpoint_transport
         self._admission = admission
         self._provider_name = provider_name
         self._replay_scope = replay_scope
@@ -145,23 +141,6 @@ class AnthropicMessagesTransport:
             return build_responses_messages_request(request, options=options)
         except (NativeMessagesError, ResponsesConversionError, ValueError) as error:
             raise InvalidRequestError(str(error)) from error
-
-    def preflight_messages(
-        self,
-        request: MessagesRequest,
-        *,
-        reasoning: ReasoningPolicy = DEFAULT_REASONING_POLICY,
-        model_info: ProviderModelInfo | None = None,
-    ) -> None:
-        self._messages_body(request, reasoning, model_info)
-
-    def preflight_responses(
-        self,
-        request: OpenAIResponsesRequest,
-        *,
-        reasoning: ReasoningPolicy = DEFAULT_REASONING_POLICY,
-    ) -> None:
-        self._responses_body(request, reasoning)
 
     def stream_messages(
         self,
@@ -237,16 +216,18 @@ class AnthropicMessagesTransport:
         reasoning_correction: ReasoningCorrection | None = None,
     ) -> AsyncIterator[str]:
         execution = self._admission.start_execution(request_id=request_id)
+        endpoint = RequestEndpoint(endpoint_context, self._endpoint_transport)
         run = self._run(
             body,
             reasoning_correction=reasoning_correction,
             betas=betas,
-            endpoint_context=endpoint_context,
             execution=execution,
+            endpoint=endpoint,
             presenter_factory=presenter_factory,
         )
         try:
             async for event in run:
+                endpoint.commit()
                 yield event
         except asyncio.CancelledError, GeneratorExit:
             raise
@@ -256,22 +237,25 @@ class AnthropicMessagesTransport:
         else:
             execution.succeed()
         finally:
-            await maybe_await_aclose(run)
-            execution.abandon()
+            try:
+                await maybe_await_aclose(run)
+            finally:
+                try:
+                    await endpoint.aclose()
+                finally:
+                    execution.abandon()
 
     async def _run(
         self,
         body: JsonObject,
         *,
         betas: tuple[str, ...],
-        endpoint_context: EndpointContext,
+        endpoint: RequestEndpoint,
         execution: ProviderExecution,
         presenter_factory: Callable[[ReplayOrigin], _Presenter],
         reasoning_correction: ReasoningCorrection | None = None,
     ) -> AsyncIterator[str]:
         recovery = RecoveryController()
-        refreshed = False
-        force_refresh = False
         while execution.can_attempt:
             scope: ProviderAttemptScope | None = None
             stream_opened = False
@@ -283,55 +267,74 @@ class AnthropicMessagesTransport:
                     provider_name=self._provider_name,
                     request_id=execution.request_id,
                 )
-                endpoint = await endpoint_context.endpoint(force_refresh=force_refresh)
-                force_refresh = False
+                client = await endpoint.anthropic_client(self._client)
+                snapshot = endpoint.snapshot
+                if snapshot is None:
+                    raise RuntimeError(
+                        "Messages request requires an endpoint snapshot."
+                    )
                 origin = replay_origin(
                     self._replay_scope,
                     "messages",
                     str(body["model"]),
-                    endpoint=endpoint,
+                    endpoint=snapshot,
                 )
                 sent_body = prepare_history(body, origin)
                 presenter = presenter_factory(origin)
-                headers = httpx.Headers(
-                    {
-                        "anthropic-version": "2023-06-01",
-                        "Accept": "text/event-stream",
-                    }
+                sdk_stream = await client.messages.create(
+                    model=cast(str, sent_body["model"]),
+                    messages=cast(list[MessageParam], sent_body["messages"]),
+                    max_tokens=cast(int, sent_body["max_tokens"]),
+                    stream=True,
+                    extra_body={
+                        key: value
+                        for key, value in sent_body.items()
+                        if key not in {"model", "messages", "max_tokens", "stream"}
+                    },
+                    extra_headers=endpoint.anthropic_headers(betas),
                 )
-                headers.update(endpoint.headers)
-                if endpoint.api_key and not any(
-                    key.lower() in {"authorization", "x-api-key"} for key in headers
-                ):
-                    headers["x-api-key"] = endpoint.api_key
-                if betas:
-                    existing = headers.pop("anthropic-beta", "")
-                    headers["anthropic-beta"] = ",".join(
-                        dict.fromkeys([*filter(None, existing.split(",")), *betas])
-                    )
-                base_url = endpoint.base_url.rstrip("/")
-                path = "/messages" if base_url.endswith("/v1") else "/v1/messages"
-                response = scope.retain(
-                    await self._client.send(
-                        self._client.build_request(
-                            "POST",
-                            f"{base_url}{path}",
-                            json=sent_body,
-                            headers=headers,
-                        ),
-                        stream=True,
-                    )
-                )
-                if not response.is_success:
-                    raise await _status_error(response)
-                content_type = response.headers.get("content-type", "")
-                if "text/event-stream" not in content_type.lower():
-                    raise RetryableProviderProtocolError(
-                        "Messages upstream did not return an SSE stream."
-                    )
+                scope.retain(sdk_stream.response)
                 stream_opened = True
-                async for event_type, payload in _events(response):
-                    _check_failure(event_type, payload)
+                async for event in AsyncStream.raw_events(sdk_stream.response):
+                    if event.event == "ping":
+                        if isinstance(presenter, NativeMessagesRelay):
+                            for held in recovery.push("\n".join(event.raw) + "\n\n"):
+                                yield held
+                        continue
+                    if event.event == "error":
+                        try:
+                            error_body = event.json()
+                        except json.JSONDecodeError:
+                            error_body = event.data
+                        raise APIStatusError(
+                            str(error_body)
+                            or f"Error code: {sdk_stream.response.status_code}",
+                            response=sdk_stream.response,
+                            body=error_body,
+                        )
+                    if event.event not in {
+                        "message_start",
+                        "message_delta",
+                        "message_stop",
+                        "content_block_start",
+                        "content_block_delta",
+                        "content_block_stop",
+                    }:
+                        continue
+                    payload = event.json()
+                    if not isinstance(payload, dict):
+                        raise NativeMessagesError(
+                            "Messages event must contain an object."
+                        )
+                    payload.setdefault("type", event.event)
+                    event_type = payload["type"]
+                    delta = payload.get("delta")
+                    if (
+                        event_type == "message_delta"
+                        and isinstance(delta, Mapping)
+                        and is_context_window_finish_reason(delta.get("stop_reason"))
+                    ):
+                        raise context_window_exceeded_provider_failure()
                     output = presenter.feed(event_type, payload)
                     if event_type != "ping" and not attempt.accepted:
                         await attempt.accept()
@@ -352,37 +355,24 @@ class AnthropicMessagesTransport:
             except Exception as raw_error:
                 error = (
                     RetryableProviderProtocolError(str(raw_error))
-                    if isinstance(raw_error, NativeMessagesError)
-                    else raw_error
-                )
-                status = (
-                    error.response.status_code
-                    if isinstance(error, httpx.HTTPStatusError)
-                    else error.status_code
-                    if isinstance(error, ExecutionFailure)
-                    else None
-                )
-                if (
-                    scope is not None
-                    and status in {401, 403}
-                    and not refreshed
-                    and not recovery.committed
-                ):
-                    retry = (
-                        execution.can_attempt
-                        if scope.attempt.accepted
-                        else await scope.attempt.correct(error)
-                        is ProviderCorrectionAction.RETRY
+                    if isinstance(
+                        raw_error,
+                        NativeMessagesError | json.JSONDecodeError | UnicodeDecodeError,
                     )
-                    if retry:
-                        refreshed = force_refresh = True
-                        recovery.discard()
-                        continue
+                    else normalize_anthropic_stream_error(
+                        raw_error,
+                        provider_name=self._provider_name,
+                        request_id=execution.request_id,
+                    )
+                )
+                if scope is not None and await endpoint.retry_authentication(
+                    error, scope.attempt, execution
+                ):
+                    recovery.discard()
+                    continue
                 attempt_failure = None
                 if scope is not None and not recovery.committed:
-                    corrected_history = history_retry_body(
-                        raw_error, sent_body, "messages"
-                    )
+                    corrected_history = history_retry_body(error, sent_body, "messages")
                     if corrected_history is not None:
                         retry = (
                             execution.can_attempt
@@ -459,82 +449,3 @@ class AnthropicMessagesTransport:
         if execution.last_failure is not None:
             raise execution.last_failure
         raise RuntimeError("Messages execution ended without a terminal result.")
-
-
-async def _events(response: httpx.Response) -> AsyncIterator[tuple[str, JsonObject]]:
-    decoder = AnthropicSSEDecoder()
-    async for chunk in response.aiter_text():
-        for event in decoder.feed(chunk):
-            payload = cast(JsonObject, event.data)
-            kind = event.event or payload.get("type")
-            if not isinstance(kind, str) or not kind:
-                raise RetryableProviderProtocolError(
-                    "Messages stream has an invalid event type."
-                )
-            yield kind, payload
-    for event in decoder.finish():
-        payload = cast(JsonObject, event.data)
-        kind = event.event or payload.get("type")
-        if not isinstance(kind, str) or not kind:
-            raise RetryableProviderProtocolError(
-                "Messages stream has an invalid final event."
-            )
-        yield kind, payload
-
-
-def _check_failure(event_type: str, payload: JsonObject) -> None:
-    delta = payload.get("delta")
-    if (
-        event_type == "message_delta"
-        and isinstance(delta, Mapping)
-        and is_context_window_finish_reason(delta.get("stop_reason"))
-    ):
-        raise context_window_exceeded_provider_failure()
-    if event_type != "error":
-        return
-    error = payload.get("error")
-    kind = error.get("type") if isinstance(error, Mapping) else None
-    if isinstance(error, Mapping) and any(
-        is_context_window_error_code(error.get(key)) for key in ("type", "code")
-    ):
-        raise context_window_exceeded_provider_failure()
-    status = anthropic_status_for_error_type(kind if isinstance(kind, str) else "")
-    failure_kind = {
-        400: FailureKind.INVALID_REQUEST,
-        401: FailureKind.AUTHENTICATION,
-        402: FailureKind.PERMISSION,
-        403: FailureKind.PERMISSION,
-        404: FailureKind.INVALID_REQUEST,
-        413: FailureKind.INVALID_REQUEST,
-        429: FailureKind.RATE_LIMIT,
-        504: FailureKind.TIMEOUT,
-        529: FailureKind.OVERLOADED,
-    }.get(status, FailureKind.UPSTREAM)
-    message = error.get("message") if isinstance(error, Mapping) else None
-    failure = ExecutionFailure(
-        failure_kind,
-        status,
-        redact_sensitive_error_text(message[:ERROR_DETAIL_DISPLAY_CAP_BYTES])
-        if isinstance(message, str) and message
-        else "Messages upstream returned an error.",
-        status == 429 or status >= 500,
-    )
-    attach_upstream_error_body(failure, json.dumps(payload))
-    raise failure
-
-
-async def _status_error(response: httpx.Response) -> httpx.HTTPStatusError:
-    limit = ERROR_DETAIL_DISPLAY_CAP_BYTES
-    body = bytearray()
-    async for chunk in response.aiter_bytes():
-        body.extend(chunk[: limit + 1 - len(body)])
-        if len(body) > limit:
-            break
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as error:
-        attach_upstream_error_body(
-            error, bytes(body[:limit]), truncated=len(body) > limit
-        )
-        return error
-    raise AssertionError("Expected an unsuccessful Messages response.")
