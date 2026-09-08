@@ -5,8 +5,8 @@ import sys
 from collections.abc import AsyncIterator, Mapping
 from contextlib import suppress
 
-import httpx
 import httpx2
+from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
 from free_claude_code.application.errors import InvalidRequestError
@@ -20,7 +20,6 @@ from free_claude_code.providers.anthropic_messages.transport import (
     AnthropicMessagesTransport,
 )
 from free_claude_code.providers.base import BaseProvider, ProviderConfig
-from free_claude_code.providers.endpoint import EndpointContext, HttpEndpoint
 from free_claude_code.providers.http import close_provider_stream
 from free_claude_code.providers.openai_chat import OpenAIChatProvider
 from free_claude_code.providers.openai_responses import OpenAIResponsesTransport
@@ -37,27 +36,6 @@ from .responses_events import CopilotResponsesEvents
 from .types import CopilotEgress, CopilotModel
 
 
-class _BorrowedMessagesPool(httpx.AsyncBaseTransport):
-    def __init__(self, pool: httpx.AsyncBaseTransport) -> None:
-        self._pool = pool
-
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        return await self._pool.handle_async_request(request)
-
-
-class _MessagesEndpoint:
-    """A fresh snapshot replaces all cookie state for this request's next attempt."""
-
-    def __init__(self, context: EndpointContext, client: httpx.AsyncClient) -> None:
-        self._context = context
-        self._client = client
-
-    async def endpoint(self, *, force_refresh: bool = False) -> HttpEndpoint:
-        snapshot = await self._context.endpoint(force_refresh=force_refresh)
-        self._client.cookies.clear()
-        return snapshot
-
-
 class GitHubCopilotProvider(BaseProvider):
     """Own generation HTTP resources; borrow the process account for each stream."""
 
@@ -67,18 +45,12 @@ class GitHubCopilotProvider(BaseProvider):
         *,
         auth: CopilotAuthManager,
         admission: ProviderAdmissionController,
-        messages_transport: httpx.AsyncBaseTransport | None = None,
-        openai_transport: httpx2.AsyncBaseTransport | None = None,
+        transport: httpx2.AsyncBaseTransport | None = None,
     ) -> None:
         super().__init__(config)
         self._auth = auth
         self._admission = admission
-        self._messages_pool = messages_transport or httpx.AsyncHTTPTransport(
-            proxy=config.proxy
-        )
-        self._openai_pool = openai_transport or httpx2.AsyncHTTPTransport(
-            proxy=config.proxy
-        )
+        self._pool = transport or httpx2.AsyncHTTPTransport(proxy=config.proxy)
         self._client = AsyncOpenAI(
             api_key=_endpoint_required,
             base_url=config.base_url,
@@ -89,13 +61,19 @@ class GitHubCopilotProvider(BaseProvider):
                 write=config.http_write_timeout,
             ),
         )
+        self._messages_client = AsyncAnthropic(
+            api_key="",
+            base_url=config.base_url,
+            max_retries=0,
+            timeout=self._client.timeout,
+        )
         self._responses = OpenAIResponsesTransport(
             client=self._client,
             admission=admission,
             provider_name=PROVIDER_NAME,
             read_timeout_s=config.http_read_timeout,
             log_raw_sse_events=config.log_raw_sse_events,
-            endpoint_transport=self._openai_pool,
+            endpoint_transport=self._pool,
             event_adapter_factory=CopilotResponsesEvents,
         )
         self._chats: dict[str, tuple[CopilotModel, OpenAIChatProvider]] = {}
@@ -190,7 +168,7 @@ class GitHubCopilotProvider(BaseProvider):
                 profile=chat_profile(model),
                 admission=self._admission,
                 client=self._client,
-                endpoint_transport=self._openai_pool,
+                endpoint_transport=self._pool,
             )
             self._chats[model.info.model_id] = (model, provider)
             return provider
@@ -210,31 +188,21 @@ class GitHubCopilotProvider(BaseProvider):
         try:
             async with self._auth.lease(request.model) as lease:
                 selected: AsyncIterator[str] | None = None
-                http: httpx.AsyncClient | None = None
                 try:
                     if lease.egress is CopilotEgress.MESSAGES:
-                        http = httpx.AsyncClient(
-                            transport=_BorrowedMessagesPool(self._messages_pool),
-                            follow_redirects=False,
-                            timeout=httpx.Timeout(
-                                self._config.http_read_timeout,
-                                connect=self._config.http_connect_timeout,
-                                write=self._config.http_write_timeout,
-                            ),
-                        )
                         native = AnthropicMessagesTransport(
-                            client=http,
+                            client=self._messages_client,
+                            endpoint_transport=self._pool,
                             admission=self._admission,
                             provider_name=PROVIDER_NAME,
                             replay_scope=REPLAY_SCOPE,
                             read_timeout_s=self._config.http_read_timeout,
                             capabilities=lease.model.messages,
                         )
-                        endpoint = _MessagesEndpoint(lease, http)
                         if isinstance(request, MessagesRequest):
                             selected = native.stream_messages(
                                 request,
-                                endpoint_context=endpoint,
+                                endpoint_context=lease,
                                 request_id=request_id,
                                 response_model=response_model,
                                 reasoning=reasoning,
@@ -243,7 +211,7 @@ class GitHubCopilotProvider(BaseProvider):
                         else:
                             selected = native.stream_responses(
                                 request,
-                                endpoint_context=endpoint,
+                                endpoint_context=lease,
                                 request_id=request_id,
                                 response_model=response_model,
                                 reasoning=reasoning,
@@ -300,7 +268,6 @@ class GitHubCopilotProvider(BaseProvider):
                         asyncio.create_task(
                             _close_request(
                                 selected,
-                                http,
                                 active_error=sys.exception(),
                                 request_id=request_id,
                             )
@@ -324,8 +291,8 @@ class GitHubCopilotProvider(BaseProvider):
             await self._condition.wait_for(lambda: self._active == 0)
         results = await asyncio.gather(
             self._client.close(),
-            self._messages_pool.aclose(),
-            self._openai_pool.aclose(),
+            self._messages_client.close(),
+            self._pool.aclose(),
             return_exceptions=True,
         )
         failures = [result for result in results if isinstance(result, Exception)]
@@ -337,22 +304,17 @@ class GitHubCopilotProvider(BaseProvider):
 
 async def _close_request(
     stream: AsyncIterator[str] | None,
-    client: httpx.AsyncClient | None,
     *,
     active_error: BaseException | None,
     request_id: str | None,
 ) -> None:
-    try:
-        if stream is not None:
-            await close_provider_stream(
-                stream,
-                active_error=active_error,
-                provider_name=PROVIDER_NAME,
-                request_id=request_id,
-            )
-    finally:
-        if client is not None:
-            await client.aclose()
+    if stream is not None:
+        await close_provider_stream(
+            stream,
+            active_error=active_error,
+            provider_name=PROVIDER_NAME,
+            request_id=request_id,
+        )
 
 
 async def _endpoint_required() -> str:

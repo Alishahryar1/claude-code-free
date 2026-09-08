@@ -503,7 +503,7 @@ def test_anthropic_request_boundaries_use_the_protocol_model() -> None:
 
 
 def test_core_does_not_import_provider_transport_sdks() -> None:
-    forbidden_roots = {"aiohttp", "httpx", "openai"}
+    forbidden_roots = {"aiohttp", "anthropic", "httpx", "openai"}
     offenders = [
         record.describe()
         for record in _scan_imports(_PACKAGE_ROOT)

@@ -7,8 +7,11 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import cast
 
-from free_claude_code.core.anthropic.native import NativeMessagesError
-from free_claude_code.core.anthropic.native_stream import NativeMessagesStreamState
+from free_claude_code.core.anthropic.native import (
+    NativeMessagesError,
+    complete_native_tool_input,
+)
+from free_claude_code.core.anthropic.native_stream import NativeReasoningBlocks
 from free_claude_code.core.failures import ExecutionFailure
 from free_claude_code.core.history_replay import (
     ReplayOrigin,
@@ -115,7 +118,10 @@ class AnthropicToResponsesStream:
         self._replay_origin = replay_origin
         self._response_id = new_response_id()
         self._created_at = int(time.time())
-        self._native = NativeMessagesStreamState()
+        self._reasoning = NativeReasoningBlocks()
+        self._stop_reason: str | None = None
+        self._tool_inputs: dict[int, JsonValue] = {}
+        self._tool_ids: set[str] = set()
         self._ledger = ResponsesOutputLedger()
         self._events = ResponseEventBuilder()
         self._usage = _NativeUsage()
@@ -130,9 +136,6 @@ class AnthropicToResponsesStream:
     @property
     def completed(self) -> bool:
         return self._terminal
-
-    def start(self) -> list[str]:
-        return []
 
     def _payload(
         self, status: str, *, failure: ExecutionFailure | None = None
@@ -174,13 +177,17 @@ class AnthropicToResponsesStream:
             raise NativeMessagesError(
                 "Native event arrived after the Responses terminal event."
             )
-        completed = self._native.accept(event_type, payload)
+        completed = self._reasoning.feed(event_type, payload)
         if event_type == "ping":
             return []
         if event_type == "message_start":
+            if self._started:
+                raise NativeMessagesError(
+                    "Duplicate Messages start cannot create another response."
+                )
             message = payload["message"]
             if not isinstance(message, Mapping):
-                raise AssertionError("Validated message_start must contain a message.")
+                raise NativeMessagesError("Messages start must contain a message.")
             self._usage.update(message.get("usage"))
             if isinstance(message.get("model"), str) and message["model"]:
                 self._replay_origin = replace(
@@ -190,6 +197,9 @@ class AnthropicToResponsesStream:
             return [self._events.response_created(self._payload("in_progress"))]
         if event_type == "message_delta":
             delta = payload.get("delta")
+            reason = delta.get("stop_reason") if isinstance(delta, Mapping) else None
+            if isinstance(reason, str):
+                self._stop_reason = reason
             self._usage.update(
                 payload.get("usage"),
                 final=isinstance(delta, Mapping)
@@ -197,7 +207,11 @@ class AnthropicToResponsesStream:
             )
             return []
         if event_type == "message_stop":
-            reason = self._native.stop_reason
+            if not self._started or self._ledger.has_active_blocks:
+                raise NativeMessagesError(
+                    "Messages ended before converted content completed."
+                )
+            reason = self._stop_reason
             if reason not in {
                 "end_turn",
                 "stop_sequence",
@@ -212,22 +226,31 @@ class AnthropicToResponsesStream:
             if reason == "max_tokens":
                 return [self._events.response_incomplete(self._payload("incomplete"))]
             return [self._events.response_completed(self._payload("completed"))]
-        index = payload["index"]
-        if not isinstance(index, int):
-            raise AssertionError("Validated native content event must have an index.")
+        index = payload.get("index")
+        if (
+            not self._started
+            or not isinstance(index, int)
+            or isinstance(index, bool)
+            or index < 0
+        ):
+            raise NativeMessagesError(
+                "Messages content requires a started message and block index."
+            )
         if event_type == "content_block_start":
-            block = payload["content_block"]
+            block = payload.get("content_block")
             if not isinstance(block, Mapping):
-                raise AssertionError("Validated content_block_start must have a block.")
+                raise NativeMessagesError("Messages content start must have a block.")
+            if self._ledger.active_block(index) is not None:
+                raise NativeMessagesError(
+                    "Messages replaced an incomplete Responses item."
+                )
             return self._start_block(index, block)
         if event_type == "content_block_delta":
-            delta = payload["delta"]
+            delta = payload.get("delta")
             if not isinstance(delta, Mapping):
-                raise AssertionError("Validated content delta must be an object.")
+                raise NativeMessagesError("Messages content delta must be an object.")
             return self._delta(index, delta)
         if event_type == "content_block_stop":
-            if completed is None:
-                raise AssertionError("Validated content stop must return its block.")
             return self._finish_block(index, completed)
         raise NativeMessagesError(f"Unsupported native event {event_type!r}.")
 
@@ -288,8 +311,17 @@ class AnthropicToResponsesStream:
             )
         name = block["name"]
         call_id = block["id"]
-        if not isinstance(name, str) or not isinstance(call_id, str):
-            raise AssertionError("Validated native tools must have string identities.")
+        if (
+            not isinstance(name, str)
+            or not name
+            or not isinstance(call_id, str)
+            or not call_id
+            or call_id in self._tool_ids
+        ):
+            raise NativeMessagesError(
+                "Native tools require unique call identities and names."
+            )
+        self._tool_ids.add(call_id)
         identity = self._identities.get(name)
         if identity is None:
             raise NativeMessagesError("Native output used an unknown tool name.")
@@ -303,6 +335,7 @@ class AnthropicToResponsesStream:
             namespace=identity.namespace,
         )
         self._ledger.set_active_block(tool)
+        self._tool_inputs[index] = block.get("input")
         return [
             self._events.output_item_added(slot, tool_item(tool, status="in_progress"))
         ]
@@ -332,25 +365,33 @@ class AnthropicToResponsesStream:
             return []
         if isinstance(state, ToolBlockState) and kind == "input_json_delta":
             # The completer emits validated arguments once, after native block stop.
+            fragment = delta.get("partial_json")
+            if not isinstance(fragment, str):
+                raise NativeMessagesError(
+                    "Native tool arguments require a JSON fragment."
+                )
+            state.argument_parts.append(fragment)
             return []
         raise NativeMessagesError(
             "Responses cannot represent the native content delta."
         )
 
-    def _finish_block(self, index: int, block: JsonObject) -> list[str]:
+    def _finish_block(self, index: int, block: JsonObject | None) -> list[str]:
         state = self._ledger.active_block(index)
         if state is None:
             raise NativeMessagesError(
                 "Native block has no corresponding Responses item."
             )
         if isinstance(state, ReasoningBlockState):
+            if block is None:
+                raise NativeMessagesError("Native reasoning is incomplete.")
             state.encrypted_content = encode_replay(
                 ReplayRecord(self._replay_origin, block)
             )
         elif isinstance(state, ToolBlockState):
-            arguments = block.get("input")
-            if not isinstance(arguments, Mapping):
-                raise NativeMessagesError("Native tool input must be an object.")
+            arguments = complete_native_tool_input(
+                self._tool_inputs.pop(index), state.argument_parts
+            )
             if state.kind == "custom" and (
                 set(arguments) != {"input"}
                 or not isinstance(arguments.get("input"), str)
@@ -358,9 +399,9 @@ class AnthropicToResponsesStream:
                 raise NativeMessagesError(
                     "Native custom tool input must contain exactly one text input."
                 )
-            state.argument_parts.append(
+            state.argument_parts[:] = [
                 json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))
-            )
+            ]
         events = self._completer.complete_block(state)
         self._ledger.pop_active_block(index)
         return events
@@ -390,6 +431,8 @@ class AnthropicToResponsesStream:
                     state.item_id, "".join(state.text_parts), "incomplete"
                 )
             else:
+                # Buffered arguments are published only after successful block completion.
+                state.argument_parts.clear()
                 item = tool_item(state, status="incomplete")
             self._ledger.commit_output(state.output_index, item)
         self._terminal = True
