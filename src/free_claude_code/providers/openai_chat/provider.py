@@ -1152,6 +1152,7 @@ class _OpenAIChatStreamRunner:
     ) -> None:
         self._provider = provider
         self._body = body
+        self._tool_argument_aliases = provider._tool_argument_aliases(body)
         self._tool_names = tool_names
         self._tool_schemas = tool_schemas
         self._reserved_tool_ids = reserved_tool_ids
@@ -1258,9 +1259,7 @@ class _OpenAIChatStreamRunner:
                     if self._endpoint is not None
                     else None,
                 )
-                assembler.bind_tool_argument_aliases(
-                    self._provider._tool_argument_aliases(body)
-                )
+                assembler.bind_tool_argument_aliases(self._tool_argument_aliases)
                 async for chunk in stream:
                     if not scope.attempt.accepted:
                         await scope.attempt.accept()
@@ -1609,7 +1608,7 @@ class _OpenAIChatStreamRunner:
                 completed_tool_calls = tool_calls.completed_calls(
                     self._tool_schemas,
                     tool_names=self._tool_names,
-                    tool_argument_aliases=self._provider._tool_argument_aliases(body),
+                    tool_argument_aliases=self._tool_argument_aliases,
                 )
                 if tool_calls.has_calls and completed_tool_calls is None:
                     raise TruncatedProviderStreamError(

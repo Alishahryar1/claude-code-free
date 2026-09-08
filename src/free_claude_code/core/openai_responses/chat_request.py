@@ -7,6 +7,7 @@ from typing import cast
 
 from free_claude_code.core.anthropic import ReasoningReplayMode
 from free_claude_code.core.history_replay import (
+    has_readable_replay,
     is_replay,
     readable_reasoning,
     reasoning_context,
@@ -29,7 +30,6 @@ from .models import OpenAIResponsesRequest
 from .reasoning import (
     combine_reasoning,
     encrypted_reasoning_from_item,
-    reasoning_text_from_item,
 )
 from .tools import (
     call_id_from_item,
@@ -86,13 +86,13 @@ class _PendingReasoning:
     def add(self, item: Mapping[str, JsonValue]) -> None:
         if encrypted := encrypted_reasoning_from_item(item):
             self.encrypted.append(encrypted)
-            if is_replay(encrypted):
+            if has_readable_replay(encrypted):
                 return
-        text, summary = readable_reasoning(item)
-        if summary:
-            self.contexts.append(reasoning_context(text, summary=True))
-        else:
-            self.text = combine_reasoning(self.text, reasoning_text_from_item(item))
+        for text, summary in readable_reasoning(item):
+            if summary:
+                self.contexts.append(reasoning_context(text, summary=True))
+            else:
+                self.text = combine_reasoning(self.text, text)
 
     @property
     def empty(self) -> bool:

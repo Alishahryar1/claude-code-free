@@ -8,6 +8,7 @@ import pytest
 
 from free_claude_code.core.history_replay import (
     HistoryReplayError,
+    HistoryScope,
     ReplayOrigin,
     ReplayRecord,
     decode_replay,
@@ -158,3 +159,34 @@ def test_codec_rejects_malformed_and_nonfinite_payloads():
 def test_legacy_naked_opaque_history_is_tried_unchanged():
     saved = {"input": [_native()]}
     assert prepare_history(saved, _origin("other")) == saved
+
+
+@pytest.mark.parametrize("native_text", ["Full reasoning.", "Short summary."])
+def test_chat_replay_keeps_full_text_and_summary_meaning(native_text):
+    native = {
+        "reasoning_content": native_text,
+        "reasoning_details": [
+            {"type": "reasoning.summary", "summary": "Short summary.", "index": 0}
+        ],
+    }
+    carrier = encode_replay(ReplayRecord(_origin(protocol="chat"), native))
+    body = {
+        "messages": [
+            {
+                "role": "assistant",
+                "content": "answer",
+                "reasoning_details": [{"type": "reasoning.encrypted", "data": carrier}],
+            }
+        ]
+    }
+    original = deepcopy(body)
+    result = cast(
+        dict[str, Any],
+        prepare_history(body, _origin("b", "chat"), scope=HistoryScope.ALL),
+    )["messages"][0]
+    assert result["content"] == "answer\n\n[Earlier reasoning summary]\nShort summary."
+    if native_text == "Short summary.":
+        assert "reasoning_content" not in result
+    else:
+        assert result["reasoning_content"] == "Full reasoning."
+    assert body == original

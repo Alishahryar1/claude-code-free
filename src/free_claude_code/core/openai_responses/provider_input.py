@@ -23,6 +23,7 @@ from free_claude_code.core.history_replay import (
     ReplayOrigin,
     ReplayRecord,
     encode_replay,
+    has_readable_replay,
     is_replay,
     tool_history_context,
     validate_hosted_tool_history,
@@ -244,7 +245,9 @@ def _assistant_items(
                         )
                     )
                 )
-            else:
+            if not signature or (
+                is_replay(signature) and not has_readable_replay(signature)
+            ):
                 item["content"] = [
                     {
                         "type": "reasoning_text",

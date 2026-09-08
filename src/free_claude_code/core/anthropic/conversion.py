@@ -8,6 +8,7 @@ from typing import Any
 
 from free_claude_code.core.history_replay import (
     HistoryReplayError,
+    has_readable_replay,
     is_replay,
     reasoning_context,
     reasoning_detail,
@@ -663,7 +664,8 @@ class AnthropicToOpenAIConverter:
                 signature = get_block_attr(block, "signature", None)
                 if is_replay(signature):
                     details.extend(reasoning_detail(signature))
-                    continue
+                    if has_readable_replay(signature):
+                        continue
                 thinking = get_block_attr(block, "thinking", "")
                 if reasoning_replay == ReasoningReplayMode.DISABLED:
                     if thinking:

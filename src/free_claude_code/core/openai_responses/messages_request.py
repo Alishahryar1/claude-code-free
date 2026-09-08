@@ -18,7 +18,7 @@ from free_claude_code.core.anthropic.native import (
     validate_messages_json,
 )
 from free_claude_code.core.history_replay import (
-    responses_reasoning_block,
+    responses_reasoning_blocks,
     tool_history_context,
 )
 from free_claude_code.core.json_types import JsonObject, JsonValue
@@ -400,8 +400,8 @@ class _MessagesInput:
                 raise ResponsesConversionError("Unsupported Responses message role.")
             return
         if kind == "reasoning":
-            if block := responses_reasoning_block(value):
-                self._append("assistant", [block])
+            if blocks := responses_reasoning_blocks(value):
+                self._append("assistant", blocks)
             return
         if kind in ("function_call", "custom_tool_call"):
             self._call(value, custom=kind == "custom_tool_call")

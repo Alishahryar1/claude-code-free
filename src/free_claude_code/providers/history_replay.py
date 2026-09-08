@@ -157,10 +157,14 @@ def history_retry_body(
                 ):
                     item["id"] = corrected
         else:
-            text, summary = readable_reasoning(
-                original if protocol != "chat" else {"reasoning_details": [original]}
+            context = "\n\n".join(
+                reasoning_context(text, summary=summary)
+                for text, summary in readable_reasoning(
+                    original
+                    if protocol != "chat"
+                    else {"reasoning_details": [original]}
+                )
             )
-            context = reasoning_context(text, summary=summary)
             if protocol == "responses" and context:
                 parent[path[-1]] = {"role": "assistant", "content": context}
             elif protocol == "messages" and context:

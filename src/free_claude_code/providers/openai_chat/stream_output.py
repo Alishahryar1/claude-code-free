@@ -20,7 +20,6 @@ from free_claude_code.core.history_replay import (
     ReplayOrigin,
     ReplayRecord,
     encode_replay,
-    reasoning_detail,
 )
 from free_claude_code.core.json_types import JsonObject
 from free_claude_code.core.openai_responses import (
@@ -123,13 +122,10 @@ class ChatStreamOutput(ABC):
         self._reasoning_parts.append(content)
         return self._emit_reasoning_delta(content)
 
-    def emit_opaque_reasoning(self, data: str) -> list[str]:
+    def emit_reasoning_replay(self, native: JsonObject) -> list[str]:
+        data = json.dumps(native["reasoning_details"], separators=(",", ":"))
         if self.replay_origin is not None:
-            data = encode_replay(
-                ReplayRecord(
-                    self.replay_origin, {"reasoning_details": reasoning_detail(data)}
-                )
-            )
+            data = encode_replay(ReplayRecord(self.replay_origin, native))
             if self._reasoning_started:
                 return self._attach_reasoning_replay(data)
         events = self.close_content_blocks()

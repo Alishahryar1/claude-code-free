@@ -178,10 +178,11 @@ def decode_replay(value: str) -> ReplayRecord:
     return _validate_record(payload)
 
 
-def readable_reasoning(item: Mapping[str, JsonValue]) -> tuple[str, bool]:
-    """Return available text and whether it is a summary, never encrypted bytes."""
+def readable_reasoning(item: Mapping[str, JsonValue]) -> list[tuple[str, bool]]:
+    """Keep distinct readable representations and their summary/full-text meaning."""
     if item.get("type") == "thinking":
-        return str(item.get("thinking") or ""), False
+        text = str(item.get("thinking") or "")
+        return [(text, False)] if text else []
     for key in ("content", "summary"):
         parts = item.get(key)
         if isinstance(parts, list):
@@ -191,21 +192,51 @@ def readable_reasoning(item: Mapping[str, JsonValue]) -> tuple[str, bool]:
                 if isinstance(part, dict) and isinstance(part.get("text"), str)
             )
             if text:
-                return text, key == "summary"
+                return [(text, key == "summary")]
     details = item.get("reasoning_details")
+    parts: list[tuple[str, bool]] = []
     if isinstance(details, list):
-        texts = [
-            str(detail["text"])
-            for detail in details
-            if isinstance(detail, dict)
-            and detail.get("type") in {"reasoning.text", "reasoning.summary"}
-            and isinstance(detail.get("text"), str)
-        ]
-        return "\n\n".join(texts), any(
-            isinstance(detail, dict) and detail.get("type") == "reasoning.summary"
-            for detail in details
-        )
-    return "", False
+        for detail in details:
+            if not isinstance(detail, dict):
+                continue
+            kind = detail.get("type")
+            if kind not in {"reasoning.text", "reasoning.summary"}:
+                continue
+            summary = kind == "reasoning.summary"
+            text = (
+                detail.get("summary", detail.get("text"))
+                if summary
+                else detail.get("text")
+            )
+            if isinstance(text, str) and text:
+                parts.append((text, summary))
+    # The native string and structured details can be alternate copies. Preserve
+    # the typed version in that case, especially when the text is a summary.
+    represented = {text for text, _ in parts}
+    represented.add("".join(text for text, _ in parts))
+    represented.add("\n\n".join(text for text, _ in parts))
+    native_parts: list[tuple[str, bool]] = []
+    for key in ("reasoning_content", "reasoning"):
+        text = item.get(key)
+        if isinstance(text, str) and text and text not in represented:
+            native_parts.append((text, False))
+            represented.add(text)
+    return [*native_parts, *parts]
+
+
+def has_readable_replay(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and is_replay(value)
+        and bool(readable_reasoning(decode_replay(value).native))
+    )
+
+
+def _replay_readable(
+    item: Mapping[str, JsonValue], record: ReplayRecord | None
+) -> list[tuple[str, bool]]:
+    native = readable_reasoning(record.native) if record else []
+    return native or readable_reasoning(item)
 
 
 def reasoning_context(text: str, *, summary: bool = False) -> str:
@@ -288,8 +319,9 @@ def _context_item(text: str) -> JsonObject:
     return {"role": "assistant", "content": text}
 
 
-def responses_reasoning_block(item: Mapping[str, JsonValue]) -> JsonObject | None:
+def responses_reasoning_blocks(item: Mapping[str, JsonValue]) -> list[JsonValue]:
     """Carry Responses reasoning into Messages until destination preparation."""
+    blocks: list[JsonValue] = []
     carrier = item.get("encrypted_content")
     if isinstance(carrier, str) and carrier:
         record = _record(item, "encrypted_content")
@@ -298,18 +330,21 @@ def responses_reasoning_block(item: Mapping[str, JsonValue]) -> JsonObject | Non
             and record.origin.protocol == "messages"
             and record.native.get("type") == "thinking"
         ):
-            return {
-                "type": "thinking",
-                "thinking": record.native["thinking"],
-                "signature": carrier,
-            }
-        return {"type": "redacted_thinking", "data": carrier}
-    text, summary = readable_reasoning(item)
-    return (
+            return [
+                {
+                    "type": "thinking",
+                    "thinking": record.native["thinking"],
+                    "signature": carrier,
+                }
+            ]
+        blocks.append({"type": "redacted_thinking", "data": carrier})
+        if record is not None and readable_reasoning(record.native):
+            return blocks
+    blocks.extend(
         {"type": "text", "text": reasoning_context(text, summary=summary)}
-        if text
-        else None
+        for text, summary in readable_reasoning(item)
     )
+    return blocks
 
 
 def prepare_history(
@@ -336,14 +371,18 @@ def prepare_history(
             record = _record(item, "encrypted_content")
             if record is not None and destination.accepts(record.origin):
                 projected.append(record.native)
+                if not readable_reasoning(record.native):
+                    projected.extend(
+                        _context_item(reasoning_context(text, summary=summary))
+                        for text, summary in readable_reasoning(item)
+                    )
                 continue
             if record is None and item.get("encrypted_content"):
                 projected.append(
                     item
                 )  # Older history: try native before precise recovery.
                 continue
-            text, summary = readable_reasoning(record.native if record else item)
-            if text:
+            for text, summary in _replay_readable(item, record):
                 projected.append(
                     _context_item(reasoning_context(text, summary=summary))
                 )
@@ -424,11 +463,15 @@ def _prepare_messages_content(message: JsonObject, destination: ReplayOrigin) ->
         record = _record(block, "signature", "data")
         if record is not None and destination.accepts(record.origin):
             blocks.append(record.native)
+            if not readable_reasoning(record.native):
+                blocks.extend(
+                    {"type": "text", "text": reasoning_context(text, summary=summary)}
+                    for text, summary in readable_reasoning(block)
+                )
         elif record is None and (block.get("signature") or block.get("data")):
             blocks.append(block)
         else:
-            text, summary = readable_reasoning(record.native if record else block)
-            if text:
+            for text, summary in _replay_readable(block, record):
                 blocks.append(
                     {"type": "text", "text": reasoning_context(text, summary=summary)}
                 )
@@ -460,6 +503,7 @@ def _prepare_chat_content(
     had_reasoning_content = "reasoning_content" in message
     details = message.get("reasoning_details")
     restored: list[JsonValue] = []
+    original_reasoning = message.get("reasoning_content", message.get("reasoning"))
     if isinstance(details, list):
         for detail in details:
             if not isinstance(detail, dict):
@@ -467,6 +511,7 @@ def _prepare_chat_content(
             record = _record(detail, "data", "signature")
             if record is None and structured_details:
                 restored.append(detail)
+                continue
             elif (
                 record is not None
                 and destination.accepts(record.origin)
@@ -475,12 +520,16 @@ def _prepare_chat_content(
                 native = record.native.get("reasoning_details")
                 if isinstance(native, list):
                     restored.extend(native)
+                parts = readable_reasoning(record.native)
+                native_parts = readable_reasoning({"reasoning_details": native})
+                parts = [part for part in parts if part not in native_parts]
             else:
-                text, summary = readable_reasoning(
+                parts = readable_reasoning(
                     record.native if record else {"reasoning_details": [detail]}
                 )
+            for text, summary in parts:
                 existing = message.get("reasoning_content", message.get("reasoning"))
-                if text and text != existing:
+                if text != original_reasoning:
                     if (
                         native_text
                         and not summary

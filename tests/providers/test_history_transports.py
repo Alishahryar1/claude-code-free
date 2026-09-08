@@ -14,7 +14,7 @@ from free_claude_code.core.anthropic import aggregate_anthropic_sse_to_message
 from free_claude_code.core.anthropic.models import MessagesRequest
 from free_claude_code.core.anthropic.stream_contracts import parse_sse_text
 from free_claude_code.core.failures import ExecutionFailure, FailureKind
-from free_claude_code.core.history_replay import decode_replay
+from free_claude_code.core.history_replay import decode_replay, encode_replay
 from free_claude_code.core.openai_responses import OpenAIResponsesRequest
 from free_claude_code.core.reasoning import ReasoningPolicy
 from free_claude_code.providers.open_router import OpenRouterProvider
@@ -130,7 +130,7 @@ def _events_for(protocol):
 
 
 @asynccontextmanager
-async def _harness(protocol, responder=None, *, key="a"):
+async def _harness(protocol, responder=None, *, key="a", chat_provider=None):
     bodies: list[dict[str, Any]] = []
 
     def reply(request):
@@ -162,7 +162,7 @@ async def _harness(protocol, responder=None, *, key="a"):
         if protocol == "responses":
             provider = responses_transport(client)
         else:
-            provider = OpenRouterProvider(
+            provider = chat_provider or OpenRouterProvider(
                 make_provider_config(
                     api_key=key, base_url="https://provider.invalid/v1"
                 ),
@@ -486,3 +486,188 @@ async def test_history_corrections_exhaust_the_shared_attempt_budget():
         assert len(bodies) == 5
         assert [len(body["input"]) for body in bodies] == [8, 7, 6, 5, 4]
         assert history == original
+
+
+def _chat_reasoning_events(deltas):
+    template = _events_for("chat")[0]
+    return [
+        {**template, "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}
+        for delta in deltas
+    ] + [_events_for("chat")[-1]]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wire", ["messages", "responses"])
+@pytest.mark.parametrize("destination", ["chat", "messages", "responses"])
+@pytest.mark.parametrize("incomplete_saved_record", [False, True])
+async def test_chat_plaintext_beside_encrypted_details_survives_switching(
+    wire, destination, incomplete_saved_record
+):
+    text = "The crucial visible reasoning."
+    details = [{"type": "reasoning.encrypted", "data": "opaque-only", "index": 0}]
+    events = _chat_reasoning_events(
+        [{"reasoning_content": text, "reasoning_details": details}]
+    )
+    async with _harness("chat", lambda bodies: (200, events)) as (source, sent):
+        saved = await _saved_reply(
+            source(wire, [{"role": "user", "content": "hello"}]), wire
+        )
+        record = decode_replay(_carrier(saved, wire))
+        if incomplete_saved_record:
+            record.native.pop("reasoning_content", None)
+            carrier = encode_replay(record)
+            if wire == "responses":
+                saved[0]["encrypted_content"] = carrier
+            else:
+                saved[0]["content"][0]["signature"] = carrier
+        else:
+            assert record.native["reasoning_content"] == text
+        history = json.loads(json.dumps([*saved, {"role": "user", "content": "next"}]))
+        original = deepcopy(history)
+        async with _harness(destination, key="b") as (foreign, bodies):
+            await _saved_reply(foreign(wire, history), wire)
+            outgoing = json.dumps(bodies[-1])
+            assert outgoing.count(text) == 1
+            assert "opaque-only" not in outgoing and "fcc:history" not in outgoing
+        await _saved_reply(source(wire, history), wire)
+        assert sent[-1]["messages"][0]["reasoning_details"] == details
+        assert json.dumps(sent[-1]).count(text) == 1
+        assert history == original
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wire", ["messages", "responses"])
+@pytest.mark.parametrize("encrypted", [False, True])
+async def test_chat_summary_fragments_remain_readable_and_restore_exactly(
+    wire, encrypted
+):
+    first = {"type": "reasoning.summary", "summary": "Short ", "index": 0}
+    second = {"type": "reasoning.summary", "summary": "summary.", "index": 0}
+    opaque = {"type": "reasoning.encrypted", "data": "opaque-only", "index": 1}
+    details = [{**first, "summary": "Short summary."}, *([opaque] if encrypted else [])]
+    events = _chat_reasoning_events(
+        [
+            {"reasoning_details": [first]},
+            {"reasoning_details": [second, *([opaque] if encrypted else [])]},
+        ]
+    )
+    async with _harness("chat", lambda bodies: (200, events)) as (source, sent):
+        saved = await _saved_reply(
+            source(wire, [{"role": "user", "content": "hello"}]), wire
+        )
+        assert json.dumps(saved).count("Short summary.") == 1
+        record = decode_replay(_carrier(saved, wire))
+        assert record.native["reasoning_details"] == details
+        history = [*saved, {"role": "user", "content": "next"}]
+        async with _harness("responses", key="b") as (foreign, bodies):
+            await _saved_reply(foreign(wire, history), wire)
+            assert bodies[-1]["input"][0] == {
+                "role": "assistant",
+                "content": "[Earlier reasoning summary]\nShort summary.",
+            }
+        await _saved_reply(source(wire, history), wire)
+        assert sent[-1]["messages"][0]["reasoning_details"] == details
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("native_first", [False, True])
+async def test_chat_alternate_readable_fields_replay_once(native_first):
+    native = {"reasoning_content": "One readable thought."}
+    typed = {
+        "reasoning_details": [
+            {
+                "type": "reasoning.text",
+                "text": "One readable thought.",
+                "index": 0,
+            }
+        ]
+    }
+    events = _chat_reasoning_events(
+        [native, typed] if native_first else [typed, native]
+    )
+    async with _harness("chat", lambda bodies: (200, events)) as (source, sent):
+        saved = await _saved_reply(
+            source("messages", [{"role": "user", "content": "hi"}]), "messages"
+        )
+        assert json.dumps(saved).count("One readable thought.") == 1
+        history = [*saved, {"role": "user", "content": "next"}]
+        async with _harness("responses", key="b") as (foreign, bodies):
+            await _saved_reply(foreign("messages", history), "messages")
+            assert json.dumps(bodies[-1]).count("One readable thought.") == 1
+        await _saved_reply(source("messages", history), "messages")
+        assert json.dumps(sent[-1]).count("One readable thought.") == 1
+
+
+@pytest.mark.asyncio
+async def test_chat_reasoning_groups_do_not_inherit_previous_plaintext():
+    events = _chat_reasoning_events(
+        [
+            {
+                "reasoning_content": "First thought.",
+                "reasoning_details": [
+                    {"type": "reasoning.encrypted", "data": "first-", "index": 0}
+                ],
+            },
+            {
+                "reasoning_details": [
+                    {"type": "reasoning.encrypted", "data": "secret", "index": 0}
+                ]
+            },
+            {"content": "First answer."},
+            {
+                "reasoning_content": "Second thought.",
+                "reasoning_details": [
+                    {"type": "reasoning.encrypted", "data": "second-secret", "index": 0}
+                ],
+            },
+        ]
+    )
+    async with _harness("chat", lambda bodies: (200, events)) as (source, _):
+        saved = await _saved_reply(
+            source("messages", [{"role": "user", "content": "hi"}]), "messages"
+        )
+    records = [
+        decode_replay(block["signature"]).native
+        for block in saved[0]["content"]
+        if block["type"] == "thinking"
+    ]
+    assert records == [
+        {
+            "reasoning_content": "First thought.",
+            "reasoning_details": [
+                {"type": "reasoning.encrypted", "data": "first-secret", "index": 0}
+            ],
+        },
+        {
+            "reasoning_content": "Second thought.",
+            "reasoning_details": [
+                {"type": "reasoning.encrypted", "data": "second-secret", "index": 0}
+            ],
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_chat_plaintext_matching_multiple_detail_parts_is_not_repeated():
+    events = _chat_reasoning_events(
+        [
+            {
+                "reasoning_content": "First part. Second part.",
+                "reasoning_details": [
+                    {"type": "reasoning.text", "text": "First part. ", "index": 0},
+                    {"type": "reasoning.text", "text": "Second part.", "index": 1},
+                ],
+            }
+        ]
+    )
+    async with _harness("chat", lambda bodies: (200, events)) as (source, _):
+        saved = await _saved_reply(
+            source("messages", [{"role": "user", "content": "hi"}]), "messages"
+        )
+    async with _harness("responses", key="b") as (foreign, bodies):
+        await _saved_reply(
+            foreign("messages", [*saved, {"role": "user", "content": "next"}]),
+            "messages",
+        )
+    outgoing = json.dumps(bodies[-1])
+    assert outgoing.count("First part.") == outgoing.count("Second part.") == 1

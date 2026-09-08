@@ -1,9 +1,11 @@
 """OpenRouter-format structured reasoning replay and stream conversion."""
 
-import json
 from collections.abc import Iterator, Mapping, Sequence
 from copy import deepcopy
-from typing import Any, Literal
+from typing import Any, Literal, cast
+
+from free_claude_code.core.history_replay import readable_reasoning
+from free_claude_code.core.json_types import JsonObject, JsonValue
 
 from .stream_output import ChatStreamOutput
 
@@ -15,6 +17,7 @@ class StructuredReasoningStream:
         self._text_source: Literal["native", "details"] | None = None
         self._details: list[dict[str, Any]] = []
         self._slots: dict[tuple[object, object], int] = {}
+        self._native_parts: list[str] = []
 
     def events(
         self,
@@ -25,6 +28,8 @@ class StructuredReasoningStream:
     ) -> Iterator[str]:
         """Emit plaintext once while preserving every opaque reasoning detail."""
         details = _reasoning_details(delta)
+        if native_reasoning is not None:
+            self._native_parts.append(native_reasoning)
         if self._text_source is None:
             if native_reasoning:
                 self._text_source = "native"
@@ -51,7 +56,14 @@ class StructuredReasoningStream:
                     for field, part in value.items():
                         if (
                             field
-                            in {"text", "content", "reasoning", "data", "signature"}
+                            in {
+                                "text",
+                                "summary",
+                                "content",
+                                "reasoning",
+                                "data",
+                                "signature",
+                            }
                             and isinstance(part, str)
                             and isinstance(current.get(field), str)
                         ):
@@ -65,11 +77,15 @@ class StructuredReasoningStream:
 
     def flush(self, output: ChatStreamOutput) -> Iterator[str]:
         if self._details:
-            yield from output.emit_opaque_reasoning(
-                json.dumps(self._details, separators=(",", ":"))
-            )
+            native: JsonObject = {
+                "reasoning_details": cast(list[JsonValue], self._details)
+            }
+            if self._native_parts:
+                native["reasoning_content"] = "".join(self._native_parts)
+            yield from output.emit_reasoning_replay(native)
             self._details.clear()
             self._slots.clear()
+        self._native_parts.clear()
 
 
 def _reasoning_details(delta: Any) -> Sequence[Any]:
@@ -82,6 +98,14 @@ def _reasoning_details(delta: Any) -> Sequence[Any]:
 
 
 def _reasoning_detail_text(detail: Any) -> str | None:
+    if isinstance(detail, Mapping) and detail.get("type") == "reasoning.summary":
+        return (
+            "".join(
+                text
+                for text, _ in readable_reasoning({"reasoning_details": [dict(detail)]})
+            )
+            or None
+        )
     kind = str(_field(detail, "type") or "").lower()
     if "encrypted" in kind or "redacted" in kind:
         return None
