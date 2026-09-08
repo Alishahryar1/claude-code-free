@@ -248,6 +248,8 @@ class _OpenAIChatStreamAssembler:
             if profile.structured_reasoning_details
             else None
         )
+        if self._structured_reasoning is not None:
+            self._output.reasoning_replay_events = self._structured_reasoning.flush
         self._finish_reason: Any = None
         self._usage_info: Any = None
         self._native_reasoning_seen = False
@@ -363,10 +365,6 @@ class _OpenAIChatStreamAssembler:
         yield from self._extra_reasoning_events(delta, self._output)
 
         native_tool_calls = delta.tool_calls
-        if self._structured_reasoning is not None and (
-            delta.content or native_tool_calls or choice.finish_reason
-        ):
-            yield from self._structured_reasoning.flush(self._output)
         if native_tool_calls:
             released_text = self._function_tag_parser.disable()
             if released_text:
@@ -429,8 +427,6 @@ class _OpenAIChatStreamAssembler:
                 "Provider stream ended with an incomplete tool name."
             )
 
-        if self._structured_reasoning is not None:
-            yield from self._structured_reasoning.flush(self._output)
         remaining = self._think_parser.flush()
         if remaining:
             if remaining.type == ContentType.THINKING:
@@ -460,6 +456,7 @@ class _OpenAIChatStreamAssembler:
             self._heuristic_parser.flush(),
             tool_names=self._tool_names,
         )
+        yield from self._output.flush_reasoning_replay()
         self._upstream_finished = True
 
     def prepare_completion(self) -> Iterator[str]:

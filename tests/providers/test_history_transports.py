@@ -498,6 +498,230 @@ def _chat_reasoning_events(deltas):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("wire", ["messages", "responses"])
+@pytest.mark.parametrize("fragmented", [False, True])
+@pytest.mark.parametrize(
+    ("prefix", "suffix", "finish", "has_tool"),
+    [
+        ("<", "17", "stop", False),
+        ("<th", "ink>inline</think>17", "stop", False),
+        (
+            "<tool_call>",
+            "<function=lookup><parameter=query>x</parameter></function></tool_call>",
+            "stop",
+            True,
+        ),
+        (
+            "● <function=lookup>",
+            "<parameter=query>x</parameter></function>",
+            "stop",
+            True,
+        ),
+        ("<", None, "tool_calls", True),
+        ("<", "", "length", False),
+        ("<think>", "", "stop", False),
+    ],
+    ids=[
+        "text",
+        "thinking",
+        "function-tag",
+        "heuristic-tool",
+        "native-tool",
+        "length",
+        "thinking-end",
+    ],
+)
+async def test_chat_buffered_content_preserves_reasoning_through_next_request(
+    wire, fragmented, prefix, suffix, finish, has_tool
+):
+    first = {"type": "reasoning.encrypted", "data": "first", "index": 0}
+    second = {
+        "type": "reasoning.encrypted",
+        "data": "second",
+        "index": 0 if fragmented else 1,
+    }
+    expected = [{**first, "data": "firstsecond"}] if fragmented else [first, second]
+    deltas = [
+        {"reasoning_content": "Plan.", "reasoning_details": [first]},
+        {"content": prefix},
+        {"reasoning_details": [second]},
+        {"content": suffix}
+        if suffix is not None
+        else {
+            "tool_calls": [
+                {
+                    "index": 0,
+                    "id": "call_lookup",
+                    "type": "function",
+                    "function": {"name": "lookup", "arguments": '{"query":"x"}'},
+                }
+            ]
+        },
+    ]
+    events = _chat_reasoning_events(deltas)
+    events[-1]["choices"][0].update(delta={}, finish_reason=finish)
+    schema = {
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "required": ["query"],
+    }
+    provider = OpenRouterProvider(
+        make_provider_config(api_key="a", base_url="https://provider.invalid/v1"),
+        admission=immediate_admission(),
+    )
+
+    def send(history):
+        if wire == "messages":
+            return provider.stream_messages(
+                MessagesRequest.model_validate(
+                    {
+                        "model": "requested",
+                        "messages": history,
+                        "tools": [{"name": "lookup", "input_schema": schema}],
+                    }
+                ),
+                reasoning=ReasoningPolicy.on(),
+            )
+        return provider.stream_responses(
+            OpenAIResponsesRequest.model_validate(
+                {
+                    "model": "requested",
+                    "input": history,
+                    "tools": [
+                        {"type": "function", "name": "lookup", "parameters": schema}
+                    ],
+                }
+            ),
+            reasoning=ReasoningPolicy.on(),
+        )
+
+    async with _harness(
+        "chat", lambda bodies: (200, events), chat_provider=provider
+    ) as (_, bodies):
+        saved = await _saved_reply(send([{"role": "user", "content": "hello"}]), wire)
+        assert decode_replay(_carrier(saved, wire)).native == {
+            "reasoning_content": "Plan.",
+            "reasoning_details": expected,
+        }
+        history = deepcopy(saved)
+        blocks = saved[0]["content"] if wire == "messages" else saved
+        calls = [
+            block for block in blocks if block["type"] in {"tool_use", "function_call"}
+        ]
+        assert len(calls) == int(has_tool)
+        for call in calls:
+            assert call["name"] == "lookup"
+            if wire == "messages":
+                assert call["input"] == {"query": "x"}
+                history.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": call["id"],
+                                "content": "result",
+                            }
+                        ],
+                    }
+                )
+            else:
+                assert json.loads(call["arguments"]) == {"query": "x"}
+                history.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": call["call_id"],
+                        "output": "result",
+                    }
+                )
+        history.append({"role": "user", "content": "next"})
+        original = deepcopy(history)
+        await _saved_reply(send(history), wire)
+        assert len(bodies) == 2
+        assert [
+            detail
+            for message in bodies[-1]["messages"]
+            for detail in message.get("reasoning_details", [])
+        ] == expected
+        assert history == original
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wire", ["messages", "responses"])
+async def test_chat_encrypted_only_completion_does_not_add_blank_text(wire):
+    details = [{"type": "reasoning.encrypted", "data": "opaque-only", "index": 0}]
+    events = _chat_reasoning_events([{"reasoning_details": details}])
+    events[-1]["choices"][0]["delta"] = {}
+    async with _harness("chat", lambda bodies: (200, events)) as (send, _):
+        saved = await _saved_reply(
+            send(wire, [{"role": "user", "content": "hello"}]), wire
+        )
+    assert decode_replay(_carrier(saved, wire)).native == {"reasoning_details": details}
+    blocks = saved[0]["content"] if wire == "messages" else saved
+    assert [block["type"] for block in blocks] == [
+        "redacted_thinking" if wire == "messages" else "reasoning"
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wire", ["messages", "responses"])
+@pytest.mark.parametrize("committed", [False, True])
+async def test_chat_pending_reasoning_is_finalized_on_failure_or_discarded_on_retry(
+    wire, committed
+):
+    text = "Plan." * (30000 if committed else 1)
+    first = {"type": "reasoning.encrypted", "data": "first", "index": 0}
+    second = {"type": "reasoning.encrypted", "data": "second", "index": 1}
+    events = _chat_reasoning_events(
+        [
+            {"reasoning_content": text, "reasoning_details": [first]},
+            {"content": "<"},
+            {"reasoning_details": [second]},
+        ]
+    )[:-1]
+    # A cutoff retries before commitment; a terminal API error closes visible output.
+    if committed:
+        events.append(
+            {"error": {"type": "invalid_request_error", "message": "stream failed"}}
+        )
+
+    def responder(bodies):
+        return 200, events if len(bodies) == 1 else _events_for("chat")
+
+    async with _harness("chat", responder) as (send, bodies):
+        stream = send(wire, [{"role": "user", "content": "hello"}])
+        if not committed:
+            saved = await _saved_reply(stream, wire)
+            assert len(bodies) == 2
+            assert decode_replay(_carrier(saved, wire)).native == _native("chat")
+            return
+        if wire == "messages":
+            output = ""
+            with pytest.raises(ExecutionFailure):
+                async for frame in stream:
+                    output += frame
+
+            async def replay_frames():
+                yield output
+
+            message, _, saw_stop = await aggregate_anthropic_sse_to_message(
+                replay_frames()
+            )
+            assert not saw_stop
+            saved = [{"role": "assistant", "content": message["content"]}]
+        else:
+            frames = [frame async for frame in stream]
+            response = parse_sse_text("".join(frames))[-1].data["response"]
+            assert response["status"] == "failed"
+            saved = response["output"]
+        assert len(bodies) == 1
+        assert decode_replay(_carrier(saved, wire)).native == {
+            "reasoning_content": text,
+            "reasoning_details": [first, second],
+        }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wire", ["messages", "responses"])
 @pytest.mark.parametrize("destination", ["chat", "messages", "responses"])
 @pytest.mark.parametrize("incomplete_saved_record", [False, True])
 async def test_chat_plaintext_beside_encrypted_details_survives_switching(

@@ -5,7 +5,7 @@ import json
 import time
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 
 from loguru import logger
@@ -84,6 +84,9 @@ class ChatStreamOutput(ABC):
     def __init__(self, *, input_tokens: int) -> None:
         self.input_tokens = input_tokens
         self.replay_origin: ReplayOrigin | None = None
+        self.reasoning_replay_events: (
+            Callable[[ChatStreamOutput], Iterator[str]] | None
+        ) = None
         self.tool_states: dict[int, ChatToolState] = {}
         self._text_parts: list[str] = []
         self._reasoning_parts: list[str] = []
@@ -128,14 +131,20 @@ class ChatStreamOutput(ABC):
             data = encode_replay(ReplayRecord(self.replay_origin, native))
             if self._reasoning_started:
                 return self._attach_reasoning_replay(data)
-        events = self.close_content_blocks()
+        events = self._close_content_blocks()
         events.extend(self._emit_opaque_reasoning(data))
         if data:
             self._content_started = True
         return events
 
+    def flush_reasoning_replay(self) -> list[str]:
+        """Save the complete record when parsed output ends a reasoning block."""
+        if self.reasoning_replay_events is None:
+            return []
+        return list(self.reasoning_replay_events(self))
+
     def ensure_text_block(self) -> list[str]:
-        events: list[str] = []
+        events = self.flush_reasoning_replay()
         if self._reasoning_started:
             events.extend(self._stop_reasoning_block())
             self._reasoning_started = False
@@ -150,6 +159,11 @@ class ChatStreamOutput(ABC):
         return self._emit_text_delta(content)
 
     def close_content_blocks(self) -> list[str]:
+        events = self.flush_reasoning_replay()
+        events.extend(self._close_content_blocks())
+        return events
+
+    def _close_content_blocks(self) -> list[str]:
         events: list[str] = []
         if self._reasoning_started:
             events.extend(self._stop_reasoning_block())
@@ -392,7 +406,8 @@ class AnthropicChatStreamOutput(ChatStreamOutput):
         )
 
     def close_unclosed_blocks(self) -> list[str]:
-        events = list(self._ledger.close_unclosed_blocks())
+        events = self.flush_reasoning_replay()
+        events.extend(self._ledger.close_unclosed_blocks())
         self._text_started = False
         self._reasoning_started = False
         for state in self.tool_states.values():
