@@ -125,6 +125,38 @@ def test_native_stop_requires_every_started_block_to_close(block: JsonObject) ->
     assert not relay.completed
 
 
+def test_relay_rejects_prestart_reasoning_before_collecting_it() -> None:
+    relay = NativeMessagesRelay(public_model="public")
+    with pytest.raises(NativeMessagesError):
+        relay.feed(
+            "content_block_start",
+            {
+                "type": "content_block_start",
+                "index": 3,
+                "content_block": {"type": "thinking", "thinking": "unstarted"},
+            },
+        )
+    # Rejected input must not leave an open reasoning block in the relay.
+    relay.feed("message_start", _START)
+    relay.feed(
+        "message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn"}}
+    )
+    relay.feed("message_stop", {"type": "message_stop"})
+    assert relay.completed
+
+
+@pytest.mark.parametrize("event", [_START, {"type": "ping"}, {"type": "message_stop"}])
+def test_completed_relay_cannot_emit_more_events(event: JsonObject) -> None:
+    relay = NativeMessagesRelay(public_model="public")
+    relay.feed("message_start", _START)
+    relay.feed(
+        "message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn"}}
+    )
+    relay.feed("message_stop", {"type": "message_stop"})
+    with pytest.raises(NativeMessagesError):
+        relay.feed(cast(str, event["type"]), event)
+
+
 @pytest.mark.asyncio
 async def test_fragmented_native_relay_preserves_nonstreaming_thinking_and_usage() -> (
     None

@@ -89,6 +89,13 @@ class NativeMessagesRelay:
         self.completed = False
 
     def feed(self, event_type: str, payload: Mapping[str, JsonValue]) -> str:
+        if self.completed:
+            raise NativeMessagesError("Native event arrived after message completion.")
+        if event_type == "message_start":
+            if self._started:
+                raise NativeMessagesError("Duplicate Messages start.")
+        elif event_type != "ping" and not self._started:
+            raise NativeMessagesError("Messages event arrived before message start.")
         completed = self._reasoning.feed(event_type, payload)
         if event_type in {"content_block_start", "content_block_stop"}:
             index = payload.get("index")
@@ -110,7 +117,7 @@ class NativeMessagesRelay:
             if isinstance(reason, str) and reason:
                 self._stop_reason = reason
         elif event_type == "message_stop":
-            if not self._started or self._open_blocks or self._stop_reason is None:
+            if self._open_blocks or self._stop_reason is None:
                 raise NativeMessagesError("Messages ended before content completed.")
             self.completed = True
         body = dict(payload)

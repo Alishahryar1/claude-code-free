@@ -3,6 +3,7 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
+from types import SimpleNamespace
 
 import httpx2
 import pytest
@@ -15,6 +16,7 @@ from free_claude_code.core.failures import ExecutionFailure, FailureKind
 from free_claude_code.core.json_types import JsonObject
 from free_claude_code.core.openai_responses import OpenAIResponsesRequest
 from free_claude_code.core.reasoning import ReasoningPolicy
+from free_claude_code.providers import stream_recovery
 from free_claude_code.providers.admission import ProviderAdmissionController
 from free_claude_code.providers.anthropic_messages.transport import (
     AnthropicMessagesTransport,
@@ -174,6 +176,172 @@ async def test_unicode_line_characters_remain_inside_sse_text(separator: str) ->
         )
     assert endpoint.refreshes == [False]
     assert output[-1].data["response"]["output"][0]["content"][0]["text"] == text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("responses", [False, True])
+@pytest.mark.parametrize(
+    "ping,expected",
+    [
+        (b"event: ping\n\n", "event: ping\n\n"),
+        (b"event: ping\ndata:\n\n", "event: ping\ndata:\n\n"),
+        (
+            b'event: ping\ndata: {"type":"ping"}\n\n',
+            'event: ping\ndata: {"type":"ping"}\n\n',
+        ),
+        (b"event: ping\ndata: still here\n\n", "event: ping\ndata: still here\n\n"),
+        (
+            b": alive\r\nevent: ping\r\nid: heartbeat\r\nretry: 1000\r\nextra: kept\r\ndata: \xc3\xa9\r\n\r\n",
+            ": alive\nevent: ping\nid: heartbeat\nretry: 1000\nextra: kept\ndata: é\n\n",
+        ),
+    ],
+    ids=["no-data", "empty-data", "json", "text", "metadata-and-utf8"],
+)
+async def test_native_pings_preserve_decoded_lines_before_and_after_start(
+    responses: bool, ping: bytes, expected: str
+) -> None:
+    raw = ping + _sse(_events()[0]) + ping + _sse(*_events()[1:])
+    wire = Wire([raw[index : index + 1] for index in range(len(raw))])
+    async with httpx2.AsyncClient(
+        transport=httpx2.MockTransport(
+            lambda _: httpx2.Response(
+                200, headers={"content-type": "text/event-stream"}, stream=wire
+            )
+        )
+    ) as client:
+        chunks = [
+            chunk
+            async for chunk in _stream(
+                _transport(client), Endpoint(), responses=responses
+            )
+        ]
+    assert wire.closed
+    assert chunks.count(expected) == (0 if responses else 2)
+    assert sum("event: message_start\n" in chunk for chunk in chunks) == (
+        0 if responses else 1
+    )
+    terminal = "response.completed" if responses else "message_stop"
+    assert chunks[-1].startswith(f"event: {terminal}\n")
+
+
+@pytest.mark.asyncio
+async def test_native_pings_release_held_start_before_answer_is_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = [0.0]
+    monkeypatch.setattr(
+        stream_recovery, "time", SimpleNamespace(monotonic=lambda: now[0])
+    )
+    release_answer = asyncio.Event()
+    ping = b'event: ping\ndata: {"type":"ping"}\n\n'
+
+    class PausingWire(Wire):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield _sse(_events()[0])
+            now[0] = 1.0
+            yield ping
+            yield ping
+            await release_answer.wait()
+            yield _sse(*_events()[1:])
+
+    wire = PausingWire([])
+    async with httpx2.AsyncClient(
+        transport=httpx2.MockTransport(
+            lambda _: httpx2.Response(
+                200, headers={"content-type": "text/event-stream"}, stream=wire
+            )
+        )
+    ) as client:
+        stream = _stream(_transport(client), Endpoint(), responses=False)
+        try:
+            async with asyncio.timeout(2):
+                assert (await anext(stream)).startswith("event: message_start\n")
+                assert await anext(stream) == ping.decode()
+                assert await anext(stream) == ping.decode()
+            assert not release_answer.is_set() and not wire.closed
+            release_answer.set()
+            tail = [chunk async for chunk in stream]
+        finally:
+            release_answer.set()
+            await maybe_await_aclose(stream)
+    assert wire.closed
+    assert tail[-1].startswith("event: message_stop\n")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("responses", [False, True])
+async def test_sdk_reader_ignores_unknown_frames_and_supplies_missing_types(responses):
+    raw = b"event: future_event\ndata: {invalid}\n\ndata: {invalid}\n\n"
+    for event in _events():
+        payload = {key: value for key, value in event.items() if key != "type"}
+        raw += f"event: {event['type']}\ndata: {json.dumps(payload)}\n\n".encode()
+    wire = Wire([raw])
+    async with httpx2.AsyncClient(
+        transport=httpx2.MockTransport(
+            lambda _: httpx2.Response(
+                200, headers={"content-type": "text/event-stream"}, stream=wire
+            )
+        )
+    ) as client:
+        output = "".join(
+            [
+                event
+                async for event in _stream(
+                    _transport(client), Endpoint(), responses=responses
+                )
+            ]
+        )
+    events = parse_sse_text(output)
+    assert wire.closed and "future_event" not in output
+    assert events[-1].event == ("response.completed" if responses else "message_stop")
+    assert "hello" in output
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("responses", [False, True])
+@pytest.mark.parametrize("close_fails", [False, True])
+@pytest.mark.parametrize(
+    "data,kind,status",
+    [
+        (
+            b'{"type":"error","error":{"type":"overloaded_error","message":"upstream diagnostic"}}',
+            FailureKind.OVERLOADED,
+            529,
+        ),
+        (b"upstream diagnostic", FailureKind.UPSTREAM, 500),
+    ],
+    ids=["json", "text"],
+)
+async def test_sdk_stream_error_keeps_its_details_when_response_close_fails(
+    responses, close_fails, data, kind, status
+):
+    def fail_close():
+        raise RuntimeError("synthetic cleanup failure")
+
+    wire = Wire(
+        [b"event: error\ndata: " + data + b"\n\n"],
+        closed=fail_close if close_fails else None,
+    )
+    async with httpx2.AsyncClient(
+        transport=httpx2.MockTransport(
+            lambda _: httpx2.Response(
+                200, headers={"content-type": "text/event-stream"}, stream=wire
+            )
+        )
+    ) as client:
+        with pytest.raises(ExecutionFailure) as caught:
+            _ = [
+                event
+                async for event in _stream(
+                    _transport(client, immediate_admission(max_attempts=1)),
+                    Endpoint(),
+                    responses=responses,
+                )
+            ]
+    assert wire.closed
+    assert caught.value.kind is kind and caught.value.status_code == status
+    assert "upstream diagnostic" in caught.value.message
+    assert "synthetic cleanup failure" not in caught.value.message
 
 
 class Wire(httpx2.AsyncByteStream):
@@ -391,6 +559,16 @@ async def test_repeated_unauthorized_cannot_create_unbounded_auth_retry() -> Non
         pytest.param(_sse(*_events()[:3], *_events()[4:]), id="unclosed-block"),
         pytest.param(_sse(*_events()[:4], _events()[-1]), id="missing-stop-reason"),
         pytest.param(_sse(*_events()[-2:]), id="missing-message-start"),
+        pytest.param(
+            _sse(_events()[1], _events()[3], _events()[4], _events()[0], _events()[5]),
+            id="content-before-start",
+        ),
+        pytest.param(
+            _sse(_events()[4], _events()[0], _events()[5]), id="delta-before-start"
+        ),
+        pytest.param(_sse(_events()[0], *_events()), id="duplicate-start"),
+        pytest.param(b"event: message_start\ndata: null\n\n", id="null-event"),
+        pytest.param(b"event: message_start\ndata: []\n\n", id="array-event"),
     ],
 )
 async def test_early_malformed_truncated_and_overloaded_attempts_retry_invisibly(
@@ -548,6 +726,7 @@ async def test_committed_malformed_text_preserves_output_without_retry(
             id="authentication",
         ),
         pytest.param(_sse(*_events()[4:]), "incomplete", id="unclosed-block"),
+        pytest.param(_sse(_events()[0]), "incomplete", id="duplicate-start"),
         pytest.param(
             _sse(_events()[3], _events()[-1]), "completed", id="missing-stop-reason"
         ),
@@ -584,6 +763,8 @@ async def test_committed_failure_never_retries_or_emits_success(
                     chunks.append(chunk)
     events = parse_sse_text("".join(chunks))
     assert calls == 1 and wire.closed
+    start = "response.created" if responses else "message_start"
+    assert sum(event.event == start for event in events) == 1
     assert not any(
         event.event in {"message_stop", "response.completed"} for event in events
     )

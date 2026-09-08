@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from typing import cast
 
 import httpx2
-from anthropic import AsyncAnthropic
+from anthropic import APIStatusError, AsyncAnthropic, AsyncStream
 from anthropic.types import MessageParam
 
 from free_claude_code.application.errors import InvalidRequestError
@@ -295,11 +295,39 @@ class AnthropicMessagesTransport:
                 )
                 scope.retain(sdk_stream.response)
                 stream_opened = True
-                async for event in sdk_stream:
-                    payload = cast(
-                        JsonObject, event.model_dump(mode="json", exclude_unset=True)
-                    )
-                    event_type = event.type
+                async for event in AsyncStream.raw_events(sdk_stream.response):
+                    if event.event == "ping":
+                        if isinstance(presenter, NativeMessagesRelay):
+                            for held in recovery.push("\n".join(event.raw) + "\n\n"):
+                                yield held
+                        continue
+                    if event.event == "error":
+                        try:
+                            error_body = event.json()
+                        except json.JSONDecodeError:
+                            error_body = event.data
+                        raise APIStatusError(
+                            str(error_body)
+                            or f"Error code: {sdk_stream.response.status_code}",
+                            response=sdk_stream.response,
+                            body=error_body,
+                        )
+                    if event.event not in {
+                        "message_start",
+                        "message_delta",
+                        "message_stop",
+                        "content_block_start",
+                        "content_block_delta",
+                        "content_block_stop",
+                    }:
+                        continue
+                    payload = event.json()
+                    if not isinstance(payload, dict):
+                        raise NativeMessagesError(
+                            "Messages event must contain an object."
+                        )
+                    payload.setdefault("type", event.event)
+                    event_type = payload["type"]
                     delta = payload.get("delta")
                     if (
                         event_type == "message_delta"

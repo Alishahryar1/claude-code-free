@@ -85,6 +85,19 @@ def _end(
     return events
 
 
+def test_prestart_reasoning_is_rejected_without_retaining_a_block() -> None:
+    stream = _stream()
+    with pytest.raises(NativeMessagesError):
+        _feed(
+            stream,
+            "content_block_start",
+            index=3,
+            content_block={"type": "thinking", "thinking": "unstarted"},
+        )
+    _start(stream)
+    assert _end(stream)[-1]["type"] == "response.completed"
+
+
 def test_text_thinking_and_redacted_blocks_keep_order_replay_and_exact_usage() -> None:
     stream = _stream()
     events = _start(stream)

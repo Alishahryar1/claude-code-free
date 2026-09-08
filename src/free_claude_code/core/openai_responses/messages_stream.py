@@ -177,9 +177,11 @@ class AnthropicToResponsesStream:
             raise NativeMessagesError(
                 "Native event arrived after the Responses terminal event."
             )
-        completed = self._reasoning.feed(event_type, payload)
         if event_type == "ping":
             return []
+        if event_type != "message_start" and not self._started:
+            raise NativeMessagesError("Messages event arrived before message start.")
+        completed = self._reasoning.feed(event_type, payload)
         if event_type == "message_start":
             if self._started:
                 raise NativeMessagesError(
@@ -207,7 +209,7 @@ class AnthropicToResponsesStream:
             )
             return []
         if event_type == "message_stop":
-            if not self._started or self._ledger.has_active_blocks:
+            if self._ledger.has_active_blocks:
                 raise NativeMessagesError(
                     "Messages ended before converted content completed."
                 )
@@ -227,12 +229,7 @@ class AnthropicToResponsesStream:
                 return [self._events.response_incomplete(self._payload("incomplete"))]
             return [self._events.response_completed(self._payload("completed"))]
         index = payload.get("index")
-        if (
-            not self._started
-            or not isinstance(index, int)
-            or isinstance(index, bool)
-            or index < 0
-        ):
+        if not isinstance(index, int) or isinstance(index, bool) or index < 0:
             raise NativeMessagesError(
                 "Messages content requires a started message and block index."
             )
