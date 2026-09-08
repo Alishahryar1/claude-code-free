@@ -240,6 +240,12 @@ def _write_item(connection: sqlite3.Connection, item: CodeItem) -> None:
 
 
 def _write_prompt(connection: sqlite3.Connection, prompt: CodePrompt) -> None:
+    item = connection.execute(
+        "SELECT kind FROM code_items WHERE session_id = ? AND id = ?",
+        (prompt.session_id, prompt.id),
+    ).fetchone()
+    if item is None or item["kind"] != "prompt":
+        raise CodeConflictError("This prompt requires its own transcript entry.")
     row = connection.execute(
         "SELECT * FROM code_prompts WHERE session_id = ? AND id = ?",
         (prompt.session_id, prompt.id),
@@ -276,6 +282,55 @@ def _write_prompt(connection: sqlite3.Connection, prompt: CodePrompt) -> None:
         "session_id = ? AND id = ? AND status = ?",
         (prompt.session_id, prompt.id, previous.status),
     )
+
+
+def _migrate_prompt_entries(connection: sqlite3.Connection) -> None:
+    """Give old prompts a permanent run-end position without rewriting history."""
+    for row in connection.execute(
+        "SELECT * FROM code_prompts ORDER BY rowid"
+    ).fetchall():
+        prompt = _record(CodePrompt, row)
+        run = connection.execute(
+            "SELECT id FROM code_runs WHERE session_id = ? AND native_turn_id = ?",
+            (prompt.session_id, prompt.native_turn_id),
+        ).fetchone()
+        if run is None and prompt.native_item_id is not None:
+            matches = connection.execute(
+                "SELECT DISTINCT run_id AS id FROM code_items WHERE session_id = ? AND native_item_id = ?",
+                (prompt.session_id, prompt.native_item_id),
+            ).fetchall()
+            if len(matches) == 1:
+                run = matches[0]
+        if run is None:
+            run = connection.execute(
+                "SELECT id FROM code_runs WHERE session_id = ? ORDER BY ordinal DESC LIMIT 1",
+                (prompt.session_id,),
+            ).fetchone()
+        if run is None:
+            raise CodeUnavailableError("A saved prompt has no saved conversation turn.")
+        sequence = connection.execute(
+            "SELECT COALESCE(MAX(sequence), 0) + 1 FROM code_items WHERE session_id = ?",
+            (prompt.session_id,),
+        ).fetchone()[0]
+        _insert(
+            connection,
+            "code_items",
+            CodeItem(
+                id=prompt.id,
+                session_id=prompt.session_id,
+                run_id=run["id"],
+                sequence=sequence,
+                kind="prompt",
+                complete=True,
+            ),
+        )
+    connection.execute("CREATE TABLE code_prompts_new" + _PROMPT_COLUMNS)
+    connection.execute("INSERT INTO code_prompts_new SELECT * FROM code_prompts")
+    connection.execute("DROP TABLE code_prompts")
+    connection.execute("ALTER TABLE code_prompts_new RENAME TO code_prompts")
+    if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        raise CodeUnavailableError("Code session history has an invalid record link.")
+    connection.execute("PRAGMA user_version = 1")
 
 
 class SQLiteCodeStore:
@@ -346,6 +401,8 @@ class SQLiteCodeStore:
         connection.execute("PRAGMA journal_mode = WAL")
         connection.executescript(_SCHEMA)
         connection.execute("BEGIN IMMEDIATE")
+        if connection.execute("PRAGMA user_version").fetchone()[0] == 0:
+            _migrate_prompt_entries(connection)
         connection.execute(
             "UPDATE code_runs SET status = 'interrupted', finished_at = ?, error = ? "
             "WHERE status IN ('preparing','running','stopping')",
@@ -645,7 +702,17 @@ class SQLiteCodeStore:
         await self._run(operation)
 
 
-_SCHEMA = """
+_PROMPT_COLUMNS = """(
+    session_id TEXT NOT NULL REFERENCES code_sessions(id) ON DELETE CASCADE, id TEXT NOT NULL,
+    generation TEXT NOT NULL, request_id TEXT NOT NULL, native_turn_id TEXT, native_item_id TEXT,
+    kind TEXT NOT NULL, form TEXT NOT NULL, raw TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('pending','answering','resolved','expired')), response_id TEXT, error TEXT,
+    PRIMARY KEY(session_id,id), UNIQUE(session_id,generation,request_id), UNIQUE(session_id,response_id),
+    FOREIGN KEY(session_id,id) REFERENCES code_items(session_id,id) ON DELETE CASCADE
+)"""
+
+_SCHEMA = (
+    """
 CREATE TABLE IF NOT EXISTS code_sessions(
     id TEXT PRIMARY KEY NOT NULL, cwd TEXT NOT NULL, model TEXT NOT NULL, reasoning_effort TEXT,
     harness TEXT NOT NULL CHECK(harness = 'codex'), title TEXT NOT NULL, title_search TEXT NOT NULL,
@@ -675,12 +742,9 @@ CREATE TABLE IF NOT EXISTS code_items(
     UNIQUE(session_id,sequence), UNIQUE(session_id,native_turn_id,native_item_id)
 );
 CREATE INDEX IF NOT EXISTS code_items_run ON code_items(session_id,run_id,sequence);
-CREATE TABLE IF NOT EXISTS code_prompts(
-    session_id TEXT NOT NULL REFERENCES code_sessions(id) ON DELETE CASCADE, id TEXT NOT NULL,
-    generation TEXT NOT NULL, request_id TEXT NOT NULL, native_turn_id TEXT, native_item_id TEXT,
-    kind TEXT NOT NULL, form TEXT NOT NULL, raw TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('pending','answering','resolved','expired')), response_id TEXT, error TEXT,
-    PRIMARY KEY(session_id,id), UNIQUE(session_id,generation,request_id), UNIQUE(session_id,response_id)
-);
 CREATE TABLE IF NOT EXISTS code_deleted(id TEXT PRIMARY KEY NOT NULL);
 """
+    + "CREATE TABLE IF NOT EXISTS code_prompts"
+    + _PROMPT_COLUMNS
+    + ";"
+)

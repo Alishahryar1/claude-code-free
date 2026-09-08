@@ -827,11 +827,7 @@
         "secondary-button session-older",
       );
       older.id = "codeOlder";
-      transcript.append(
-        older,
-        element("div", undefined, "code-items"),
-        element("div", undefined, "code-prompts"),
-      );
+      transcript.append(older, element("div", undefined, "code-items"));
       const composer = UI.composer(
         "code",
         saved(id).draft || "",
@@ -986,9 +982,6 @@
         run.error ||
         (run.status === "interrupted" ? "Turn stopped." : "This turn failed.");
     }
-    const prompts = root.querySelector(".code-prompts");
-    for (const { value: prompt } of record?.prompts.values() || [])
-      renderPrompt(prompts, prompt);
     if (bottom) transcript.scrollTop = transcript.scrollHeight;
     root.querySelector("#codeOlder").hidden = !record?.nextBefore;
     renderControls();
@@ -1069,6 +1062,11 @@
   }
 
   function renderItem(parent, item) {
+    if (item.kind === "prompt") {
+      const prompt = records.get(selected).prompts.get(item.id)?.value;
+      if (prompt) renderPrompt(parent, prompt, item.sequence);
+      return;
+    }
     let node = parent.querySelector(`[data-id="${CSS.escape(item.id)}"]`);
     if (!node) {
       node = UI.message(
@@ -1095,11 +1093,7 @@
         ),
         element("pre", "", "code-item-detail"),
       );
-      node.dataset.sequence = item.sequence;
-      const next = [...parent.children].find(
-        (child) => Number(child.dataset.sequence) > item.sequence,
-      );
-      parent.insertBefore(node, next || null);
+      insertEntry(parent, node, item.sequence);
     }
     const content = node.querySelector(".code-prose"),
       value = item.html ?? item.text;
@@ -1113,7 +1107,15 @@
     detail.hidden = !item.detail;
   }
 
-  function renderPrompt(parent, prompt) {
+  function insertEntry(parent, node, sequence) {
+    node.dataset.sequence = sequence;
+    const next = [...parent.children].find(
+      (child) => Number(child.dataset.sequence) > sequence,
+    );
+    parent.insertBefore(node, next || null);
+  }
+
+  function renderPrompt(parent, prompt, sequence) {
     let node = parent.querySelector(`[data-id="${CSS.escape(prompt.id)}"]`);
     if (!node) {
       node = element("form", undefined, "code-prompt");
@@ -1124,7 +1126,7 @@
       );
       buildPrompt(node, prompt);
       node.append(element("p", "", "code-prompt-state"));
-      parent.append(node);
+      insertEntry(parent, node, sequence);
     }
     node.querySelector(".code-prompt-state").textContent =
       prompt.error ||

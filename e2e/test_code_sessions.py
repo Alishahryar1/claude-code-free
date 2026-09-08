@@ -368,6 +368,21 @@ def test_prompt_claim_syncs_tabs_and_stop_keeps_output(
         expect(second.get_by_role("button", name="Allow", exact=True)).to_be_enabled()
         page.get_by_role("button", name="Allow", exact=True).click()
         expect(second.get_by_role("button", name="Allow", exact=True)).to_be_disabled()
+        code_control.run(
+            connection.text("turn-1", "after", "Output after approval", complete=True)
+        )
+        expect(
+            second.locator(
+                "#codeTranscript .code-prose, #codeTranscript .code-prompt h3"
+            )
+        ).to_have_text(
+            [
+                "Run a command",
+                "Output before approval",
+                "Run command?",
+                "Output after approval",
+            ]
+        )
         page.get_by_role("button", name="Stop", exact=True).click()
         page.get_by_role("textbox", name="Message", exact=True).fill("Follow up")
         expect(page.get_by_role("button", name="Send", exact=True)).to_be_enabled()
@@ -407,6 +422,10 @@ def test_old_detail_cannot_replace_streamed_output(
     expect(page.get_by_text("Old output", exact=True)).to_have_count(0)
     expect(page.get_by_role("button", name="Send", exact=True)).to_be_visible()
     expect(page.get_by_role("button", name="Allow", exact=True)).to_be_disabled()
+
+    expect(page.locator(".code-prompt")).to_have_count(1)
+    expect(page.locator(".code-run-items > .code-prompt")).to_have_count(1)
+    expect(page.locator(".code-prompt-state")).to_have_text("Resolved")
 
 
 def test_competing_tabs_keep_the_rejected_draft(
@@ -499,6 +518,87 @@ def test_rename_and_delete_sync_library_without_touching_project(
         second.close()
 
 
+def test_answered_question_keeps_its_place_across_turns_tabs_and_refresh(
+    page, context, admin_base_url, tmp_path, code_control
+):
+    url = create_session(page, admin_base_url, tmp_path)
+    send(page, "First request")
+    connection = code_control.connection()
+    code_control.run(
+        connection.text("turn-1", "before", "Before question", complete=True)
+    )
+    prompt = PromptRequest(
+        7,
+        "questions",
+        {
+            "title": "Question at this point",
+            "questions": [
+                {
+                    "id": "task",
+                    "label": "Which task?",
+                    "options": [{"label": "Search", "description": "Search docs"}],
+                    "allow_other": False,
+                    "secret": False,
+                }
+            ],
+        },
+        {},
+        "turn-1",
+        "question-without-a-native-transcript-item",
+    )
+
+    async def ask():
+        connection.requests[7] = prompt
+        await connection.sink(
+            HarnessEvent(
+                connection.generation,
+                connection.thread_id,
+                "prompt",
+                turn_id="turn-1",
+                prompt=prompt,
+            )
+        )
+
+    code_control.run(ask())
+    second = context.new_page()
+    try:
+        second.goto(url)
+        expect(second.get_by_text("Which task?", exact=True)).to_be_visible()
+        page.get_by_role("radio").check()
+        page.get_by_role("button", name="Submit answers", exact=True).click()
+        expect(second.locator(".code-prompt-state")).to_have_text("Resolved")
+        code_control.run(
+            connection.text("turn-1", "after", "After answer", complete=True)
+        )
+        code_control.run(connection.finish("turn-1"))
+        send(page, "Second request")
+        code_control.run(code_control.harness.wait_inputs(2))
+        code_control.run(
+            connection.text("turn-2", "reply", "Second reply", complete=True)
+        )
+        code_control.run(connection.finish("turn-2"))
+        expected = [
+            "First request",
+            "Before question",
+            "Which task?",
+            "After answer",
+            "Second request",
+            "Second reply",
+        ]
+        for tab in (page, second):
+            expect(tab.get_by_text("Second reply", exact=True)).to_be_visible()
+            entries = tab.locator(
+                "#codeTranscript .code-prose, #codeTranscript .code-prompt legend"
+            )
+            expect(entries).to_have_text(expected)
+            tab.reload()
+            expect(entries).to_have_text(expected)
+            expect(tab.locator(".code-prompt-state")).to_have_text("Resolved")
+        assert connection.answers == [(7, {"answers": {"task": ["Search"]}})]
+    finally:
+        second.close()
+
+
 def test_question_input_survives_streaming_and_secret_answer_is_not_stored(
     page, admin_base_url, tmp_path, code_control
 ):
@@ -547,16 +647,36 @@ def test_question_input_survives_streaming_and_secret_answer_is_not_stored(
     secret = page.get_by_label("Your answer", exact=True)
     secret.fill("private-answer")
     expect(secret).to_have_attribute("type", "password")
+    secret.focus()
+    secret.evaluate(
+        "input => { window.savedPromptInput = input; input.setSelectionRange(2, 6); }"
+    )
     code_control.run(
         connection.text("turn-1", "stream", "Still checking", complete=True)
     )
     expect(page.get_by_text("Still checking", exact=True)).to_be_visible()
     expect(secret).to_have_value("private-answer")
+    expect(secret).to_be_focused()
+    assert secret.evaluate(
+        "input => input === window.savedPromptInput && input.selectionStart === 2 && input.selectionEnd === 6"
+    )
     page.evaluate("window.codeFeed.onerror(new Event('error'))")
     expect(
         page.get_by_role("button", name="Submit answers", exact=True)
     ).to_be_enabled()
     expect(secret).to_have_value("private-answer")
+    assert secret.evaluate(
+        "input => input === window.savedPromptInput && input.selectionStart === 2 && input.selectionEnd === 6"
+    )
+    expect(
+        page.locator("#codeTranscript .code-prompt legend, #codeTranscript .code-prose")
+    ).to_have_text(
+        [
+            "Ask me a question",
+            "Which destination?",
+            "Still checking",
+        ]
+    )
     page.get_by_role("button", name="Submit answers", exact=True).click()
     expect(
         page.get_by_role("button", name="Submit answers", exact=True)
@@ -568,7 +688,8 @@ def test_question_input_survives_streaming_and_secret_answer_is_not_stored(
         code_control.service.get_detail(page.url.rsplit("/", 1)[1])
     )
     assert all(
-        "private-answer" not in value.model_dump_json() for value in detail.prompts
+        "private-answer" not in value.model_dump_json()
+        for value in (*detail.prompts, *detail.items)
     )
 
 
