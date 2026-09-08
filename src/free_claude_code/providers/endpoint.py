@@ -23,6 +23,7 @@ class HttpEndpoint:
     base_url: str
     headers: Mapping[str, str] = field(repr=False)
     api_key: str | None = field(default=None, repr=False)
+    account_id: str | None = field(default=None, repr=False)
 
 
 class EndpointContext(Protocol):
@@ -56,6 +57,7 @@ class RequestEndpoint:
         self._refresh_pending = False
         self._committed = False
         self._omit_authorization = False
+        self.snapshot: HttpEndpoint | None = None
 
     def commit(self) -> None:
         self._committed = True
@@ -66,6 +68,7 @@ class RequestEndpoint:
 
     async def openai_client(self, client: AsyncOpenAI) -> AsyncOpenAI:
         endpoint = await self._context.endpoint(force_refresh=self._refresh_pending)
+        self.snapshot = endpoint
         self._refresh_pending = False
         if self._http is None:
             self._http = httpx2.AsyncClient(

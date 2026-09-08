@@ -138,8 +138,8 @@ def test_build_responses_chat_request_preserves_rich_supported_semantics() -> No
             },
             {
                 "role": "assistant",
-                "content": "",
-                "reasoning_content": "Use the tool.",
+                "content": "[Earlier reasoning summary]\nUse the tool.",
+                "reasoning_content": "",
                 "reasoning_details": [
                     {"type": "reasoning.encrypted", "data": "opaque-replay"}
                 ],
@@ -220,7 +220,10 @@ def test_build_responses_chat_request_preserves_rich_supported_semantics() -> No
         (ReasoningReplayMode.REASONING_CONTENT, {"reasoning_content": "Think"}),
         (ReasoningReplayMode.REASONING, {"reasoning": "Think"}),
         (ReasoningReplayMode.THINK_TAGS, {"content": "<think>\nThink\n</think>"}),
-        (ReasoningReplayMode.DISABLED, {}),
+        (
+            ReasoningReplayMode.DISABLED,
+            {"content": "[Earlier reasoning]\nThink\n\nAnswer"},
+        ),
     ],
 )
 def test_build_responses_chat_request_uses_provider_reasoning_replay(
@@ -250,7 +253,10 @@ def test_build_responses_chat_request_uses_provider_reasoning_replay(
         for key, value in expected.items():
             assert assistant[key] == value
         if mode is ReasoningReplayMode.DISABLED:
-            assert assistant == {"role": "assistant", "content": "Answer"}
+            assert assistant == {
+                "role": "assistant",
+                "content": "[Earlier reasoning]\nThink\n\nAnswer",
+            }
 
 
 def test_build_responses_chat_request_quarantines_one_malformed_call_pair() -> None:
@@ -290,6 +296,7 @@ def test_build_responses_chat_request_quarantines_one_malformed_call_pair() -> N
         {
             "role": "assistant",
             "content": "",
+            "reasoning_content": "",
             "tool_calls": [
                 {
                     "id": "call_good",

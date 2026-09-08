@@ -1,4 +1,6 @@
 import json
+from copy import deepcopy
+from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import openai
@@ -8,6 +10,11 @@ from httpx2 import Request, Response
 from free_claude_code.config.nim import NimSettings
 from free_claude_code.config.provider_catalog import NVIDIA_NIM_DEFAULT_BASE
 from free_claude_code.core.failures import ExecutionFailure
+from free_claude_code.core.history_replay import (
+    ReplayOrigin,
+    ReplayRecord,
+    encode_replay,
+)
 from free_claude_code.core.openai_responses.models import OpenAIResponsesRequest
 from free_claude_code.core.reasoning import ReasoningEffort, ReasoningPolicy
 from free_claude_code.providers.admission import UPSTREAM_TRANSIENT_TOTAL_ATTEMPTS
@@ -24,6 +31,7 @@ from tests.providers.support import (
     make_provider_config,
     reasoning_for,
 )
+from tests.providers.test_history_transports import _events_for, _harness, _saved_reply
 
 
 def message(role, content):
@@ -42,6 +50,195 @@ def make_request(**overrides):
     model = overrides.pop("model", "test-model")
     overrides.setdefault("stop_sequences", ["STOP"])
     return make_messages_request(model, **overrides)
+
+
+def _alias_provider():
+    return NvidiaNimProvider(
+        make_provider_config(api_key="a", base_url="https://provider.invalid/v1"),
+        nim_settings=NimSettings(chat_template="custom_template"),
+        admission=immediate_admission(max_attempts=4),
+    )
+
+
+def _alias_request(wire="messages", *, reasoning_history=False):
+    schema = {
+        "type": "object",
+        "properties": {"pattern": {"type": "string"}, "type": {"type": "string"}},
+        "required": ["pattern", "type"],
+        "additionalProperties": False,
+    }
+    history = [{"role": "user", "content": "Search"}]
+    if reasoning_history:
+        carrier = encode_replay(
+            ReplayRecord(
+                ReplayOrigin(
+                    "source", "chat", "https://source.invalid/v1", "a", "test"
+                ),
+                {
+                    "reasoning_details": [
+                        {
+                            "type": "reasoning.text",
+                            "text": "Need the tool.",
+                            "index": 0,
+                        }
+                    ]
+                },
+            )
+        )
+        history = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "thinking",
+                        "thinking": "Need the tool.",
+                        "signature": carrier,
+                    },
+                    {
+                        "type": "tool_use",
+                        "name": "Grep",
+                        "id": "prior",
+                        "input": {"pattern": "needle", "type": "py"},
+                    },
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "prior",
+                        "content": "result",
+                    },
+                ],
+            },
+        ]
+    if wire == "messages":
+        return make_request(
+            system=None,
+            messages=history,
+            tools=[tool("Grep", "Search file contents", schema)],
+        )
+    return OpenAIResponsesRequest.model_validate(
+        {
+            "model": "test-model",
+            "input": history,
+            "tools": [{"type": "function", "name": "Grep", "parameters": schema}],
+        }
+    )
+
+
+def _alias_events():
+    template = _events_for("chat")[0]
+    return [
+        {
+            **template,
+            "choices": [
+                {"index": 0, "delta": {"tool_calls": [call]}, "finish_reason": finish}
+            ],
+        }
+        for call, finish in [
+            (
+                {
+                    "index": 0,
+                    "id": "call_grep",
+                    "type": "function",
+                    "function": {
+                        "name": "Grep",
+                        "arguments": '{"pattern":"needle","_fcc_arg_',
+                    },
+                },
+                None,
+            ),
+            ({"index": 0, "function": {"arguments": 'type":"py"}'}}, "tool_calls"),
+        ]
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "wire,correction",
+    [
+        ("messages", None),
+        ("responses", None),
+        ("messages", "chat_template"),
+        ("responses", "chat_template"),
+        ("messages", "reasoning_budget"),
+        ("messages", "reasoning_content"),
+    ],
+)
+async def test_argument_aliases_survive_request_corrections(wire, correction):
+    provider = _alias_provider()
+    request = _alias_request(wire, reasoning_history=correction == "reasoning_content")
+    original = deepcopy(request.model_dump())
+
+    def responder(bodies):
+        if len(bodies) == 1 and correction:
+            return 400, {"message": f"Unsupported field: {correction}"}
+        return 200, _alias_events()
+
+    async with _harness("chat", responder, chat_provider=provider) as (_, bodies):
+        stream = (
+            provider.stream_messages
+            if wire == "messages"
+            else provider.stream_responses
+        )
+        saved = await _saved_reply(
+            stream(request, reasoning=ReasoningPolicy.on(budget_tokens=4096)), wire
+        )
+    if wire == "messages":
+        call = next(
+            block for block in saved[0]["content"] if block["type"] == "tool_use"
+        )
+        assert call["input"] == {"pattern": "needle", "type": "py"}
+        assert call["id"] == "call_grep"
+    else:
+        call = next(item for item in saved if item["type"] == "function_call")
+        assert json.loads(call["arguments"]) == {"pattern": "needle", "type": "py"}
+        assert call["call_id"] == "call_grep"
+    assert len(bodies) == (2 if correction else 1)
+    assert all(NIM_TOOL_ARGUMENT_ALIASES_KEY not in body for body in bodies)
+    if correction == "reasoning_content":
+        assert "reasoning_content" not in bodies[-1]["messages"][0]
+        assert json.dumps(bodies[-1]).count("Need the tool.") == 1
+    assert request.model_dump() == original
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("early_sse", [False, True])
+async def test_argument_aliases_survive_shared_history_correction(early_sse):
+    provider = _alias_provider()
+    # Test adapter exercises the shared history path; native NIM disables details.
+    provider._profile = replace(provider._profile, structured_reasoning_details=True)
+    request = _alias_request()
+    request.messages.insert(
+        0,
+        type(request.messages[0]).model_validate(
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "redacted_thinking", "data": "opaque-original"},
+                ],
+            }
+        ),
+    )
+
+    def responder(bodies):
+        if len(bodies) == 1:
+            error = {
+                "code": "invalid_encrypted_content",
+                "message": "The encrypted content could not be verified.",
+            }
+            return (200, [{"error": error}]) if early_sse else (400, error)
+        return 200, _alias_events()
+
+    async with _harness("chat", responder, chat_provider=provider) as (_, bodies):
+        saved = await _saved_reply(provider.stream_messages(request), "messages")
+    call = next(block for block in saved[0]["content"] if block["type"] == "tool_use")
+    assert call["input"] == {"pattern": "needle", "type": "py"}
+    assert len(bodies) == 2
+    assert "opaque-original" not in json.dumps(bodies[-1])
+    assert all(NIM_TOOL_ARGUMENT_ALIASES_KEY not in body for body in bodies)
 
 
 def _input_json_deltas(events):
@@ -1253,6 +1450,9 @@ async def test_stream_messages_retries_without_reasoning_content(nim_provider):
     second_call = mock_create.await_args_list[1].kwargs
     assert first_call["messages"][0]["reasoning_content"] == "Need the tool."
     assert "reasoning_content" not in second_call["messages"][0]
+    assert (
+        "[Earlier reasoning]\nNeed the tool." in second_call["messages"][0]["content"]
+    )
     assert second_call["messages"][0]["tool_calls"][0]["id"] == "toolu_reasoning"
     assert any("Recovered" in event for event in events)
     assert any("message_stop" in event for event in events)

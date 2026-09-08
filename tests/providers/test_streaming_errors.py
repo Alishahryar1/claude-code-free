@@ -49,6 +49,12 @@ from tests.providers.support import (
     make_provider_config,
     profiled_provider,
 )
+from tests.providers.test_history_transports import _events_for, _harness, _saved_reply
+from tests.providers.test_nvidia_nim import (
+    _alias_events,
+    _alias_provider,
+    _alias_request,
+)
 
 
 class AsyncStreamMock:
@@ -339,7 +345,7 @@ class TestStreamingExceptionHandling:
             pytest.raises(ValueError, match="invalid stream wrapper"),
         ):
             await provider._create_stream(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 execution,
                 ProviderOperationKind.GENERATION,
             )
@@ -1745,7 +1751,7 @@ class TestStreamingExceptionHandling:
             pytest.raises(TruncatedProviderStreamError),
         ):
             await runner._collect_recovery_output(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 include_reasoning=True,
                 execution=execution,
                 operation_kind=ProviderOperationKind.CONTINUATION,
@@ -1778,7 +1784,7 @@ class TestStreamingExceptionHandling:
             pytest.raises(TimeoutError),
         ):
             await runner._collect_recovery_output(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 include_reasoning=True,
                 execution=execution,
                 operation_kind=ProviderOperationKind.CONTINUATION,
@@ -1810,6 +1816,7 @@ class TestStreamingExceptionHandling:
             [_make_chunk(content="visible"), _make_chunk(finish_reason="stop")]
         )
         body = {
+            "model": "test-model",
             "messages": [],
             "stream_options": {"include_usage": True},
         }
@@ -1955,7 +1962,7 @@ class TestStreamingExceptionHandling:
             return_value=stream,
         ):
             result = await runner._collect_recovery_output(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 include_reasoning=True,
                 execution=execution,
                 operation_kind=ProviderOperationKind.CONTINUATION,
@@ -2106,7 +2113,7 @@ class TestStreamingExceptionHandling:
             return_value=stream,
         ):
             result = await runner._collect_recovery_output(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 include_reasoning=True,
                 execution=execution,
                 operation_kind=ProviderOperationKind.CONTINUATION,
@@ -2142,7 +2149,7 @@ class TestStreamingExceptionHandling:
             side_effect=[failed, recovered],
         ) as create:
             result = await runner._collect_recovery_output(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 include_reasoning=True,
                 execution=execution,
                 operation_kind=ProviderOperationKind.CONTINUATION,
@@ -2175,7 +2182,7 @@ class TestStreamingExceptionHandling:
             pytest.raises(ValueError, match="original terminal failure"),
         ):
             await runner._collect_recovery_output(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 include_reasoning=True,
                 execution=execution,
                 operation_kind=ProviderOperationKind.CONTINUATION,
@@ -2201,7 +2208,7 @@ class TestStreamingExceptionHandling:
         ):
             task = asyncio.create_task(
                 runner._collect_recovery_output(
-                    {"messages": []},
+                    {"model": "test-model", "messages": []},
                     include_reasoning=True,
                     execution=execution,
                     operation_kind=ProviderOperationKind.CONTINUATION,
@@ -2250,7 +2257,7 @@ class TestStreamingExceptionHandling:
             side_effect=[rejected, recovered],
         ) as create:
             result = await runner._collect_recovery_output(
-                {"messages": []},
+                {"model": "test-model", "messages": []},
                 include_reasoning=True,
                 execution=execution,
                 operation_kind=ProviderOperationKind.CONTINUATION,
@@ -3178,3 +3185,54 @@ async def test_openai_compat_stream_ends_with_contract_when_tool_name_never_arri
         error = await _collect_stream_error(provider, request)
 
     assert "Provider stream ended without finish_reason." in error.message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("collector", [False, True])
+async def test_tool_argument_mapping_survives_correction_then_stream_reopen(collector):
+    provider = _alias_provider()
+    request = _alias_request()
+
+    def responder(bodies):
+        if len(bodies) == 1:
+            return 400, {"message": "chat_template is unsupported"}
+        if len(bodies) == 2:
+            template = _events_for("chat")[0]
+            return 200, [
+                {
+                    **template,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "discarded"},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            ]
+        return 200, _alias_events()
+
+    async with _harness("chat", responder, chat_provider=provider) as (_, bodies):
+        if collector:
+            runner = _make_stream_runner(provider, request=request)
+            execution = provider._admission.start_execution()
+            try:
+                recovered = await runner._collect_recovery_output(
+                    runner._body,
+                    include_reasoning=False,
+                    execution=execution,
+                    operation_kind=ProviderOperationKind.CONTINUATION,
+                )
+                arguments = json.loads(recovered.tool_calls[0]["function"]["arguments"])
+            finally:
+                execution.abandon()
+        else:
+            saved = await _saved_reply(provider.stream_messages(request), "messages")
+            call = next(
+                block for block in saved[0]["content"] if block["type"] == "tool_use"
+            )
+            arguments = call["input"]
+        assert arguments == {"pattern": "needle", "type": "py"}
+        assert len(bodies) == 3
+        assert all("chat_template" not in body for body in bodies[1:])
+        assert all("_fcc_nim_tool_argument_aliases" not in body for body in bodies)

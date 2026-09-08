@@ -4,6 +4,7 @@ import asyncio
 import time
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from types import MappingProxyType
 
 from free_claude_code.application.errors import InvalidRequestError
@@ -92,13 +93,13 @@ class CopilotLease:
         await self._broker.validate_identity()
         self._broker.validate_model(self.model.info.model_id)
         snapshot = await self._owner.endpoint(force_refresh=force_refresh)
-        await self._broker.validate_identity()
+        identity = await self._broker.validate_identity()
         self._broker.validate_model(self.model.info.model_id)
         if snapshot.egress is not self.egress:
             raise CopilotUnavailable(
                 "Copilot changed this model's upstream protocol. Retry the request to use its new endpoint."
             )
-        return snapshot.http
+        return replace(snapshot.http, account_id=f"{identity.host}/{identity.login}")
 
     def release(self) -> None:
         self._released = True

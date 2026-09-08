@@ -19,13 +19,14 @@ from free_claude_code.core.anthropic.stream_contracts import (
     text_content,
 )
 from free_claude_code.core.failures import ExecutionFailure
+from free_claude_code.core.history_replay import (
+    ReplayOrigin,
+    ReplayRecord,
+    encode_replay,
+)
 from free_claude_code.core.json_types import JsonObject
 from free_claude_code.core.openai_responses import (
-    MessagesReplayOrigin,
     OpenAIResponsesRequest,
-)
-from free_claude_code.core.openai_responses.reasoning_replay import (
-    encode_messages_reasoning,
 )
 from free_claude_code.core.reasoning import (
     DEFAULT_REASONING_POLICY,
@@ -572,9 +573,13 @@ async def test_native_reasoning_carrier_replays_only_to_messages_egress(
         "thinking": "private reasoning",
         "signature": "exact-signature",
     }
-    carrier = encode_messages_reasoning(
-        block,
-        origin=MessagesReplayOrigin("github_copilot/anthropic_messages", "prior-model"),
+    carrier = encode_replay(
+        ReplayRecord(
+            ReplayOrigin(
+                "github_copilot/anthropic_messages", "messages", "", "", "prior-model"
+            ),
+            block,
+        )
     )
     request = OpenAIResponsesRequest.model_validate(
         {
@@ -595,11 +600,13 @@ async def test_native_reasoning_carrier_replays_only_to_messages_egress(
             body = json.loads(harness.seen[0].content)
             assert body["messages"][0]["content"][0] == block
         else:
-            with pytest.raises(
-                (InvalidRequestError, ValueError), match=r"[Rr]easoning"
-            ):
-                await collect(harness.provider.stream_responses(request))
-            assert not harness.seen
+            await collect(harness.provider.stream_responses(request))
+            body = json.loads(harness.seen[0].content)
+            wire = json.dumps(body)
+            assert "[Earlier reasoning]" in wire
+            assert "private reasoning" in wire
+            assert "exact-signature" not in wire
+            assert carrier not in wire
     finally:
         await harness.close()
 

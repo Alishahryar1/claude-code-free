@@ -1,46 +1,13 @@
 """OpenRouter-format structured reasoning replay and stream conversion."""
 
-import json
 from collections.abc import Iterator, Mapping, Sequence
-from typing import Any, Literal
+from copy import deepcopy
+from typing import Any, Literal, cast
 
-from free_claude_code.core.anthropic.models import MessagesRequest
-from free_claude_code.core.openai_chat import (
-    is_synthetic_chat_tool_turn_boundary,
-)
-from free_claude_code.core.reasoning import ReasoningPolicy
+from free_claude_code.core.history_replay import readable_reasoning
+from free_claude_code.core.json_types import JsonObject, JsonValue
 
 from .stream_output import ChatStreamOutput
-
-
-def apply_reasoning_details_replay(
-    body: dict[str, Any], request: MessagesRequest, _policy: ReasoningPolicy
-) -> None:
-    """Replay opaque reasoning details on their converted assistant messages."""
-    assistant_details = _assistant_reasoning_details(request.messages)
-    if not assistant_details:
-        return
-    messages = body.get("messages")
-    if not isinstance(messages, list):
-        return
-
-    cursor = 0
-    for details in assistant_details:
-        for index in range(cursor, len(messages)):
-            message = messages[index]
-            if (
-                not isinstance(message, dict)
-                or message.get("role") != "assistant"
-                or is_synthetic_chat_tool_turn_boundary(message)
-            ):
-                continue
-            existing = message.get("reasoning_details")
-            if isinstance(existing, list):
-                existing.extend(details)
-            else:
-                message["reasoning_details"] = list(details)
-            cursor = index + 1
-            break
 
 
 class StructuredReasoningStream:
@@ -48,6 +15,9 @@ class StructuredReasoningStream:
 
     def __init__(self) -> None:
         self._text_source: Literal["native", "details"] | None = None
+        self._details: list[dict[str, Any]] = []
+        self._slots: dict[tuple[object, object], int] = {}
+        self._native_parts: list[str] = []
 
     def events(
         self,
@@ -58,6 +28,8 @@ class StructuredReasoningStream:
     ) -> Iterator[str]:
         """Emit plaintext once while preserving every opaque reasoning detail."""
         details = _reasoning_details(delta)
+        if native_reasoning is not None:
+            self._native_parts.append(native_reasoning)
         if self._text_source is None:
             if native_reasoning:
                 self._text_source = "native"
@@ -75,9 +47,45 @@ class StructuredReasoningStream:
                     yield from output.ensure_reasoning_block()
                     yield output.emit_reasoning_delta(text)
 
-            preserved = _preserved_reasoning_detail(detail)
-            if preserved:
-                yield from output.emit_opaque_reasoning(preserved)
+            if isinstance(detail, Mapping):
+                value = deepcopy(dict(detail))
+                identity = value.get("index", value.get("id"))
+                key = (identity, value.get("type"))
+                if isinstance(identity, str | int) and key in self._slots:
+                    current = self._details[self._slots[key]]
+                    for field, part in value.items():
+                        if (
+                            field
+                            in {
+                                "text",
+                                "summary",
+                                "content",
+                                "reasoning",
+                                "data",
+                                "signature",
+                            }
+                            and isinstance(part, str)
+                            and isinstance(current.get(field), str)
+                        ):
+                            current[field] += part
+                        else:
+                            current[field] = part
+                else:
+                    if isinstance(identity, str | int):
+                        self._slots[key] = len(self._details)
+                    self._details.append(value)
+
+    def flush(self, output: ChatStreamOutput) -> Iterator[str]:
+        if self._details:
+            native: JsonObject = {
+                "reasoning_details": cast(list[JsonValue], self._details)
+            }
+            if self._native_parts:
+                native["reasoning_content"] = "".join(self._native_parts)
+            yield from output.emit_reasoning_replay(native)
+            self._details.clear()
+            self._slots.clear()
+        self._native_parts.clear()
 
 
 def _reasoning_details(delta: Any) -> Sequence[Any]:
@@ -89,40 +97,15 @@ def _reasoning_details(delta: Any) -> Sequence[Any]:
     return details if _is_sequence(details) else ()
 
 
-def _assistant_reasoning_details(messages: Any) -> list[list[dict[str, Any]]]:
-    if not _is_sequence(messages):
-        return []
-    result: list[list[dict[str, Any]]] = []
-    for message in messages:
-        if _field(message, "role") != "assistant":
-            continue
-        details = _redacted_reasoning_details(_field(message, "content"))
-        if details:
-            result.append(details)
-    return result
-
-
-def _redacted_reasoning_details(content: Any) -> list[dict[str, Any]]:
-    if not _is_sequence(content):
-        return []
-    details: list[dict[str, Any]] = []
-    for block in content:
-        if _field(block, "type") != "redacted_thinking":
-            continue
-        data = _field(block, "data")
-        if not isinstance(data, str) or not data:
-            continue
-        parsed = _json_payload(data)
-        if isinstance(parsed, list):
-            details.extend(item for item in parsed if isinstance(item, dict))
-        elif isinstance(parsed, dict):
-            details.append(parsed)
-        else:
-            details.append({"type": "reasoning.encrypted", "data": data})
-    return details
-
-
 def _reasoning_detail_text(detail: Any) -> str | None:
+    if isinstance(detail, Mapping) and detail.get("type") == "reasoning.summary":
+        return (
+            "".join(
+                text
+                for text, _ in readable_reasoning({"reasoning_details": [dict(detail)]})
+            )
+            or None
+        )
     kind = str(_field(detail, "type") or "").lower()
     if "encrypted" in kind or "redacted" in kind:
         return None
@@ -131,29 +114,6 @@ def _reasoning_detail_text(detail: Any) -> str | None:
         if isinstance(value, str) and value:
             return value
     return None
-
-
-def _preserved_reasoning_detail(detail: Any) -> str | None:
-    if not isinstance(detail, Mapping):
-        return None
-    kind = str(_field(detail, "type") or "").lower()
-    signature = _field(detail, "signature")
-    if (
-        "encrypted" in kind
-        or "redacted" in kind
-        or "summary" in kind
-        or isinstance(signature, str)
-        or _reasoning_detail_text(detail) is None
-    ):
-        return json.dumps(dict(detail), separators=(",", ":"))
-    return None
-
-
-def _json_payload(value: str) -> Any:
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return None
 
 
 def _field(item: Any, name: str) -> Any:

@@ -85,11 +85,16 @@ def test_build_responses_provider_request_preserves_multiturn_protocol() -> None
     assert body["tool_choice"] == {"type": "function", "name": "lookup"}
     assert body["input"][0] == {
         "type": "reasoning",
-        "summary": [{"type": "summary_text", "text": "summary"}],
+        "summary": [],
+        "content": [{"type": "reasoning_text", "text": "summary"}],
+    }
+    assert body["input"][1] == {
+        "type": "reasoning",
+        "summary": [],
         "encrypted_content": "opaque",
     }
-    assert body["input"][1]["role"] == "assistant"
-    assert body["input"][2] == {
+    assert body["input"][2]["role"] == "assistant"
+    assert body["input"][3] == {
         "type": "function_call",
         "call_id": "call_1",
         "name": "lookup",
@@ -97,12 +102,12 @@ def test_build_responses_provider_request_preserves_multiturn_protocol() -> None
             {"q": "value"}, ensure_ascii=False, separators=(",", ":")
         ),
     }
-    assert body["input"][3] == {
+    assert body["input"][4] == {
         "type": "function_call_output",
         "call_id": "call_1",
         "output": '{"answer": 42}',
     }
-    assert body["input"][4]["content"][1] == {
+    assert body["input"][5]["content"][1] == {
         "type": "input_image",
         "image_url": "data:image/png;base64,aGVsbG8=",
     }

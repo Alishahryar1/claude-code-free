@@ -14,6 +14,7 @@ from free_claude_code.providers.github_copilot.types import (
     CopilotIdentity,
     CopilotUnavailable,
 )
+from free_claude_code.providers.history_replay import replay_origin
 from tests.providers.copilot_support import FakeRuntime, model
 
 
@@ -64,6 +65,28 @@ async def test_concurrent_leases_reuse_session_and_refresh_known_expiry() -> Non
         assert session.endpoint_calls == 3
     await broker.close()
     assert session.closed
+
+
+@pytest.mark.asyncio
+async def test_replay_origin_survives_copilot_token_refresh() -> None:
+    runtime = FakeRuntime()
+    broker = CopilotBroker(runtime)
+    async with broker.lease("model") as lease:
+        first = await lease.endpoint()
+        session = runtime.sessions[0]
+        session.value = replace(
+            session.value,
+            http=replace(
+                session.value.http,
+                api_key="refreshed-token",
+                headers={"Authorization": "Bearer refreshed-token"},
+            ),
+        )
+        second = await lease.endpoint(force_refresh=True)
+        assert replay_origin("copilot", "messages", "a", endpoint=first).accepts(
+            replay_origin("copilot", "messages", "b", endpoint=second)
+        )
+    await broker.close()
 
 
 @pytest.mark.asyncio

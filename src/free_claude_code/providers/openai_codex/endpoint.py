@@ -50,4 +50,4 @@ class CodexEndpointContext:
         }
         if access.fedramp:
             headers["X-OpenAI-Fedramp"] = "true"
-        return HttpEndpoint(self._base_url, headers)
+        return HttpEndpoint(self._base_url, headers, account_id=access.account_id)
