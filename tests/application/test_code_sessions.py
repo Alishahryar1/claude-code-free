@@ -10,6 +10,7 @@ from free_claude_code.application.code_sessions.models import (
     CodeValidationError,
     HarnessEvent,
     ItemUpdate,
+    PromptRequest,
 )
 from free_claude_code.runtime.code_sessions_sqlite import SQLiteCodeStore
 from tests.code_sessions_support import FakeConnection, FakeHarness
@@ -872,6 +873,147 @@ async def test_two_answers_claim_one_native_prompt(code):
     await harness.answered.wait()
     assert len(connection.answers) == 1
     assert (await service.get_detail(session.id)).prompts[0].status == "resolved"
+
+
+@pytest.mark.asyncio
+async def test_prompt_arrival_has_one_durable_position_despite_repeated_native_item(
+    code,
+):
+    service, harness, directory = code
+    session = await session_for(code)
+    run = await service.send(
+        session.id, new_id(), session.revision, "Work", expected_epoch=service.epoch
+    )
+    await harness.started.wait()
+    connection = harness.connections[0]
+    await connection.text("turn-1", "shared-tool", "Before approval", kind="tool")
+    subscription, _ = await service.subscribe()
+    try:
+        for request_id in (1, 1, "1"):
+            prompt = PromptRequest(
+                request_id, "approval", {}, {}, "turn-1", "shared-tool"
+            )
+            connection.requests[request_id] = prompt
+            await connection.sink(
+                HarnessEvent(
+                    connection.generation,
+                    connection.thread_id,
+                    "prompt",
+                    turn_id="turn-1",
+                    prompt=prompt,
+                )
+            )
+        detail = await service.get_detail(session.id)
+        entries = [item for item in detail.items if item.kind == "prompt"]
+        assert len(entries) == len(detail.prompts) == 2
+        assert [item.sequence for item in entries] == [3, 4]
+        assert {item.id for item in entries} == {prompt.id for prompt in detail.prompts}
+        events = subscription.__aiter__()
+        async with asyncio.timeout(2):
+            for _ in range(2):
+                event = await anext(events)
+                if event.event == "item.updated":
+                    event = await anext(events)
+                assert event.event == "prompt.updated"
+                assert event.data["item"]["id"] == event.data["prompt"]["id"]
+                assert event.data["runs"][0]["id"] == run.id
+        for request_id in (1, "1"):
+            await connection.resolve(request_id)
+        await connection.text(
+            "turn-1", "shared-tool", "Complete output", kind="tool", complete=True
+        )
+        await connection.text("turn-1", "after", "After approvals", complete=True)
+        await connection.finish("turn-1")
+        await service.close()
+        restored = CodeService(
+            SQLiteCodeStore(directory / "code.db", directory / "code.lock"), harness
+        )
+        await restored.start()
+        try:
+            saved = await restored.get_detail(session.id)
+            assert [item for item in saved.items if item.kind == "prompt"] == entries
+            assert [item.sequence for item in saved.items] == [1, 2, 3, 4, 5]
+            assert all(prompt.status == "resolved" for prompt in saved.prompts)
+            await restored.send(
+                session.id,
+                new_id(),
+                saved.session.revision,
+                "Continue",
+                expected_epoch=restored.epoch,
+            )
+            await harness.wait_inputs(2)
+            await harness.connections[-1].finish("turn-2")
+            recovered = await restored.get_detail(session.id)
+            assert [
+                item for item in recovered.items if item.kind == "prompt"
+            ] == entries
+            assert (
+                len(
+                    [
+                        item
+                        for item in recovered.items
+                        if item.native_item_id == "shared-tool"
+                    ]
+                )
+                == 1
+            )
+        finally:
+            await restored.close()
+    finally:
+        await subscription.aclose()
+
+
+@pytest.mark.asyncio
+async def test_active_prompt_outside_page_keeps_its_entry_run_and_older_cursor(code):
+    service, harness, _ = code
+    session = await session_for(code)
+    run = await service.send(
+        session.id, new_id(), session.revision, "Work", expected_epoch=service.epoch
+    )
+    await harness.started.wait()
+    connection = harness.connections[0]
+    await connection.prompt(0, turn_id=None)
+    prompt = (await service.get_detail(session.id)).prompts[0]
+    for index in range(55):
+        await connection.text("turn-1", str(index), f"Output {index}", complete=True)
+    await connection.finish("turn-1")
+    newest = await service.get_detail(session.id)
+    assert newest.next_before is not None
+    assert len(newest.items) == 51
+    assert newest.items[0].id == prompt.id
+    assert newest.items[0].run_id == run.id
+    assert newest.active_prompt_ids == (prompt.id,)
+    await connection.resolve(0)
+    resolved = await service.get_detail(session.id)
+    assert resolved.active_prompt_ids == () and resolved.prompts == ()
+    assert resolved.next_before == newest.next_before
+    older = await service.get_detail(session.id, before=newest.next_before)
+    assert older.prompts[0].id == prompt.id and older.prompts[0].status == "resolved"
+    by_id = {item.id: item for item in (*older.items, *newest.items)}
+    assert sorted(item.sequence for item in by_id.values()) == list(range(1, 58))
+
+
+@pytest.mark.asyncio
+async def test_prompt_during_thread_creation_has_a_saved_run_without_native_ids(code):
+    service, harness, _ = code
+    session = await session_for(code)
+    harness.creation_gate.clear()
+    run = await service.send(
+        session.id, new_id(), session.revision, "Start", expected_epoch=service.epoch
+    )
+    await harness.creating.wait()
+    connection = harness.connections[0]
+    try:
+        await connection.prompt(0, turn_id=None)
+        detail = await service.get_detail(session.id)
+        assert detail.run.native_turn_id is None
+        assert detail.items[-1].id == detail.prompts[0].id
+        assert detail.items[-1].run_id == run.id
+        assert detail.items[-1].sequence == 2
+        assert detail.prompts[0].native_turn_id is None
+        await connection.resolve(0)
+    finally:
+        harness.creation_gate.set()
 
 
 @pytest.mark.asyncio

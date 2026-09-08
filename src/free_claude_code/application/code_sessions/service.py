@@ -285,20 +285,19 @@ class CodeService:
             active = [
                 item
                 for item in owner.items.values()
-                if owner.busy and owner.run and item.run_id == owner.run.id
+                if (owner.busy and owner.run and item.run_id == owner.run.id)
+                or (
+                    item.kind == "prompt"
+                    and owner.prompts[item.id].status in {"pending", "answering"}
+                )
             ]
             selected = sorted(
                 {item.id: item for item in [*page.items, *active]}.values(),
                 key=lambda item: (owner.runs[item.run_id].ordinal, item.sequence),
             )
-            turns = {item.native_turn_id for item in selected if item.native_turn_id}
-            if owner.run and owner.run.native_turn_id:
-                turns.add(owner.run.native_turn_id)
+            prompt_ids = {item.id for item in selected if item.kind == "prompt"}
             prompts = tuple(
-                prompt
-                for prompt in owner.prompts.values()
-                if prompt.status in {"pending", "answering"}
-                or prompt.native_turn_id in turns
+                prompt for prompt in owner.prompts.values() if prompt.id in prompt_ids
             )
             return CodeDetail(
                 owner.session,
@@ -312,7 +311,11 @@ class CodeService:
                 tuple(
                     {
                         run.id: run
-                        for run in (*page.runs, *((owner.run,) if owner.run else ()))
+                        for run in (
+                            *page.runs,
+                            *(owner.runs[item.run_id] for item in active),
+                            *((owner.run,) if owner.run else ()),
+                        )
                     }.values()
                 ),
                 tuple(
@@ -518,9 +521,7 @@ class CodeService:
                 session_id, prompt_id, response_id, connection.generation
             )
             owner.prompts[prompt_id] = claimed
-            self._publish(
-                owner, "prompt.updated", prompt=claimed.model_dump(mode="json")
-            )
+            self._publish_prompt(owner, claimed)
             self._job(self._deliver_answer(owner, claimed, response))
             return claimed
 
@@ -800,9 +801,7 @@ class CodeService:
                     resolved = current.model_copy(update={"status": "resolved"})
                     await self._persist(owner, owner.session, prompts=(resolved,))
                     owner.prompts[prompt.id] = resolved
-                    self._publish(
-                        owner, "prompt.updated", prompt=resolved.model_dump(mode="json")
-                    )
+                    self._publish_prompt(owner, resolved)
         except CodeConflictError:
             async with owner.lock:
                 current = owner.prompts.get(prompt.id)
@@ -810,9 +809,7 @@ class CodeService:
                     expired = current.model_copy(update={"status": "expired"})
                     await self._persist(owner, owner.session, prompts=(expired,))
                     owner.prompts[prompt.id] = expired
-                    self._publish(
-                        owner, "prompt.updated", prompt=expired.model_dump(mode="json")
-                    )
+                    self._publish_prompt(owner, expired)
         except Exception as exc:
             if owner.run and owner.busy:
                 await self._fail(
@@ -900,11 +897,25 @@ class CodeService:
                         form=request.form,
                         raw=request.raw,
                     )
-                    await self._persist(owner, owner.session, prompts=(prompt,))
-                    owner.prompts[prompt.id] = prompt
-                    self._publish(
-                        owner, "prompt.updated", prompt=prompt.model_dump(mode="json")
+                    if run is None:
+                        raise CodeUnavailableError(
+                            "Codex returned a prompt without a saved turn."
+                        )
+                    item = CodeItem(
+                        id=prompt.id,
+                        session_id=owner.session.id,
+                        run_id=run.id,
+                        sequence=owner.sequence + 1,
+                        kind="prompt",
+                        complete=True,
                     )
+                    await self._persist(
+                        owner, owner.session, items=(item,), prompts=(prompt,)
+                    )
+                    owner.items[item.id] = item
+                    owner.sequence = item.sequence
+                    owner.prompts[prompt.id] = prompt
+                    self._publish_prompt(owner, prompt)
                 elif event.kind == "resolved":
                     for prompt in tuple(owner.prompts.values()):
                         if (
@@ -917,11 +928,7 @@ class CodeService:
                                 owner, owner.session, prompts=(resolved,)
                             )
                             owner.prompts[prompt.id] = resolved
-                            self._publish(
-                                owner,
-                                "prompt.updated",
-                                prompt=resolved.model_dump(mode="json"),
-                            )
+                            self._publish_prompt(owner, resolved)
                 elif event.kind == "error" and matches:
                     self._publish(
                         owner,
@@ -1080,9 +1087,7 @@ class CodeService:
         await self._persist(owner, owner.session, prompts=prompts)
         for prompt in prompts:
             owner.prompts[prompt.id] = prompt
-            self._publish(
-                owner, "prompt.updated", prompt=prompt.model_dump(mode="json")
-            )
+            self._publish_prompt(owner, prompt)
 
     async def _persist(
         self,
@@ -1256,6 +1261,16 @@ class CodeService:
         for key, value in data.items():
             payload[key] = value
         self._events.publish(event, payload)
+
+    def _publish_prompt(self, owner: _Owner, prompt: CodePrompt) -> None:
+        item = owner.items[prompt.id]
+        self._publish(
+            owner,
+            "prompt.updated",
+            prompt=prompt.model_dump(mode="json"),
+            item=item.model_dump(mode="json"),
+            runs=[owner.runs[item.run_id].model_dump(mode="json")],
+        )
 
 
 def _validate_id(value: str) -> None:

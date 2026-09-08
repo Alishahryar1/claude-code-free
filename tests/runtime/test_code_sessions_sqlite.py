@@ -1,8 +1,10 @@
 import asyncio
+import json
 import sqlite3
 import threading
 import uuid
 from contextlib import closing
+from typing import Literal
 
 import pytest
 import pytest_asyncio
@@ -202,7 +204,10 @@ async def test_schema_rejects_second_active_run_and_cross_session_item_link(
 
 @pytest.mark.asyncio
 async def test_prompt_claim_and_settings_are_guarded_in_storage(store):
-    session = await _session(store)
+    session, run = await _admit(store, await _session(store))
+    await store.save_progress(
+        session, session.revision, run=run.model_copy(update={"status": "completed"})
+    )
     prompts = tuple(
         CodePrompt(
             id=str(uuid.uuid4()),
@@ -215,7 +220,18 @@ async def test_prompt_claim_and_settings_are_guarded_in_storage(store):
         )
         for request_id in (1, "1")
     )
-    await store.save_progress(session, session.revision, prompts=prompts)
+    items = tuple(
+        CodeItem(
+            id=prompt.id,
+            session_id=session.id,
+            run_id=run.id,
+            sequence=index + 2,
+            kind="prompt",
+            complete=True,
+        )
+        for index, prompt in enumerate(prompts)
+    )
+    await store.save_progress(session, session.revision, items=items, prompts=prompts)
     results = await asyncio.gather(
         *(
             store.claim_prompt(session.id, prompts[0].id, str(uuid.uuid4()), "g")
@@ -275,3 +291,228 @@ async def test_recovered_old_output_pages_with_its_original_run_outcome(store):
     assert page.next_before == (old.ordinal, 3)
     older = await store.item_page(session.id, page.next_before, 2)
     assert [item.sequence for item in older.items] == [1]
+
+
+@pytest.mark.asyncio
+async def test_prompt_entry_and_form_are_atomic_and_linked_in_storage(store, tmp_path):
+    session, run = await _admit(store, await _session(store))
+    prompt = CodePrompt(
+        id=str(uuid.uuid4()),
+        session_id=session.id,
+        generation="g",
+        request_id=1,
+        kind="questions",
+        form={},
+        raw={},
+    )
+    item = CodeItem(
+        id=prompt.id,
+        session_id=session.id,
+        run_id=run.id,
+        sequence=2,
+        kind="prompt",
+        complete=True,
+    )
+    with pytest.raises(CodeConflictError):
+        await store.save_progress(session, session.revision, prompts=(prompt,))
+    with pytest.raises(CodeConflictError):
+        await store.save_progress(
+            session,
+            session.revision,
+            items=(item.model_copy(update={"kind": "text"}),),
+            prompts=(prompt,),
+        )
+    assert await store.prompts(session.id) == ()
+    assert len(await store.items(session.id, None, None)) == 1
+    await store.save_progress(
+        session, session.revision, items=(item,), prompts=(prompt,)
+    )
+    other = await _session(store)
+    with closing(sqlite3.connect(tmp_path / "code.db")) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute("UPDATE code_prompts SET session_id = ?", (other.id,))
+        connection.rollback()
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute("UPDATE code_prompts SET id = 'unlinked'")
+    assert await store.prompts(session.id) == (prompt,)
+
+
+_LEGACY_PROMPTS = """
+CREATE TABLE code_prompts(
+    session_id TEXT NOT NULL REFERENCES code_sessions(id) ON DELETE CASCADE,
+    id TEXT NOT NULL, generation TEXT NOT NULL, request_id TEXT NOT NULL,
+    native_turn_id TEXT, native_item_id TEXT, kind TEXT NOT NULL,
+    form TEXT NOT NULL, raw TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('pending','answering','resolved','expired')),
+    response_id TEXT, error TEXT,
+    PRIMARY KEY(session_id,id), UNIQUE(session_id,generation,request_id),
+    UNIQUE(session_id,response_id)
+)
+"""
+
+
+async def _legacy_prompt_database(store, path):
+    session, old = await _admit(store, await _session(store))
+    await store.save_progress(
+        session,
+        session.revision,
+        run=old.model_copy(
+            update={
+                "native_turn_id": "old-turn",
+                "submission_started": True,
+                "status": "completed",
+            }
+        ),
+    )
+    tool = CodeItem(
+        id=str(uuid.uuid4()),
+        session_id=session.id,
+        run_id=old.id,
+        sequence=2,
+        native_turn_id="old-turn",
+        native_item_id="shared-tool",
+        kind="tool",
+        text="Original tool output",
+        complete=True,
+    )
+    await store.save_progress(session, session.revision, items=(tool,))
+    session, latest = await _admit(store, session, text="Later turn", sequence=3)
+    await store.save_progress(
+        session,
+        session.revision,
+        run=latest.model_copy(
+            update={
+                "status": "completed",
+            }
+        ),
+    )
+    original = await store.items(session.id, None, None)
+    await store.close()
+    cases: list[
+        tuple[str | None, str | None, Literal["resolved", "expired", "pending"]]
+    ] = [
+        ("old-turn", None, "resolved"),
+        (None, "shared-tool", "expired"),
+        (None, None, "resolved"),
+        ("missing-turn", None, "pending"),
+        ("old-turn", None, "expired"),
+    ]
+    prompts = tuple(
+        CodePrompt(
+            id=str(uuid.uuid4()),
+            session_id=session.id,
+            generation="g",
+            request_id=index,
+            native_turn_id=turn,
+            native_item_id=item,
+            kind="questions",
+            form={"title": "Old question"},
+            raw={"keep": "native payload"},
+            status=status,
+            response_id=str(uuid.uuid4()) if status == "resolved" else None,
+        )
+        for index, (turn, item, status) in enumerate(cases)
+    )
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("DROP TABLE code_prompts")
+        connection.execute(_LEGACY_PROMPTS)
+        connection.execute("PRAGMA user_version = 0")
+        for prompt in prompts:
+            connection.execute(
+                "INSERT INTO code_prompts VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    session.id,
+                    prompt.id,
+                    prompt.generation,
+                    json.dumps(prompt.request_id),
+                    prompt.native_turn_id,
+                    prompt.native_item_id,
+                    prompt.kind,
+                    json.dumps(prompt.form),
+                    json.dumps(prompt.raw),
+                    prompt.status,
+                    prompt.response_id,
+                    prompt.error,
+                ),
+            )
+    return session, old, latest, original, prompts
+
+
+@pytest.mark.asyncio
+async def test_legacy_prompts_migrate_once_to_run_ends_without_resequencing(
+    store, tmp_path
+):
+    path = tmp_path / "code.db"
+    session, old, latest, original, prompts = await _legacy_prompt_database(store, path)
+    for _ in range(2):
+        await store.start()
+        items = await store.items(session.id, None, None)
+        assert [item.id for item in items] == [
+            original[0].id,
+            original[1].id,
+            prompts[0].id,
+            prompts[1].id,
+            prompts[4].id,
+            original[2].id,
+            prompts[2].id,
+            prompts[3].id,
+        ]
+        assert [item for item in items if item.kind != "prompt"] == list(original)
+        entries = {item.id: item for item in items if item.kind == "prompt"}
+        for index, prompt in enumerate(prompts):
+            entry = entries[prompt.id]
+            assert entry.run_id == (old.id if index in (0, 1, 4) else latest.id)
+            assert entry.sequence == len(original) + index + 1
+            assert entry.native_item_id is None and entry.native_turn_id is None
+            assert entry.raw == {} and entry.text == ""
+        saved = {prompt.id: prompt for prompt in await store.prompts(session.id)}
+        for prompt in prompts:
+            expected = (
+                prompt.model_copy(update={"status": "expired"})
+                if prompt.status == "pending"
+                else prompt
+            )
+            assert saved[prompt.id] == expected
+        with closing(sqlite3.connect(path)) as connection:
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+            assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+            assert any(
+                row[2] == "code_items"
+                for row in connection.execute("PRAGMA foreign_key_list(code_prompts)")
+            )
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_failed_prompt_migration_rolls_back_items_schema_and_version(
+    store, tmp_path
+):
+    path = tmp_path / "code.db"
+    _, _, _, original, prompts = await _legacy_prompt_database(store, path)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "CREATE TRIGGER refuse_second_prompt BEFORE INSERT ON code_items "
+            "WHEN NEW.id = '"
+            + prompts[1].id
+            + "' BEGIN SELECT RAISE(ABORT, 'blocked'); END"
+        )
+    with pytest.raises(CodeConflictError):
+        await store.start()
+    with closing(sqlite3.connect(path)) as connection, connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM code_items").fetchone()[
+            0
+        ] == len(original)
+        assert connection.execute("SELECT count(*) FROM code_prompts").fetchone()[
+            0
+        ] == len(prompts)
+        assert not any(
+            row[2] == "code_items"
+            for row in connection.execute("PRAGMA foreign_key_list(code_prompts)")
+        )
+        connection.execute("DROP TRIGGER refuse_second_prompt")
+    await store.start()
+    assert len(await store.items(prompts[0].session_id, None, None)) == len(
+        original
+    ) + len(prompts)

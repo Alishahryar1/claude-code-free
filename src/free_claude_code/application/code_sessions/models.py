@@ -72,6 +72,8 @@ class CodeItem(Record):
 
 
 class CodePrompt(Record):
+    """Form and response state for the prompt CodeItem with the same session/id."""
+
     id: str
     session_id: str
     generation: str
